@@ -539,6 +539,16 @@ export type Database = {
           withdrawals_to_date: number
         }[]
       }
+      place_bet: { Args: { p_payload: Json }; Returns: string }
+      resolve_bet: {
+        Args: {
+          p_actual_return?: number
+          p_bet_id: string
+          p_resolved_at?: string
+          p_status: Database["public"]["Enums"]["bet_status"]
+        }
+        Returns: undefined
+      }
     }
     Enums: {
       audit_action: "create" | "update" | "delete" | "soft_delete" | "restore"
