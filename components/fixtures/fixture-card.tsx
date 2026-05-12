@@ -22,7 +22,7 @@ export function FixtureCard({ fixture }: FixtureCardProps) {
   return (
     <Link
       href={`/fixtures/${fixture.id}`}
-      className="card card-hover flex items-center gap-4 px-4 py-3"
+      className="card card-hover flex items-center gap-3 px-3 py-2.5 lg:gap-4 lg:px-4 lg:py-3"
       aria-label={`Analisar ${fixture.home_team} vs ${fixture.away_team}`}
     >
       <span
@@ -31,12 +31,12 @@ export function FixtureCard({ fixture }: FixtureCardProps) {
       >
         {ko}
       </span>
-      <span className="flex flex-1 items-baseline gap-2 truncate">
-        <span className="truncate text-sm text-[var(--color-ink)]">
+      <span className="flex min-w-0 flex-1 items-baseline gap-2">
+        <span className="min-w-0 flex-1 truncate text-right text-sm text-[var(--color-ink)]">
           {fixture.home_team}
         </span>
         <span className="label shrink-0 text-[var(--color-ink-faint)]">vs</span>
-        <span className="truncate text-sm text-[var(--color-ink)]">
+        <span className="min-w-0 flex-1 truncate text-sm text-[var(--color-ink)]">
           {fixture.away_team}
         </span>
       </span>

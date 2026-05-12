@@ -78,10 +78,14 @@ export default async function AnalyzePage({ params }: AnalyzePageProps) {
           </span>
           <span className="label num text-[var(--color-ink-faint)]">{ko} BRT</span>
         </div>
-        <h2 className="mt-3 flex items-baseline gap-3">
-          <span>{fixture.home_team}</span>
-          <span className="label text-[var(--color-ink-faint)]">vs</span>
-          <span>{fixture.away_team}</span>
+        {/* Inline span so very long team names wrap on word boundaries
+            instead of overflowing horizontally on narrow phones. */}
+        <h2 className="mt-3 leading-tight">
+          {fixture.home_team}{" "}
+          <span className="label whitespace-nowrap text-[var(--color-ink-faint)]">
+            vs
+          </span>{" "}
+          {fixture.away_team}
         </h2>
       </header>
 

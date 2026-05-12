@@ -63,7 +63,12 @@ export function DateChips({ selected, todayIso, tomorrowIso }: DateChipsProps) {
 
   return (
     <div
-      className="flex flex-wrap gap-2"
+      // Mobile: horizontal scroll with snap so a thumb-flick reveals the
+      // rest of the week without burning two lines of vertical real estate.
+      // Desktop: wrap (lg:flex-wrap) so it behaves like a chip row.
+      // The negative margins + matching padding keep the row flush with
+      // surrounding content while letting the scroll edge breathe.
+      className="-mx-6 flex snap-x snap-mandatory gap-2 overflow-x-auto px-6 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden lg:mx-0 lg:flex-wrap lg:overflow-x-visible lg:px-0 lg:pb-0"
       role="group"
       aria-label="Escolher data"
       data-pending={isPending ? "true" : undefined}
@@ -77,7 +82,7 @@ export function DateChips({ selected, todayIso, tomorrowIso }: DateChipsProps) {
             onClick={() => navigate(item.iso)}
             aria-pressed={active}
             className={[
-              "flex flex-col items-start rounded-[var(--radius-sm)] border px-3 py-2 transition-colors",
+              "flex shrink-0 snap-start flex-col items-start rounded-[var(--radius-sm)] border px-3 py-2 transition-colors",
               active
                 ? "border-[var(--color-vermelho-low)] bg-[color-mix(in_srgb,var(--color-vermelho)_12%,transparent)] text-[var(--color-ink-display)]"
                 : "border-[var(--color-line)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)] hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)]",
