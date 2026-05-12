@@ -55,6 +55,30 @@ export function countryToFlag(slug: string | null | undefined): string {
   return FLAG_MAP[slug.toLowerCase()] ?? FALLBACK_FLAG;
 }
 
+/**
+ * Top-of-the-list leagues, in the exact order we want them rendered. The
+ * key matches `LeagueGroup.key` (`${league}|${country}`), so the comparator
+ * can distinguish "Premier League" England vs Ukraine, "Serie A" Italy vs
+ * Brazil, etc. Anything not listed falls through to the earliest-kickoff
+ * sort below.
+ */
+const PRIORITY_KEYS: ReadonlyArray<string> = [
+  "Premier League|england",
+  "La Liga|spain",
+  "Serie A|italy",
+  "Bundesliga|germany",
+  "Ligue 1|france",
+  "Portugese Liga NOS|portugal",
+  "Serie A|brazil",
+  "Serie B|brazil",
+  "Champions League|europe",
+  "Europa League|europe",
+];
+
+const PRIORITY_RANK = new Map<string, number>(
+  PRIORITY_KEYS.map((k, i) => [k, i]),
+);
+
 export interface LeagueGroup {
   /** composite key "league|country" (country defaults to "—" when null) */
   key: string;
@@ -68,11 +92,14 @@ export interface LeagueGroup {
 }
 
 /**
- * Groups fixtures by composite key `${league}|${country ?? "—"}`. Stable
- * order: earliest `kickoff_utc` in each group (nulls last). Within a group,
- * fixtures retain their incoming order — the repository already sorts by
- * kickoff_utc/ko_time/id, so feeding repository output in produces the
- * expected ascending order without re-sorting here.
+ * Groups fixtures by composite key `${league}|${country ?? "—"}`. Two-pass
+ * stable order:
+ *  1. Priority leagues first, in `PRIORITY_KEYS` order (Premier, La Liga, …).
+ *  2. Everything else by earliest `kickoff_utc` in the group (nulls last).
+ *
+ * Within a group, fixtures retain their incoming order — the repository
+ * already sorts by kickoff_utc/ko_time/id, so feeding repository output in
+ * produces the expected ascending order without re-sorting here.
  */
 export function groupFixturesByLeague(fixtures: FixtureDTO[]): LeagueGroup[] {
   const buckets = new Map<string, LeagueGroup>();
@@ -114,10 +141,17 @@ export function groupFixturesByLeague(fixtures: FixtureDTO[]): LeagueGroup[] {
   }
 
   groups.sort((a, b) => {
+    const pa = PRIORITY_RANK.get(a.key);
+    const pb = PRIORITY_RANK.get(b.key);
+    if (pa !== undefined && pb !== undefined) return pa - pb;
+    if (pa !== undefined) return -1; // priority always before non-priority
+    if (pb !== undefined) return 1;
+
+    // Both non-priority: earliest kickoff_utc, nulls last, then key.
     const ea = earliest.get(a.key) ?? null;
     const eb = earliest.get(b.key) ?? null;
     if (ea === null && eb === null) return a.key.localeCompare(b.key);
-    if (ea === null) return 1; // nulls last
+    if (ea === null) return 1;
     if (eb === null) return -1;
     if (ea < eb) return -1;
     if (ea > eb) return 1;

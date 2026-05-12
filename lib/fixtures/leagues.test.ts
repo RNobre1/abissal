@@ -150,4 +150,61 @@ describe("groupFixturesByLeague", () => {
     ]);
     expect(groups[0].league).toBe("—");
   });
+
+  it("places priority leagues (Premier, La Liga, …) at the top in fixed order, regardless of kickoff", () => {
+    // Random non-priority sits earlier than Premier League; Premier still wins.
+    const groups = groupFixturesByLeague([
+      fx({
+        id: 1,
+        league: "Scottish Premiership",
+        country: "scotland",
+        kickoff_utc: "2026-05-12T11:00:00Z",
+      }),
+      fx({
+        id: 2,
+        league: "Premier League",
+        country: "england",
+        kickoff_utc: "2026-05-12T21:00:00Z",
+      }),
+      fx({
+        id: 3,
+        league: "La Liga",
+        country: "spain",
+        kickoff_utc: "2026-05-12T22:00:00Z",
+      }),
+      fx({
+        id: 4,
+        league: "Serie A",
+        country: "italy",
+        kickoff_utc: "2026-05-12T20:00:00Z",
+      }),
+    ]);
+
+    expect(groups.map((g) => g.league)).toEqual([
+      "Premier League",
+      "La Liga",
+      "Serie A",
+      "Scottish Premiership",
+    ]);
+  });
+
+  it("disambiguates priority by country (Premier League England ranks; Premier League Ukraine doesn't)", () => {
+    const groups = groupFixturesByLeague([
+      fx({
+        id: 1,
+        league: "Premier League",
+        country: "ukraine",
+        kickoff_utc: "2026-05-12T13:00:00Z",
+      }),
+      fx({
+        id: 2,
+        league: "Premier League",
+        country: "england",
+        kickoff_utc: "2026-05-12T22:00:00Z",
+      }),
+    ]);
+
+    // England version (priority) comes first; Ukraine falls back to kickoff sort.
+    expect(groups.map((g) => g.country)).toEqual(["england", "ukraine"]);
+  });
 });
