@@ -3,6 +3,18 @@ import { render, screen } from "@testing-library/react";
 import type { FixtureRow } from "@/lib/fixtures/types";
 import type { DetailJson } from "@/lib/fixtures/stats/detail-json-types";
 
+// lightweight-charts (used by MomentumChart panel B) hits canvas/WebGL,
+// neither of which happy-dom implements. Same mock used by the unit panel
+// test.
+vi.mock("lightweight-charts", () => ({
+  createChart: vi.fn(() => ({
+    addLineSeries: vi.fn(() => ({ setData: vi.fn() })),
+    remove: vi.fn(),
+    applyOptions: vi.fn(),
+    timeScale: () => ({ fitContent: vi.fn() }),
+  })),
+}));
+
 /**
  * Minimal in-memory Supabase mock for the stats Server Component page.
  *
@@ -323,8 +335,9 @@ describe("StatsPage server component", () => {
     expect(screen.getByText("1.85")).toBeDefined();
     // BTTS odd
     expect(screen.getByText("1.70")).toBeDefined();
-    // Referee average booking points
-    expect(screen.getByText("47.5")).toBeDefined();
+    // Referee average booking points — surfaced both in the Hero KPI tile
+    // and the Referee panel below; assert at least one exists.
+    expect(screen.getAllByText("47.5").length).toBeGreaterThan(0);
   });
 
   it("exposes the back link to the AI analyze page", async () => {
@@ -336,5 +349,36 @@ describe("StatsPage server component", () => {
       .getAllByRole("link")
       .find((a) => a.getAttribute("href") === "/fixtures/42");
     expect(back).toBeDefined();
+  });
+
+  it("mounts all 11 panel slots (A..N) when detail_json is populated", async () => {
+    setRow(makeRow({ detail_json: makeDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    // 12-column grid IDs declared by page.tsx. Optional ones (I, J, N) only
+    // mount when their source data is non-empty — the makeDetail() fixture
+    // populates referee_record but not predictions/insights, so we assert
+    // only the always-present panels here.
+    const expected = [
+      "B",          // momentum chart
+      "A-home",     // team record home
+      "A-away",     // team record away
+      "D",          // h2h
+      "E",          // splits 1h/2h
+      "M",          // distributions
+      "K",          // radar
+      "L",          // scatter
+      "I",          // referee — present in this fixture
+      "C-home",     // recent matches home
+      "C-away",     // recent matches away
+    ];
+    for (const id of expected) {
+      const slot = container.querySelector(`[data-panel="${id}"]`);
+      expect(slot, `panel ${id} should be mounted`).not.toBeNull();
+    }
+
+    // "painéis em construção" placeholder must NOT show.
+    expect(screen.queryByText(/painéis em construção/i)).toBeNull();
   });
 });
