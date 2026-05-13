@@ -4,7 +4,8 @@
  * Cobertura visada (T6 acceptance):
  *   - chips toggle (multi-select, URL update)
  *   - slider min_perc atualiza filtro
- *   - cmdk abre via ⌘K e filtra textualmente
+ *   - cmdk abre via botão local "buscar streak" e filtra textualmente
+ *     (⌘K global pertence ao CommandPalette do dashboard; não duplicar listener)
  *   - heatmap renderiza 1 cell por streak filtrado
  *   - virtualizer cria container scrollável
  *   - empty state + "limpar filtros" botão
@@ -119,19 +120,31 @@ describe("<StreaksHeatmap />", () => {
     expect(lastCall).toMatch(/min_perc=\d+/);
   });
 
-  it("⌘K abre cmdk modal", async () => {
+  it("botão local 'buscar streak' abre cmdk modal", async () => {
+    render(<StreaksHeatmap data={SAMPLE_INDEX} />);
+    expect(screen.queryByPlaceholderText(/buscar streak/i)).toBeNull();
+    const trigger = screen.getByRole("button", { name: /buscar streak/i });
+    await act(async () => {
+      fireEvent.click(trigger);
+    });
+    expect(screen.getByPlaceholderText(/buscar streak/i)).toBeDefined();
+  });
+
+  it("não registra listener global de ⌘K (evita colisão com CommandPalette do dashboard)", async () => {
     render(<StreaksHeatmap data={SAMPLE_INDEX} />);
     expect(screen.queryByPlaceholderText(/buscar streak/i)).toBeNull();
     await act(async () => {
       fireEvent.keyDown(document, { key: "k", metaKey: true });
     });
-    expect(screen.getByPlaceholderText(/buscar streak/i)).toBeDefined();
+    // O painel não deve abrir o próprio cmdk via ⌘K — esse atalho é do
+    // CommandPalette global montado em `app/(dashboard)/layout.tsx`.
+    expect(screen.queryByPlaceholderText(/buscar streak/i)).toBeNull();
   });
 
   it("cmdk filtra textualmente por desc/stat_type", async () => {
     render(<StreaksHeatmap data={SAMPLE_INDEX} />);
     await act(async () => {
-      fireEvent.keyDown(document, { key: "k", metaKey: true });
+      fireEvent.click(screen.getByRole("button", { name: /buscar streak/i }));
     });
     const input = screen.getByPlaceholderText(/buscar streak/i) as HTMLInputElement;
     await act(async () => {

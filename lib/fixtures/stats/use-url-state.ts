@@ -48,6 +48,12 @@ export function commitUrlState(
  * `defaults` é o mapa de chaves → valor default canônico — útil pra
  * limpar parâmetros redundantes da URL (ex.: `player_rank=goals` é o
  * padrão e some quando o user volta pra esse critério).
+ *
+ * ⚠️ Passe `defaults` como objeto **referencialmente estável** — module-level
+ * `const` ou `useMemo(() => …, [])`. O `useCallback` interno inclui `defaults`
+ * nas deps, então um objeto inline (`{ min_perc: "60" }` dentro do render)
+ * invalida o callback a cada render e dispara `router.replace` em loop nos
+ * handlers que dependem dele.
  */
 export function useUrlPatcher(defaults: Record<string, string>) {
   const router = useRouter();

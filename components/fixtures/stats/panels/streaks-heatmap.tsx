@@ -6,26 +6,33 @@
  * 3 camadas de filtro (AND entre camadas, OR dentro de cada):
  *   1. Chips de grupo (multi-select)
  *   2. Slider min_perc (default 60, step 5, range 0-100)
- *   3. ⌘K cmdk fuzzy match em `desc` + `stat_type`
+ *   3. Busca textual cmdk (fuzzy em `desc` + `stat_type`) — aberta via
+ *      botão local "buscar streak" no header do painel.
  *
  * O estado é serializado em searchParams (?streaks=…&min_perc=…) via
  * `router.replace`, garantindo deep-link compartilhável e refresh-safe.
  *
  * Layout:
- *   - Header com label + botão "limpar filtros" (condicional)
+ *   - Header com label + botão "buscar streak" + botão "limpar filtros"
  *   - Linha de chips horizontal-scroll mobile
  *   - Slider Radix
  *   - Heatmap CSS Grid (cores derivadas de overall_perc)
  *   - Lista virtualizada (TanStack Virtual) com top streaks ordenados
  *   - Empty state quando nenhum streak passa nos filtros
- *   - Modal ⌘K (cmdk) sobreposto pra busca textual
+ *   - Modal cmdk sobreposto pra busca textual (Esc fecha)
+ *
+ * Importante: o atalho global ⌘K é hijackado pelo CommandPalette do
+ * dashboard (`components/command-palette.tsx`, montado em
+ * `app/(dashboard)/layout.tsx`). Este painel NÃO registra listener próprio
+ * pra ⌘K — caso contrário ambos os dialogs abririam ao mesmo tempo.
  */
 
 import * as Slider from "@radix-ui/react-slider";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { Command } from "cmdk";
+import { Search } from "lucide-react";
 import { useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { Streak, StreakIndex } from "@/lib/fixtures/stats/detail-json-types";
 import { useUrlPatcher } from "@/lib/fixtures/stats/use-url-state";
 
@@ -121,20 +128,6 @@ export function StreaksHeatmap({ data }: StreaksHeatmapProps) {
     patchUrl({ streaks: null, min_perc: String(DEFAULT_MIN_PERC) });
   }, [patchUrl]);
 
-  // ─ ⌘K abre cmdk ─────────────────────────────────────────────────────
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.key === "k" || e.key === "K") && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        setCmdkOpen((v) => !v);
-      } else if (e.key === "Escape") {
-        setCmdkOpen(false);
-      }
-    };
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, []);
-
   // ─ Virtualizer ──────────────────────────────────────────────────────
   const parentRef = useRef<HTMLDivElement | null>(null);
   const virtualizer = useVirtualizer({
@@ -155,6 +148,15 @@ export function StreaksHeatmap({ data }: StreaksHeatmapProps) {
           <span className="label text-[var(--color-ink-faint)]">
             {filtered.length} de {data.all.length}
           </span>
+          <button
+            type="button"
+            onClick={() => setCmdkOpen(true)}
+            aria-label="buscar streak"
+            className="label inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink-muted)] hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)]"
+          >
+            <Search className="h-3 w-3" aria-hidden="true" />
+            <span>buscar streak</span>
+          </button>
           {hasActiveFilters ? (
             <button
               type="button"
@@ -355,6 +357,12 @@ function StreaksCmdk({
       aria-label="buscar streak"
       className="fixed inset-0 z-[100] flex items-start justify-center bg-[color-mix(in_srgb,var(--color-void)_70%,transparent)] px-4 pt-[15vh] backdrop-blur-sm"
       onClick={onClose}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -386,7 +394,6 @@ function StreaksCmdk({
           </Command.List>
           <div className="flex items-center justify-between border-t border-[var(--color-line-subtle)] px-3 py-2 text-[10px] text-[var(--color-ink-faint)]">
             <span className="num">↵ fechar · esc cancelar</span>
-            <span className="num">⌘K</span>
           </div>
         </Command>
       </div>
