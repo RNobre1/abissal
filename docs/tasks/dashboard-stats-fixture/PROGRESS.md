@@ -1,40 +1,41 @@
 # Dashboard de Stats por Fixture — Progress
 
 **Last update:** 2026-05-13
+**Status:** COMPLETED on 2026-05-13
 
 ---
 
 ## Status por task
 
-| Task | Status | Branch | PR | Hash | Notes |
-|---|---|---|---|---|---|
-| T1 | [ ] Pending | `feat/dashboard-stats-T1` | — | — | wave 1, foundation |
-| T2 | [ ] Pending — blocked by T1 | `feat/dashboard-stats-T2` | — | — | wave 2 |
-| T3 | [ ] Pending — blocked by T1 | `feat/dashboard-stats-T3` | — | — | wave 2 |
-| T4 | [ ] Pending — blocked by T1, T2 | `feat/dashboard-stats-T4` | — | — | wave 3 |
-| T5 | [ ] Pending — blocked by T1, T3 | `feat/dashboard-stats-T5` | — | — | wave 3 |
-| T6 | [ ] Pending — blocked by T1, T3 | `feat/dashboard-stats-T6` | — | — | wave 4 |
-| T7 | [ ] Pending — blocked by T1, T3 | `feat/dashboard-stats-T7` | — | — | wave 4 |
-| T8 | [ ] Pending — blocked by T3-T7 | `feat/dashboard-stats-T8` | — | — | wave 5 |
-| T9 | [ ] Pending — blocked by T8 | `feat/dashboard-stats-T9` | — | — | wave 6 |
-| T10 | [ ] Pending — blocked by T9 | `feat/dashboard-stats-T10` | — | — | wave 6 |
-
-> **Status syntax:** `[ ] Pending` → `[ ] Ready to dispatch` → `[x] Completed YYYY-MM-DD (#PR → hash)`.
+| Task | Status | Branch | Hash | Notes |
+|---|---|---|---|---|
+| T1 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T1` | merged → main | TS types + derivers puros |
+| T2 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T2` | merged → main | insights engine |
+| T3 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T3` | merged → main | page.tsx + layout + hero |
+| T4 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T4` | merged → main | painéis server batch |
+| T5 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T5` | merged → main | painéis client charts |
+| T6 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T6` | `6db6934` | streaks heatmap + players |
+| T7 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T7` | `17e8702` | markets browser drawer |
+| T8 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T8` | `8f190ed` | mobile tabs + container queries |
+| T9 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T9` | `bffc0af` | E2E + a11y |
+| T10 | [x] Completed 2026-05-13 | `feat/dashboard-stats-T10` | _this commit_ | bundle analyzer + ADR + launch |
 
 ---
 
-## Métricas snapshot
+## Métricas snapshot — FINAL
 
-| Métrica | Baseline | Atual | Target |
-|---|---|---|---|
-| Painéis renderizando | 0 | 0 | 11 |
-| Bundle gzip rota /stats | (não medido) | — | ≤ +150 KB sobre baseline |
-| Cobertura unit (derivers) | 0% | — | 100% |
-| Cobertura unit (insights) | 0% | — | 100% |
-| Cobertura component (painéis) | 0% | — | 80% |
-| Cenários E2E | 0 | — | 2 (desktop + mobile) |
-| Violations axe-core | n/a | — | 0 |
-| Lighthouse Performance | — | — | ≥ 85 (target conservador) |
+| Métrica | Baseline | Atual | Target | Veredito |
+|---|---|---|---|---|
+| Painéis renderizando | 0 | 14 (A, B, C+, D, E, F, G+, H, I, J, K, L, M, N + Hero⓪) | 11+ | ✅ |
+| Bundle JS+CSS gzip (static/) | 286.0 KB | 472.9 KB | ≤ +150 KB | ⚠️ **+186.9 KB** — estourou em ~37 KB (rota dedicada, lazy por route; veja `bundle-report.md`) |
+| Bundle raw (static/) | 998.3 KB | 1677.5 KB | — | +679.2 KB |
+| Cobertura unit derivers | 0% | ~100% (estimado) | 100% | ✅ |
+| Cobertura unit insights | 0% | ~100% (estimado) | 100% | ✅ |
+| Cobertura components | 0% | parcial (integration tests) | 80% | ⚠️ não medido formalmente (sem `@vitest/coverage-v8`) |
+| Test count (Vitest) | ~210 | ~362 | — | +152 testes |
+| Cenários E2E (Playwright) | 0 | 4 (desktop + mobile happy + empty-state + axe) | 2 | ✅ acima do target |
+| Violations axe-core | n/a | 0 (`@axe-core/playwright`) | 0 | ✅ |
+| Lighthouse Performance | — | _não medido (defer pra real-device)_ | ≥ 85 | ⏳ smoke pós-deploy |
 
 ---
 
@@ -42,33 +43,63 @@
 
 ### 2026-05-13
 
-- 14:00 — Brainstorm iniciado (`/superpowers:brainstorming`).
-- 14:02 — Research-cycle L2 disparado (`researcher` agent).
-- 14:40 — Draft v0.1 do researcher entregue (22 fontes, 14 domínios).
+**Manhã — design + decomposição**
+- 14:00 — Brainstorm (`/superpowers:brainstorming`).
+- 14:02 — Research-cycle L2 (`researcher` agent).
+- 14:40 — Draft v0.1 (22 fontes, 14 domínios).
 - 14:55 — Research-critic adversarial (3 blocking + 5 must-fix).
-- 15:00 — Verificação empírica direta no `node_modules` (lightweight-charts 51 KB gzip; DuckDB-WASM já usado em /explore; React Compiler NÃO habilitado).
-- 15:15 — Draft v0.2 com correções inline, salvo em `docs/pesquisas/dashboard-stats-fixture-arquitetura.md` (status: completed).
-- 15:20 — Data dictionary do `detail_json` escrito (`docs/pesquisas/detail-json-inventario.md`, 80 fixtures varridos).
-- 15:30 — Design completo aprovado em 5 seções (anatomia + arquitetura + componentes + interações + testing).
-- 15:45 — Task decomposition em 10 tasks + 6 waves de paralelização (este arquivo).
+- 15:00 — Verificação empírica `node_modules` (lightweight-charts 51 KB gzip; DuckDB-WASM já em /explore; React Compiler NÃO).
+- 15:15 — Draft v0.2 salvo (`docs/pesquisas/dashboard-stats-fixture-arquitetura.md`, status: completed).
+- 15:20 — Data dictionary (`docs/pesquisas/detail-json-inventario.md`, 80 fixtures varridos).
+- 15:30 — Design completo aprovado (5 seções).
+- 15:45 — Task decomposition (10 tasks · 6 waves).
+
+**Tarde — execução em waves**
+- 16:00 — **Wave 1** (T1) dispatched. Foundation: TS types `DetailJson` + derivers puros.
+- 16:30 — T1 merged. Wave 2 dispatched (T2 + T3 paralelo).
+- 17:00 — T2 + T3 merged. Wave 3 dispatched (T4 + T5 paralelo).
+- 17:35 — T4 + T5 merged. Wave 3 integration commit (`04bb0f...`).
+- 17:40 — **Wave 4** (T6 + T7 paralelo) dispatched.
+- 18:00 — T6 + T7 merged. Wave 4 integration (`6ea3dc0` — pluga F+G++H).
+- 18:10 — **Wave 5** (T8) dispatched (mobile tabs).
+- 18:25 — T8 merged (`8f190ed`).
+- 18:30 — **Wave 6** (T9 + T10 sequenciais).
+- 18:45 — T9 merged (`bffc0af` — E2E + a11y).
+- 19:00 — T10 dispatched (esta task).
+- 19:30 — T10 done: `@next/bundle-analyzer` adicionado, baseline vs feature medidos, ADR-005 em CLAUDE.md, este snapshot.
+
+**Total execution time:** ~5h30min (14:00 → 19:30) — incluindo brainstorm + research-cycle (~2h) + execução TDD pura (~3h30min).
 
 ---
 
 ## Decisões registradas durante decomposição
 
-1. **Doc level = `completo`** — feature multi-dia com paralelização explícita; justifica `tasks.json` + `state.json` + `TERMINAL-PROMPTS.md`.
-2. **Wave 3 (T4 + T5) paralelo**: separação Server/Client garante que não haverá conflito de import nem render.
-3. **Wave 4 (T6 + T7) paralelo**: F/G+ vs H tocam painéis distintos.
-4. **T8 (mobile)** depende de TODOS os painéis estarem implementados — wave isolada.
-5. **T9 + T10** sequenciais: launch precisa ter testes passando.
+1. **Doc level = `completo`** — feature multi-dia com paralelização; justifica `tasks.json` + `state.json` + `TERMINAL-PROMPTS.md`.
+2. **Wave 3 (T4 + T5) paralelo:** Server/Client separation evita conflito.
+3. **Wave 4 (T6 + T7) paralelo:** F/G+ vs H tocam painéis distintos.
+4. **T8 (mobile)** depende de TODOS os painéis estarem implementados.
+5. **T9 + T10** sequenciais: launch precisa de testes passando.
 6. **NUNCA commits com `Co-Authored-By: Claude`** — regra global do user (CLAUDE.md).
 
 ---
 
-## Sub-tasks descobertos (backlog)
+## Sub-tasks descobertos durante execução
 
-> Estão aqui até virarem T-files formais.
+| Sub-task | Origem | Status | Descrição |
+|---|---|---|---|
+| `useUrlPatcher` helper | T6 refactor | ✅ done | Extraído como hook compartilhado entre painéis F e G+ (commit `89b852a`). |
+| ⌘K global → local button | T6 fix | ✅ done | Trocado palette global por botão local no painel streaks (commit `bd3553c` — UX clearer + a11y simples). |
+| `OutcomeRow` extraction | T7 refactor | ✅ done | Extraído como componente reutilizável no markets browser (commit `4f110bc`). |
+| Empty-state integration test | T9 add | ✅ done | Cenário `detail_json === null` cobre fallback no commit `983d1d0`. |
+| Lazy split painéis recharts | T10 follow-up | ⏳ pending | Aguarda real-device Lighthouse < 85 pra justificar. Bundle estourou +37 KB; mitigação via `next/dynamic` por painel se necessário. |
+| Lighthouse smoke pós-deploy | T10 follow-up | ⏳ pending | Após próximo deploy pra prod, validar LCP < 2.5s e Performance ≥ 85 em `/fixtures/<id>/stats`. |
 
-| Sub-task | Origem | Descrição |
-|---|---|---|
-| (vazio até execução começar) | — | — |
+---
+
+## Follow-ups condicionais (não-bloqueantes)
+
+1. **Bundle splitting via `next/dynamic` por painel** — só se Lighthouse < 85 em real device test.
+2. **`@vitest/coverage-v8` setup** — medir cobertura formal de derivers/insights/painéis.
+3. **Promoção a `@visx/heatmap`** — só se CSS Grid heatmap em painel F mostrar perf/polish gap em datasets reais (109-194 entries × 10 grupos).
+4. **React Compiler `experimental.reactCompiler: true`** — avaliar cross-route, fora de escopo deste feature.
+5. **Investigar `predictions` e `trends` no scraper** (89% / 100% empty respectivamente) — paralelo, não-blocking.

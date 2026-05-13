@@ -1,7 +1,7 @@
 # Dashboard de Stats por Fixture — Overview
 
 **Date:** 2026-05-13
-**Status:** PROPOSED (aguarda aprovação do Pilot pra virar tasks)
+**Status:** COMPLETED on 2026-05-13
 **Objective:** Construir `/fixtures/[id]/stats` — dashboard denso "Trading Terminal + Stadium Wall" que substitui a consulta manual ao adamchoi/choistats, expõe TODAS as métricas do `detail_json` em painéis especializados, e adiciona análise estatística derivada (correlações, tendências, padrões condicionais, outliers) usando libs já instaladas.
 
 > Pesquisa formal de fundamentação: [`docs/pesquisas/dashboard-stats-fixture-arquitetura.md`](../../pesquisas/dashboard-stats-fixture-arquitetura.md) (tier L2, research-critic adversarial em 2 iterações).
