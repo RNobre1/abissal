@@ -7,8 +7,11 @@ import { TimeSeriesLine } from "@/components/charts/time-series-line";
 
 /**
  * Stat keys exposed in the toggle. Each maps to a numeric field on
- * NormalizedRecentMatch — null values get coerced to 0 for the chart
- * (recharts skips null without warning but the trend regression dies).
+ * NormalizedRecentMatch. `valueOf` returns `null` (not 0) when the source
+ * field is null/undefined — recharts skips null on `<Line>` (default
+ * `connectNulls=false`) and the trend regression filters non-finite values
+ * before fitting, so leagues that don't publish e.g. SOT no longer drag the
+ * trend toward zero silently.
  */
 type ToggleKey = "goals_ft" | "sot" | "corners" | "booking_points";
 
@@ -19,17 +22,23 @@ const CHIPS: Array<{ key: ToggleKey; label: string }> = [
   { key: "booking_points", label: "booking" },
 ];
 
-function valueOf(m: NormalizedRecentMatch, key: ToggleKey): number {
+function valueOf(m: NormalizedRecentMatch, key: ToggleKey): number | null {
+  let raw: number | null;
   switch (key) {
     case "goals_ft":
-      return m.goals_ft_for ?? 0;
+      raw = m.goals_ft_for;
+      break;
     case "sot":
-      return m.sot_for ?? 0;
+      raw = m.sot_for;
+      break;
     case "corners":
-      return m.corners_for ?? 0;
+      raw = m.corners_for;
+      break;
     case "booking_points":
-      return m.booking_points_for ?? 0;
+      raw = m.booking_points_for;
+      break;
   }
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
 interface RecentMatchesPanelProps {
@@ -59,17 +68,28 @@ export function RecentMatchesPanel({
 
   const chartData = useMemo(() => {
     if (chrono.length === 0) return [];
-    // Linear regression on indexed points so the trend is plotted at the
-    // same x positions as the actual series.
-    const points: Array<[number, number]> = chrono.map((m, i) => [
-      i,
-      valueOf(m, active),
-    ]);
-    const result = regression.linear(points, { precision: 6 });
+    // Build a regression input from ONLY the finite values so leagues that
+    // don't publish a stat (null) don't drag the trend toward 0. We still
+    // emit `null` in `value` so recharts skips the gap on the data line.
+    const finitePoints: Array<[number, number]> = [];
+    const values: Array<number | null> = chrono.map((m) => valueOf(m, active));
+    values.forEach((v, i) => {
+      if (typeof v === "number" && Number.isFinite(v)) finitePoints.push([i, v]);
+    });
+    // Need at least 2 finite points to fit a line; otherwise no trend.
+    let predictAt: ((i: number) => number | null) | null = null;
+    if (finitePoints.length >= 2) {
+      const fit = regression.linear(finitePoints, { precision: 6 });
+      const slope = fit.equation[0];
+      const intercept = fit.equation[1];
+      if (Number.isFinite(slope) && Number.isFinite(intercept)) {
+        predictAt = (i: number) => slope * i + intercept;
+      }
+    }
     return chrono.map((m, i) => ({
       label: m.date_iso || `J${i + 1}`,
-      value: valueOf(m, active),
-      trend: result.points[i]?.[1] ?? null,
+      value: values[i],
+      trend: predictAt ? predictAt(i) : null,
     }));
   }, [chrono, active]);
 

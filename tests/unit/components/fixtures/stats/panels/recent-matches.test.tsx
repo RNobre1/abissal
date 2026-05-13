@@ -87,4 +87,28 @@ describe("<RecentMatchesPanel />", () => {
     expect(screen.getByRole("button", { name: /cantos/i })).toBeDefined();
     expect(screen.getByRole("button", { name: /booking/i })).toBeDefined();
   });
+
+  it("trend regression skips null/undefined stat values (not coerced to 0)", () => {
+    // Mix finite + null SOT — series where 3 of 5 values are null. If the
+    // panel coerced null → 0 (the old bug) the trend would drag toward 0 and
+    // its slope would flip negative. Filtering nulls keeps the trend
+    // positive (3 → 7 across kept points).
+    const sparse: NormalizedRecentMatch[] = [
+      mkMatch(10, "2026-04-01", { sot_for: 3, goals_ft_for: 1 }),
+      mkMatch(11, "2026-04-08", { sot_for: null as unknown as number, goals_ft_for: 1 }),
+      mkMatch(12, "2026-04-15", { sot_for: 5, goals_ft_for: 1 }),
+      mkMatch(13, "2026-04-22", { sot_for: null as unknown as number, goals_ft_for: 1 }),
+      mkMatch(14, "2026-05-01", { sot_for: 7, goals_ft_for: 1 }),
+    ];
+    const { container } = render(
+      <RecentMatchesPanel matches={sparse} title="X" width={400} />,
+    );
+    // Switch to SOT chip — that's the series with nulls.
+    const sotChip = screen.getByRole("button", { name: /sot/i });
+    fireEvent.click(sotChip);
+    // The two recharts <Line> curves still rendered (data + trend) — no crash
+    // when regression hits filtered series.
+    const curves = container.querySelectorAll("path.recharts-line-curve");
+    expect(curves.length).toBe(2);
+  });
 });

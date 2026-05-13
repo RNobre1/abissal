@@ -135,59 +135,6 @@ export function ScatterPlayground({
   const xLabel = OPTIONS.find((o) => o.key === xKey)!.label;
   const yLabel = OPTIONS.find((o) => o.key === yKey)!.label;
 
-  const chart = (
-    <ComposedChart margin={{ top: 8, right: 16, left: -16, bottom: 0 }}>
-      <CartesianGrid stroke="var(--color-ink-faint)" strokeOpacity={0.15} />
-      <XAxis
-        type="number"
-        dataKey="x"
-        name={xLabel}
-        tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
-        stroke="var(--color-ink-faint)"
-      />
-      <YAxis
-        type="number"
-        dataKey="y"
-        name={yLabel}
-        tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
-        stroke="var(--color-ink-faint)"
-      />
-      <Tooltip
-        contentStyle={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-ink-faint)",
-          color: "var(--color-ink-display)",
-          fontSize: 12,
-        }}
-      />
-      <Scatter
-        name={homeTeam}
-        data={homeDots}
-        fill="#c42b2b"
-        isAnimationActive={false}
-      />
-      <Scatter
-        name={awayTeam}
-        data={awayDots}
-        fill="#1a5fad"
-        isAnimationActive={false}
-      />
-      {trendLine.length > 0 ? (
-        <Line
-          data={trendLine}
-          dataKey="y"
-          type="linear"
-          stroke="#7a7872"
-          strokeWidth={1.5}
-          strokeDasharray="4 4"
-          dot={false}
-          isAnimationActive={false}
-          legendType="none"
-        />
-      ) : null}
-    </ComposedChart>
-  );
-
   return (
     <div className="card p-4">
       <div className="mb-3 flex flex-wrap items-center gap-3">
@@ -244,65 +191,117 @@ export function ScatterPlayground({
         </label>
       </div>
       {width !== undefined ? (
-        <ComposedChart
+        <ScatterBody
+          xLabel={xLabel}
+          yLabel={yLabel}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          homeDots={homeDots}
+          awayDots={awayDots}
+          trendLine={trendLine}
           width={width}
           height={height}
-          margin={{ top: 8, right: 16, left: -16, bottom: 0 }}
-        >
-          <CartesianGrid stroke="var(--color-ink-faint)" strokeOpacity={0.15} />
-          <XAxis
-            type="number"
-            dataKey="x"
-            name={xLabel}
-            tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
-            stroke="var(--color-ink-faint)"
-          />
-          <YAxis
-            type="number"
-            dataKey="y"
-            name={yLabel}
-            tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
-            stroke="var(--color-ink-faint)"
-          />
-          <Tooltip
-            contentStyle={{
-              background: "var(--color-surface-2)",
-              border: "1px solid var(--color-ink-faint)",
-              color: "var(--color-ink-display)",
-              fontSize: 12,
-            }}
-          />
-          <Scatter
-            name={homeTeam}
-            data={homeDots}
-            fill="#c42b2b"
-            isAnimationActive={false}
-          />
-          <Scatter
-            name={awayTeam}
-            data={awayDots}
-            fill="#1a5fad"
-            isAnimationActive={false}
-          />
-          {trendLine.length > 0 ? (
-            <Line
-              data={trendLine}
-              dataKey="y"
-              type="linear"
-              stroke="#7a7872"
-              strokeWidth={1.5}
-              strokeDasharray="4 4"
-              dot={false}
-              isAnimationActive={false}
-              legendType="none"
-            />
-          ) : null}
-        </ComposedChart>
+        />
       ) : (
         <ResponsiveContainer width="100%" height={height}>
-          {chart}
+          <ScatterBody
+            xLabel={xLabel}
+            yLabel={yLabel}
+            homeTeam={homeTeam}
+            awayTeam={awayTeam}
+            homeDots={homeDots}
+            awayDots={awayDots}
+            trendLine={trendLine}
+          />
         </ResponsiveContainer>
       )}
     </div>
+  );
+}
+
+/**
+ * Inner-only component. Splits the ComposedChart JSX into one place so the
+ * "fixed-width" (tests) and "ResponsiveContainer" (prod) branches don't
+ * diverge. `width`/`height` propagate through only when explicitly passed —
+ * inside <ResponsiveContainer> recharts itself supplies them.
+ */
+interface ScatterBodyProps {
+  xLabel: string;
+  yLabel: string;
+  homeTeam: string;
+  awayTeam: string;
+  homeDots: DotPoint[];
+  awayDots: DotPoint[];
+  trendLine: Array<{ x: number; y: number }>;
+  width?: number;
+  height?: number;
+}
+
+function ScatterBody({
+  xLabel,
+  yLabel,
+  homeTeam,
+  awayTeam,
+  homeDots,
+  awayDots,
+  trendLine,
+  width,
+  height,
+}: ScatterBodyProps) {
+  return (
+    <ComposedChart
+      margin={{ top: 8, right: 16, left: -16, bottom: 0 }}
+      {...(width !== undefined ? { width } : {})}
+      {...(height !== undefined ? { height } : {})}
+    >
+      <CartesianGrid stroke="var(--color-ink-faint)" strokeOpacity={0.15} />
+      <XAxis
+        type="number"
+        dataKey="x"
+        name={xLabel}
+        tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
+        stroke="var(--color-ink-faint)"
+      />
+      <YAxis
+        type="number"
+        dataKey="y"
+        name={yLabel}
+        tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
+        stroke="var(--color-ink-faint)"
+      />
+      <Tooltip
+        contentStyle={{
+          background: "var(--color-surface-2)",
+          border: "1px solid var(--color-ink-faint)",
+          color: "var(--color-ink-display)",
+          fontSize: 12,
+        }}
+      />
+      <Scatter
+        name={homeTeam}
+        data={homeDots}
+        fill="#c42b2b"
+        isAnimationActive={false}
+      />
+      <Scatter
+        name={awayTeam}
+        data={awayDots}
+        fill="#1a5fad"
+        isAnimationActive={false}
+      />
+      {trendLine.length > 0 ? (
+        <Line
+          data={trendLine}
+          dataKey="y"
+          type="linear"
+          stroke="#7a7872"
+          strokeWidth={1.5}
+          strokeDasharray="4 4"
+          dot={false}
+          isAnimationActive={false}
+          legendType="none"
+        />
+      ) : null}
+    </ComposedChart>
   );
 }

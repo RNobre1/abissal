@@ -4,12 +4,42 @@ import { formatUtcAsBrt, toIsoUtc, trimKoTime } from "@/lib/fixtures/time";
 import type { FixtureRow } from "@/lib/fixtures/types";
 import type {
   DetailJson,
+  NormalizedRecentMatch,
   OddsMarket,
   OddsSummary,
   RefereeRecord,
 } from "@/lib/fixtures/stats/detail-json-types";
-import { StatsLayout } from "@/components/fixtures/stats/stats-layout";
+import { StatsLayout, type PanelSlot } from "@/components/fixtures/stats/stats-layout";
 import { Hero, type HeroKpiBundle } from "@/components/fixtures/stats/hero";
+import {
+  deriveTeamRecord,
+  deriveRecentMatchStats,
+  deriveSplits1h2h,
+  deriveDistributions,
+  deriveRadarAxes,
+} from "@/lib/fixtures/stats/derive";
+import {
+  computeCorrelations,
+  computeTrends,
+  computePatterns,
+  computeOutliers,
+  rankInsights,
+  type Insight,
+} from "@/lib/fixtures/stats/insights";
+import { TeamRecord } from "@/components/fixtures/stats/panels/team-record";
+import { H2H } from "@/components/fixtures/stats/panels/h2h";
+import { Splits1h2h } from "@/components/fixtures/stats/panels/splits-1h-2h";
+import { Referee } from "@/components/fixtures/stats/panels/referee";
+import { Predictions } from "@/components/fixtures/stats/panels/predictions";
+import { Distributions } from "@/components/fixtures/stats/panels/distributions";
+import { Insights } from "@/components/fixtures/stats/panels/insights";
+import {
+  MomentumChart,
+  type MomentumPoint,
+} from "@/components/fixtures/stats/panels/momentum-chart";
+import { RecentMatchesPanel } from "@/components/fixtures/stats/panels/recent-matches";
+import { RadarComparison } from "@/components/fixtures/stats/panels/radar-comparison";
+import { ScatterPlayground } from "@/components/fixtures/stats/panels/scatter-playground";
 
 export const dynamic = "force-dynamic";
 
@@ -98,6 +128,28 @@ function pickResultOdds(
   return { home, draw, away };
 }
 
+/**
+ * Builds a chronological-order MomentumPoint[] from normalized recent matches.
+ *
+ * `deriveRecentMatchStats` returns newest→oldest (adamchoi convention reversed
+ * upstream). lightweight-charts requires ascending timestamps, so we reverse
+ * and skip matches without a parseable date or `goals_ft_for` value.
+ */
+function buildMomentumSeries(
+  matches: NormalizedRecentMatch[],
+): MomentumPoint[] {
+  const out: MomentumPoint[] = [];
+  // newest→oldest → flip to oldest→newest for the timescale axis.
+  for (let i = matches.length - 1; i >= 0; i--) {
+    const m = matches[i];
+    if (!m.date_iso) continue;
+    const v = m.goals_ft_for;
+    if (typeof v !== "number" || !Number.isFinite(v)) continue;
+    out.push({ time: m.date_iso, value: v });
+  }
+  return out;
+}
+
 function deriveHeroKpis(
   detail: DetailJson | null,
   homeTeam: string,
@@ -162,6 +214,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
     formatUtcAsBrt(kickoffIso) ?? trimKoTime(row.ko_time) ?? null;
 
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
+  const panels = buildPanels(detail, row.home_team, row.away_team);
 
   return (
     <StatsLayout
@@ -176,7 +229,170 @@ export default async function StatsPage({ params }: StatsPageProps) {
           kpis={kpis}
         />
       }
-      panels={[]}
+      panels={panels}
     />
   );
+}
+
+/**
+ * Assembles the 12-column panel grid for the stats page.
+ *
+ * Returns `[]` when `detail` is null — the layout already shows
+ * "painéis em construção" in that case. Optional panels (Referee,
+ * Predictions, Insights) self-render `null` when their data is empty;
+ * we still mount them so the Suspense slot can stream in if data arrives.
+ */
+function buildPanels(
+  detail: DetailJson | null,
+  homeTeam: string,
+  awayTeam: string,
+): PanelSlot[] {
+  if (!detail) return [];
+
+  const homeRecord = deriveTeamRecord(detail.team_record?.home);
+  const awayRecord = deriveTeamRecord(detail.team_record?.away);
+
+  const recentHome = deriveRecentMatchStats(
+    detail.recent_matches?.home,
+    detail.recent_matches?.home,
+    homeTeam,
+  );
+  const recentAway = deriveRecentMatchStats(
+    detail.recent_matches?.away,
+    detail.recent_matches?.away,
+    awayTeam,
+  );
+
+  const splitsHome = deriveSplits1h2h(recentHome);
+  const distHome = deriveDistributions(recentHome);
+  const distAway = deriveDistributions(recentAway);
+  const radar = deriveRadarAxes(recentHome, recentAway);
+
+  const momentumHome = buildMomentumSeries(recentHome);
+  const momentumAway = buildMomentumSeries(recentAway);
+
+  // Insights — compute the four kinds across the home team's recent matches
+  // (the "fixture perspective" for the upcoming match), then rank.
+  const allInsights: Insight[] = [
+    ...computeCorrelations(recentHome),
+    ...computeTrends(recentHome),
+    ...computePatterns({
+      streaks: detail.streaks ?? { home: [], away: [] },
+      referee: detail.referee_record ?? null,
+      matches: recentHome,
+    }),
+    ...computeOutliers(recentHome),
+  ];
+  const insights = rankInsights(allInsights);
+
+  return [
+    {
+      id: "B",
+      colSpan: "span 12 / span 12",
+      h: 280,
+      label: "momentum",
+      node: (
+        <MomentumChart
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          home={momentumHome}
+          away={momentumAway}
+        />
+      ),
+    },
+    {
+      id: "A-home",
+      colSpan: "span 6 / span 6",
+      label: "team record home",
+      node: <TeamRecord teamName={homeTeam} data={homeRecord} />,
+    },
+    {
+      id: "A-away",
+      colSpan: "span 6 / span 6",
+      label: "team record away",
+      node: <TeamRecord teamName={awayTeam} data={awayRecord} />,
+    },
+    {
+      id: "D",
+      colSpan: "span 6 / span 6",
+      label: "h2h",
+      node: (
+        <H2H
+          matches={detail.h2h ?? []}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+        />
+      ),
+    },
+    {
+      id: "E",
+      colSpan: "span 6 / span 6",
+      label: "splits 1h vs 2h",
+      node: <Splits1h2h data={splitsHome} />,
+    },
+    {
+      id: "M",
+      colSpan: "span 12 / span 12",
+      h: 360,
+      label: "distributions",
+      node: <Distributions home={distHome} away={distAway} />,
+    },
+    {
+      id: "K",
+      colSpan: "span 6 / span 6",
+      h: 360,
+      label: "radar comparison",
+      node: (
+        <RadarComparison
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          data={radar}
+        />
+      ),
+    },
+    {
+      id: "L",
+      colSpan: "span 6 / span 6",
+      h: 360,
+      label: "scatter playground",
+      node: (
+        <ScatterPlayground
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          home={recentHome}
+          away={recentAway}
+        />
+      ),
+    },
+    {
+      id: "I",
+      colSpan: "span 6 / span 6",
+      label: "referee",
+      node: <Referee record={detail.referee_record ?? null} />,
+    },
+    {
+      id: "J",
+      colSpan: "span 6 / span 6",
+      label: "predictions",
+      node: <Predictions data={detail.predictions ?? []} />,
+    },
+    {
+      id: "N",
+      colSpan: "span 12 / span 12",
+      label: "insights",
+      node: <Insights insights={insights} />,
+    },
+    {
+      id: "C-home",
+      colSpan: "span 12 / span 12",
+      label: "recent matches home",
+      node: <RecentMatchesPanel matches={recentHome} title={`Últimos jogos · ${homeTeam}`} />,
+    },
+    {
+      id: "C-away",
+      colSpan: "span 12 / span 12",
+      label: "recent matches away",
+      node: <RecentMatchesPanel matches={recentAway} title={`Últimos jogos · ${awayTeam}`} />,
+    },
+  ];
 }

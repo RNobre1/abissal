@@ -4,7 +4,7 @@
  * Pure CSS, zero JS state, safe in Server Components. Each cell is a small
  * square with a token-backed background colour:
  *   • W → --color-success
- *   • D → --color-muted (falls back to ink-faint surface)
+ *   • D → --color-ink-muted
  *   • L → --color-vermelho
  *
  * The caller passes results already ordered newest → oldest (consistent with
