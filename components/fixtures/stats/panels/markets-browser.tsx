@@ -250,22 +250,7 @@ export function MarketsBrowser({ data }: MarketsBrowserProps) {
                     </div>
                     <ul className="flex flex-col gap-1">
                       {entry.outcomes.map((o, i) => (
-                        <li
-                          key={`${o.name}-${i}`}
-                          className="flex items-baseline justify-between gap-2 text-sm"
-                        >
-                          <span className="text-[var(--color-ink-muted)]">
-                            {o.name}
-                          </span>
-                          <span className="num text-[var(--color-ink-display)]">
-                            {o.decimal_odds.toFixed(2)}
-                            {o.bookmaker ? (
-                              <span className="label ml-1 text-[var(--color-ink-faint)]">
-                                {o.bookmaker}
-                              </span>
-                            ) : null}
-                          </span>
-                        </li>
+                        <OutcomeRow key={`${o.name}-${i}`} outcome={o} />
                       ))}
                     </ul>
                   </li>
@@ -299,22 +284,34 @@ function HeadlineCard({ entry, preferred }: HeadlineCardProps) {
       <div className="label text-[var(--color-ink-faint)]">{entry.market}</div>
       <ul className="flex flex-col gap-0.5">
         {list.map((o, i) => (
-          <li
-            key={`${o.name}-${i}`}
-            className="flex items-baseline justify-between gap-2 text-sm"
-          >
-            <span className="text-[var(--color-ink-muted)]">{o.name}</span>
-            <span className="num text-[var(--color-ink-display)]">
-              {o.decimal_odds.toFixed(2)}
-              {o.bookmaker ? (
-                <span className="label ml-1 text-[var(--color-ink-faint)]">
-                  {o.bookmaker}
-                </span>
-              ) : null}
-            </span>
-          </li>
+          <OutcomeRow key={`${o.name}-${i}`} outcome={o} />
         ))}
       </ul>
     </div>
+  );
+}
+
+interface OutcomeRowProps {
+  outcome: OddsCategoryEntry["outcomes"][number];
+}
+
+/**
+ * One <li> rendering an outcome — used by both the inline headline card
+ * and the in-dialog full-market list. Extracted so the bookmaker/odds
+ * formatting stays consistent across both surfaces.
+ */
+function OutcomeRow({ outcome }: OutcomeRowProps) {
+  return (
+    <li className="flex items-baseline justify-between gap-2 text-sm">
+      <span className="text-[var(--color-ink-muted)]">{outcome.name}</span>
+      <span className="num text-[var(--color-ink-display)]">
+        {outcome.decimal_odds.toFixed(2)}
+        {outcome.bookmaker ? (
+          <span className="label ml-1 text-[var(--color-ink-faint)]">
+            {outcome.bookmaker}
+          </span>
+        ) : null}
+      </span>
+    </li>
   );
 }
