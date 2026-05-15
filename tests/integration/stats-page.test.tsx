@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 import type { FixtureRow } from "@/lib/fixtures/types";
 import type { DetailJson } from "@/lib/fixtures/stats/detail-json-types";
@@ -452,5 +453,184 @@ describe("StatsPage optional panel handling", () => {
     expect(slot).not.toBeNull();
     // No category buttons / market cards inside.
     expect(slot?.querySelectorAll("button").length).toBe(0);
+  });
+});
+
+// ─── T8: explanatory layer integration + float regression guard ──────────
+//
+// Wave 3 added the explanatory primitives (TeamLegend, RichTooltipCard,
+// InfoPopover) and changed two panel signatures. Task 8 re-plugs page.tsx
+// so the legend names + tooltips reach the slots. These tests pin the
+// integrated contract:
+//   1. `[data-team-legend]` renders on ≥1 panel.
+//   2. No raw float (≥6 fraction digits) leaks into the DOM — Wave 3 routed
+//      every numeric through `fmtNum`/`fmtInt`; a regression would re-expose
+//      e.g. "0.452631…". Guards the whole rendered subtree.
+//   3. `[data-rich-tooltip]` is mountable somewhere in the tree.
+//   4. The page mounts without crashing on a payload that exercises the
+//      changed slots (recent_matches + predictions populated).
+
+function makeRawMatch(
+  overrides: Partial<import("@/lib/fixtures/stats/detail-json-types").RawRecentMatch> = {},
+): import("@/lib/fixtures/stats/detail-json-types").RawRecentMatch {
+  return {
+    id: 1,
+    date: 1_715_000_000_000,
+    date_iso: "2026-05-06T18:00:00+00:00",
+    status: "FT",
+    league: "Premier League",
+    home_team: "Chelsea",
+    away_team: "Arsenal",
+    result: "W",
+    htResult: "D",
+    homeGoalsFt: 2,
+    awayGoalsFt: 1,
+    homeGoalsHt: 0,
+    awayGoalsHt: 0,
+    homeYellows: 1,
+    awayYellows: 2,
+    homeReds: 0,
+    awayReds: 0,
+    homeYellowReds: 0,
+    awayYellowReds: 0,
+    homeBookingPoints: 10,
+    awayBookingPoints: 20,
+    homeTotalShots: 14,
+    awayTotalShots: 9,
+    homeShotsOnTarget: 6,
+    awayShotsOnTarget: 3,
+    homeCorners: 7,
+    awayCorners: 4,
+    homeCorners1h: 3,
+    awayCorners1h: 2,
+    homeCorners2h: 4,
+    awayCorners2h: 2,
+    homeFouls: 11,
+    awayFouls: 13,
+    homeOffsides: 2,
+    awayOffsides: 1,
+    homeTackles: 18,
+    awayTackles: 21,
+    ...overrides,
+  };
+}
+
+function makeRichDetail(): DetailJson {
+  const detail = makeDetail();
+  detail.recent_matches = {
+    home: [
+      makeRawMatch({ id: 1, date_iso: "2026-05-06T18:00:00+00:00" }),
+      makeRawMatch({
+        id: 2,
+        date_iso: "2026-04-28T18:00:00+00:00",
+        result: "L",
+        homeGoalsFt: 0,
+        awayGoalsFt: 3,
+      }),
+      makeRawMatch({
+        id: 3,
+        date_iso: "2026-04-20T18:00:00+00:00",
+        result: "D",
+        homeGoalsFt: 1,
+        awayGoalsFt: 1,
+      }),
+    ],
+    away: [
+      makeRawMatch({
+        id: 4,
+        date_iso: "2026-05-05T18:00:00+00:00",
+        home_team: "Tottenham",
+        away_team: "Everton",
+      }),
+      makeRawMatch({
+        id: 5,
+        date_iso: "2026-04-27T18:00:00+00:00",
+        home_team: "Tottenham",
+        away_team: "Brighton",
+        result: "L",
+        homeGoalsFt: 1,
+        awayGoalsFt: 2,
+      }),
+    ],
+  };
+  detail.predictions = [
+    {
+      stat_type: "Over 2.5 Goals",
+      chance: 91,
+      chance_team: null,
+      best_odds: 1.85,
+      best_odds_bookmaker: "bet365",
+      home_stats: ["Marcou em 8 dos últimos 10"],
+      away_stats: ["Sofreu gol em 7 dos últimos 10"],
+    },
+  ];
+  return detail;
+}
+
+describe("StatsPage explanatory-layer integration (T8)", () => {
+  beforeEach(() => {
+    resetMock();
+  });
+
+  it("renders a team legend on at least one panel", async () => {
+    setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    expect(container.querySelectorAll("[data-team-legend]").length).toBeGreaterThan(0);
+  });
+
+  it("never leaks a raw float (≥6 fraction digits) into the DOM", async () => {
+    setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    const text = container.textContent ?? "";
+    const rawFloat = text.match(/\d\.\d{6,}/);
+    expect(
+      rawFloat,
+      `unformatted float leaked into DOM: "${rawFloat?.[0]}"`,
+    ).toBeNull();
+  });
+
+  it("mounts the tooltip-bearing panels without crashing (rich tooltip wired)", async () => {
+    setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    // `[data-rich-tooltip]` is interaction-gated (recharts only renders the
+    // tooltip `content` on hover; distributions uses local hover state), so
+    // a static SSR render never paints it — the actual hover-visibility is
+    // pinned by the Playwright e2e. Here we assert the panels that *carry*
+    // a RichTooltip mount and survive a render with populated data.
+    for (const id of ["C-home", "C-away", "K", "M", "G+"]) {
+      expect(
+        container.querySelector(`[data-panel="${id}"]`),
+        `panel ${id} (carries a RichTooltip) should mount`,
+      ).not.toBeNull();
+    }
+  });
+
+  it("plugs the away team name into the recent-matches legend (slot C-away)", async () => {
+    setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    const cAway = container.querySelector('[data-panel="C-away"]');
+    expect(cAway).not.toBeNull();
+    const legend = cAway?.querySelector("[data-team-legend]");
+    expect(legend).not.toBeNull();
+    // teamName re-plugged in Task 8 → legend reads "Tottenham", not "time".
+    expect(legend?.textContent).toContain("Tottenham");
+  });
+
+  it("mounts predictions slot J without crashing when predictions populated", async () => {
+    setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    const slotJ = container.querySelector('[data-panel="J"]');
+    expect(slotJ).not.toBeNull();
+    expect(slotJ?.querySelector("[data-prediction]")).not.toBeNull();
   });
 });

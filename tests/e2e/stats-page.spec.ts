@@ -88,6 +88,86 @@ test.describe("stats page · desktop", () => {
   });
 });
 
+test.describe("stats page · explanatory layer (T8)", () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test("hovering a chart point reveals a rich tooltip and the ⓘ opens a popover", async ({
+    page,
+  }) => {
+    const fixture = await pickFixtureWithDetail(page);
+    test.skip(
+      !fixture,
+      "no fixture with non-null detail_json found in dev DB — seed one to exercise this path",
+    );
+
+    await page.goto(`/fixtures/${fixture!.id}/stats`);
+    await expect(page.locator("[data-panels]")).toBeVisible();
+
+    // ─── rich tooltip on hover ─────────────────────────────────────────
+    // Recent-matches (slot C-home) wraps a recharts LineChart whose
+    // tooltip `content` is `<RichTooltipFromRecharts/>` → `[data-rich-tooltip]`.
+    // The node only mounts while the cursor is over a data point, so we
+    // sweep the plot area and assert it surfaces.
+    const chart = page
+      .locator('[data-panel="C-home"] .recharts-wrapper')
+      .first();
+    await expect(chart).toBeVisible();
+    const box = await chart.boundingBox();
+    test.skip(!box, "recent-matches chart has no bounding box (no series?)");
+
+    const tooltip = page.locator("[data-rich-tooltip]");
+    // Move across the plot until the tooltip materialises.
+    for (let i = 1; i < 10 && (await tooltip.count()) === 0; i++) {
+      await page.mouse.move(
+        box!.x + (box!.width * i) / 10,
+        box!.y + box!.height / 2,
+      );
+      await page.waitForTimeout(120);
+    }
+    await expect(tooltip.first()).toBeVisible();
+
+    // ─── InfoPopover (ⓘ "como ler") ────────────────────────────────────
+    // Every refactored panel exposes a Radix popover trigger with an
+    // aria-label starting "como ler". Click the first one and assert the
+    // portalled content opens.
+    const infoTrigger = page
+      .getByRole("button", { name: /como ler/i })
+      .first();
+    await expect(infoTrigger).toBeVisible();
+    await infoTrigger.click();
+    await expect(
+      page.locator("[data-radix-popper-content-wrapper]"),
+    ).toBeVisible();
+  });
+
+  test("reports zero axe-core violations with the explanatory layer mounted", async ({
+    page,
+  }) => {
+    const fixture = await pickFixtureWithDetail(page);
+    test.skip(
+      !fixture,
+      "no fixture with non-null detail_json found in dev DB — seed one to exercise this path",
+    );
+
+    await page.goto(`/fixtures/${fixture!.id}/stats`);
+    await expect(page.locator("[data-panels]")).toBeVisible();
+
+    const results = await new AxeBuilder({ page })
+      .include("main")
+      .withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"])
+      .analyze();
+
+    expect(
+      results.violations,
+      `axe found ${results.violations.length} violation(s): ${JSON.stringify(
+        results.violations.map((v) => ({ id: v.id, nodes: v.nodes.length })),
+        null,
+        2,
+      )}`,
+    ).toEqual([]);
+  });
+});
+
 test.describe("stats page · mobile", () => {
   test.use({ viewport: { width: 360, height: 800 } });
 

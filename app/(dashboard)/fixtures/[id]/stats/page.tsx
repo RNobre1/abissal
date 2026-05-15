@@ -390,7 +390,13 @@ function buildPanels(
       id: "J",
       colSpan: "span 6 / span 6",
       label: "predictions",
-      node: <Predictions data={detail.predictions ?? []} />,
+      node: (
+        <Predictions
+          data={detail.predictions ?? []}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+        />
+      ),
     },
     {
       id: "N",
@@ -427,13 +433,25 @@ function buildPanels(
       id: "C-home",
       colSpan: "span 12 / span 12",
       label: "recent matches home",
-      node: <RecentMatchesPanel matches={recentHome} title={`Últimos jogos · ${homeTeam}`} />,
+      node: (
+        <RecentMatchesPanel
+          matches={recentHome}
+          teamName={homeTeam}
+          title={`Últimos jogos · ${homeTeam}`}
+        />
+      ),
     },
     {
       id: "C-away",
       colSpan: "span 12 / span 12",
       label: "recent matches away",
-      node: <RecentMatchesPanel matches={recentAway} title={`Últimos jogos · ${awayTeam}`} />,
+      node: (
+        <RecentMatchesPanel
+          matches={recentAway}
+          teamName={awayTeam}
+          title={`Últimos jogos · ${awayTeam}`}
+        />
+      ),
     },
   ];
 }
