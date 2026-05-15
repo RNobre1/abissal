@@ -530,6 +530,55 @@ export function deriveRadarAxes(
   return { axes };
 }
 
+// ─── Scatter presets + recent series ────────────────────────────────────
+
+/** A curated pair of metric keys for the scatter playground. */
+export interface ScatterPreset {
+  x: string;
+  y: string;
+  label: string;
+}
+
+/** Hand-picked metric pairs likely to expose a betting-relevant signal. */
+export const SCATTER_PRESETS: ScatterPreset[] = [
+  { x: "sot_for", y: "goals_ft_for", label: "Finalizações × Gols" },
+  { x: "corners_for", y: "goals_2h_for", label: "Escanteios × Gols 2T" },
+  { x: "fouls_for", y: "cards_for", label: "Faltas × Cartões" },
+  { x: "shots_for", y: "sot_for", label: "Chutes × No gol" },
+];
+
+/** A per-match series for one metric, plus its mean reference line. */
+export interface RecentSeries {
+  values: (number | null)[];
+  xLabels: string[];
+  referenceValue: number;
+}
+
+/**
+ * Project a single metric across recent matches, preserving nulls (gaps in
+ * the line) and computing the mean of the finite values as a reference line.
+ * xLabels use the first 3 chars of the opponent name, uppercased.
+ */
+export function deriveRecentSeries(
+  matches: NormalizedRecentMatch[],
+  metric: keyof NormalizedRecentMatch,
+): RecentSeries {
+  const values = matches.map((m) => {
+    const v = m[metric];
+    return typeof v === "number" ? v : null;
+  });
+  const finite = values.filter(
+    (v): v is number => v != null && Number.isFinite(v),
+  );
+  const referenceValue = finite.length
+    ? finite.reduce((a, b) => a + b, 0) / finite.length
+    : 0;
+  const xLabels = matches.map((m) =>
+    (m.opponent ?? "?").slice(0, 3).toUpperCase(),
+  );
+  return { values, xLabels, referenceValue };
+}
+
 // Keep helpers exposed for unit tests / reuse in T2.
 export const __internal = {
   asRecord,

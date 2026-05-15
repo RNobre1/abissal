@@ -11,6 +11,8 @@ import {
   deriveOddsCategories,
   deriveDistributions,
   deriveRadarAxes,
+  SCATTER_PRESETS,
+  deriveRecentSeries,
 } from "./derive";
 import type { DetailJson, NormalizedRecentMatch } from "./detail-json-types";
 
@@ -829,5 +831,84 @@ describe("Real fixture smoke", () => {
   it("deriveStreakIndex on Liga MX is non-empty", () => {
     const out = deriveStreakIndex(ligaMx.streaks.home);
     expect(out.all.length).toBeGreaterThan(0);
+  });
+});
+
+// ─── SCATTER_PRESETS + deriveRecentSeries ───────────────────────────────
+
+function makeNormalizedMatches(
+  goalsFt: number[],
+  opponents?: string[],
+): NormalizedRecentMatch[] {
+  return goalsFt.map((g, i) => {
+    const base = makeMatches([0])[0];
+    return {
+      ...base,
+      id: i,
+      opponent: opponents?.[i] ?? `Team${i}`,
+      goals_ft_for: g,
+    };
+  });
+}
+
+describe("SCATTER_PRESETS", () => {
+  it("has curated labelled pairs", () => {
+    expect(SCATTER_PRESETS.length).toBeGreaterThanOrEqual(3);
+    const p = SCATTER_PRESETS[0];
+    expect(p).toHaveProperty("x");
+    expect(p).toHaveProperty("y");
+    expect(p).toHaveProperty("label");
+  });
+
+  it("every preset references real metric keys with a non-empty label", () => {
+    for (const p of SCATTER_PRESETS) {
+      expect(typeof p.x).toBe("string");
+      expect(typeof p.y).toBe("string");
+      expect(p.label.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("deriveRecentSeries", () => {
+  it("returns values, xLabels (opponent), referenceValue (mean)", () => {
+    const matches = makeNormalizedMatches([0, 3, 1, 2, 1, 4]);
+    const s = deriveRecentSeries(matches, "goals_ft_for");
+    expect(s.values).toEqual([0, 3, 1, 2, 1, 4]);
+    expect(s.xLabels.length).toBe(6);
+    expect(s.referenceValue).toBeCloseTo(11 / 6, 5);
+  });
+
+  it("xLabels are the first 3 chars of opponent, uppercased", () => {
+    const matches = makeNormalizedMatches(
+      [1, 2],
+      ["Newcastle", "ab"],
+    );
+    const s = deriveRecentSeries(matches, "goals_ft_for");
+    expect(s.xLabels).toEqual(["NEW", "AB"]);
+  });
+
+  it("preserves null values and excludes them from the mean", () => {
+    const matches = makeNormalizedMatches([1, 2, 3]);
+    matches[1].goals_ft_for = null;
+    const s = deriveRecentSeries(matches, "goals_ft_for");
+    expect(s.values).toEqual([1, null, 3]);
+    expect(s.referenceValue).toBeCloseTo(2, 5);
+  });
+
+  it("referenceValue is 0 when no finite values exist", () => {
+    const matches = makeNormalizedMatches([1, 2]);
+    matches.forEach((m) => {
+      m.goals_ft_for = null;
+    });
+    const s = deriveRecentSeries(matches, "goals_ft_for");
+    expect(s.values).toEqual([null, null]);
+    expect(s.referenceValue).toBe(0);
+  });
+
+  it("handles empty match list", () => {
+    const s = deriveRecentSeries([], "goals_ft_for");
+    expect(s.values).toEqual([]);
+    expect(s.xLabels).toEqual([]);
+    expect(s.referenceValue).toBe(0);
   });
 });
