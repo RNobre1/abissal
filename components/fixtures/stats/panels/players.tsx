@@ -13,6 +13,8 @@ import { useSearchParams } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import {
   CartesianGrid,
+  Label,
+  ReferenceLine,
   ResponsiveContainer,
   Scatter,
   ScatterChart,
@@ -26,7 +28,18 @@ import type {
   PlayerRankingCriterion,
   PlayerRanked,
 } from "@/lib/fixtures/stats/detail-json-types";
+import { fmtInt, fmtNum } from "@/lib/fixtures/stats/format";
 import { useUrlPatcher } from "@/lib/fixtures/stats/use-url-state";
+import { InfoPopover } from "@/components/fixtures/stats/_primitives/info-popover";
+import { RichTooltipCard } from "@/components/fixtures/stats/_primitives/rich-tooltip";
+import { TeamLegend } from "@/components/fixtures/stats/_primitives/team-legend";
+
+function median(nums: number[]): number {
+  if (nums.length === 0) return 0;
+  const s = [...nums].sort((a, b) => a - b);
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 === 0 ? (s[mid - 1] + s[mid]) / 2 : s[mid];
+}
 
 interface PlayersProps {
   homeTeam: string;
@@ -240,6 +253,35 @@ interface ScatterDot {
   x: number;
   y: number;
   name: string;
+  sideName: string;
+}
+
+interface ScatterTooltipProps {
+  active?: boolean;
+  payload?: Array<{ payload: ScatterDot }>;
+}
+
+/**
+ * Adaptador recharts → RichTooltipCard. Valores SEMPRE via fmt* (minutos
+ * com fmtInt — "2.480"; eff com fmtNum — "0.45", nunca o float cru).
+ */
+export function PlayerScatterTooltip({ active, payload }: ScatterTooltipProps) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  return (
+    <RichTooltipCard
+      title={`${d.name} · ${d.sideName}`}
+      rows={[
+        { k: "Minutos", v: fmtInt(d.x) },
+        { k: "G+A /90", v: fmtNum(d.y) },
+      ]}
+      reading={
+        d.y >= 0.5
+          ? "Decisivo: gera gol/assistência acima da média."
+          : "Baixo retorno ofensivo por 90min jogados."
+      }
+    />
+  );
 }
 
 function ScatterEfficiency({
@@ -254,16 +296,34 @@ function ScatterEfficiency({
     () =>
       home
         .filter((p) => p.minutes > 0)
-        .map((p) => ({ x: p.minutes, y: efficiencyPer90(p), name: p.name })),
-    [home],
+        .map((p) => ({
+          x: p.minutes,
+          y: efficiencyPer90(p),
+          name: p.name,
+          sideName: homeTeam,
+        })),
+    [home, homeTeam],
   );
   const awayDots = useMemo<ScatterDot[]>(
     () =>
       away
         .filter((p) => p.minutes > 0)
-        .map((p) => ({ x: p.minutes, y: efficiencyPer90(p), name: p.name })),
-    [away],
+        .map((p) => ({
+          x: p.minutes,
+          y: efficiencyPer90(p),
+          name: p.name,
+          sideName: awayTeam,
+        })),
+    [away, awayTeam],
   );
+
+  const { medX, medY } = useMemo(() => {
+    const all = [...homeDots, ...awayDots];
+    return {
+      medX: median(all.map((d) => d.x)),
+      medY: median(all.map((d) => d.y)),
+    };
+  }, [homeDots, awayDots]);
 
   if (homeDots.length === 0 && awayDots.length === 0) {
     return null;
@@ -271,9 +331,20 @@ function ScatterEfficiency({
 
   return (
     <div className="flex flex-col gap-2">
-      <span className="label text-[var(--color-ink-muted)]">
-        minutos × (gols + assistências) /90
-      </span>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <span className="label flex items-center gap-1.5 text-[var(--color-ink-muted)]">
+          minutos × decisivo /90min
+          <InfoPopover label="como ler o gráfico de jogadores">
+            <p>
+              Cada ponto é um jogador. Eixo X = minutos jogados (volume); eixo Y
+              = (gols + assistências) por 90min (eficiência). As linhas marcam a
+              mediana de cada eixo — quem cai no canto superior direito é{" "}
+              <strong>titular decisivo</strong> (joga muito e produz muito).
+            </p>
+          </InfoPopover>
+        </span>
+        <TeamLegend home={homeTeam} away={awayTeam} />
+      </div>
       {width !== undefined ? (
         <div style={{ width, height }}>
           <ScatterBody
@@ -281,6 +352,8 @@ function ScatterEfficiency({
             awayTeam={awayTeam}
             homeDots={homeDots}
             awayDots={awayDots}
+            medX={medX}
+            medY={medY}
             width={width}
             height={height}
           />
@@ -292,9 +365,14 @@ function ScatterEfficiency({
             awayTeam={awayTeam}
             homeDots={homeDots}
             awayDots={awayDots}
+            medX={medX}
+            medY={medY}
           />
         </ResponsiveContainer>
       )}
+      <p className="text-xs text-[var(--color-ink-faint)]">
+        Canto superior direito = mais minutos e mais decisivo.
+      </p>
     </div>
   );
 }
@@ -304,6 +382,8 @@ interface ScatterBodyProps {
   awayTeam: string;
   homeDots: ScatterDot[];
   awayDots: ScatterDot[];
+  medX: number;
+  medY: number;
   width?: number;
   height?: number;
 }
@@ -313,12 +393,14 @@ function ScatterBody({
   awayTeam,
   homeDots,
   awayDots,
+  medX,
+  medY,
   width,
   height,
 }: ScatterBodyProps) {
   return (
     <ScatterChart
-      margin={{ top: 8, right: 16, left: -16, bottom: 0 }}
+      margin={{ top: 12, right: 16, left: 4, bottom: 16 }}
       {...(width !== undefined ? { width } : {})}
       {...(height !== undefined ? { height } : {})}
     >
@@ -329,21 +411,47 @@ function ScatterBody({
         name="minutos"
         tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
         stroke="var(--color-ink-faint)"
-      />
+      >
+        <Label
+          value="Minutos jogados"
+          position="insideBottom"
+          offset={-10}
+          style={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
+        />
+      </XAxis>
       <YAxis
         type="number"
         dataKey="y"
         name="eff/90"
         tick={{ fill: "var(--color-ink-muted)", fontSize: 11 }}
         stroke="var(--color-ink-faint)"
+      >
+        <Label
+          value="Decisivo /90min"
+          angle={-90}
+          position="insideLeft"
+          style={{ fill: "var(--color-ink-muted)", fontSize: 11, textAnchor: "middle" }}
+        />
+      </YAxis>
+      <ReferenceLine
+        x={medX}
+        stroke="var(--color-ink-faint)"
+        strokeDasharray="4 4"
       />
+      <ReferenceLine
+        y={medY}
+        stroke="var(--color-ink-faint)"
+        strokeDasharray="4 4"
+      >
+        <Label
+          value="titular decisivo"
+          position="insideTopRight"
+          style={{ fill: "var(--color-ink-muted)", fontSize: 10 }}
+        />
+      </ReferenceLine>
       <Tooltip
-        contentStyle={{
-          background: "var(--color-surface-2)",
-          border: "1px solid var(--color-ink-faint)",
-          color: "var(--color-ink-display)",
-          fontSize: 12,
-        }}
+        cursor={{ strokeDasharray: "3 3" }}
+        content={<PlayerScatterTooltip />}
       />
       <Scatter
         name={homeTeam}

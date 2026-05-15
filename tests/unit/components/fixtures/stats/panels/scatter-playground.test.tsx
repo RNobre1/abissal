@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { ScatterPlayground } from "@/components/fixtures/stats/panels/scatter-playground";
 import type { NormalizedRecentMatch } from "@/lib/fixtures/stats/detail-json-types";
@@ -159,5 +160,78 @@ describe("<ScatterPlayground />", () => {
       />,
     );
     expect(screen.getByText(/sem dados/i)).toBeDefined();
+  });
+
+  it("renderiza chips dos SCATTER_PRESETS e clicar seta os eixos", () => {
+    render(
+      <ScatterPlayground
+        homeTeam="Tottenham"
+        awayTeam="Leeds"
+        home={home}
+        away={away}
+        width={420}
+        height={300}
+      />,
+    );
+    const chip = screen.getByRole("button", { name: /Faltas × Cartões/i });
+    expect(chip).toBeInTheDocument();
+    fireEvent.click(chip);
+    const xSelect = screen.getByLabelText(/eixo x/i) as HTMLSelectElement;
+    const ySelect = screen.getByLabelText(/eixo y/i) as HTMLSelectElement;
+    expect(xSelect.value).toBe("fouls_for");
+    expect(ySelect.value).toBe("cards_for");
+  });
+
+  it("mostra badge interpretR ao lado do r", () => {
+    render(
+      <ScatterPlayground
+        homeTeam="Tottenham"
+        awayTeam="Leeds"
+        home={home}
+        away={away}
+        width={420}
+        height={300}
+      />,
+    );
+    const badge = screen.getByTestId("scatter-strength");
+    expect(badge.textContent?.toLowerCase()).toMatch(
+      /desprezível|fraca|moderada|forte/,
+    );
+  });
+
+  it("mostra frase readScatterPair e TeamLegend", () => {
+    const { container } = render(
+      <ScatterPlayground
+        homeTeam="Tottenham"
+        awayTeam="Leeds"
+        home={home}
+        away={away}
+        width={420}
+        height={300}
+      />,
+    );
+    const sentence = screen.getByTestId("scatter-reading");
+    expect(sentence.textContent).toMatch(/r=/);
+    expect(sentence.textContent?.toLowerCase()).toContain("relação");
+    const legend = container.querySelector("[data-team-legend]");
+    expect(legend).not.toBeNull();
+    expect(legend!.textContent).toContain("Tottenham");
+    expect(legend!.textContent).toContain("Leeds");
+  });
+
+  it("expõe InfoPopover 'como ler dispersão'", () => {
+    render(
+      <ScatterPlayground
+        homeTeam="Tottenham"
+        awayTeam="Leeds"
+        home={home}
+        away={away}
+        width={420}
+        height={300}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /como ler dispersão/i }),
+    ).toBeInTheDocument();
   });
 });

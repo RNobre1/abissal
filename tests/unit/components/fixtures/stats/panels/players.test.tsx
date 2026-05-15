@@ -10,8 +10,12 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import "@testing-library/jest-dom/vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { Players } from "@/components/fixtures/stats/panels/players";
+import {
+  Players,
+  PlayerScatterTooltip,
+} from "@/components/fixtures/stats/panels/players";
 import type { Player } from "@/lib/fixtures/stats/detail-json-types";
 
 const replaceMock = vi.fn();
@@ -159,5 +163,63 @@ describe("<Players />", () => {
     expect(screen.getByTestId("players-home")).toBeDefined();
     expect(screen.getByTestId("players-away")).toBeDefined();
     expect(screen.getByTestId("players-away").textContent?.toLowerCase()).toContain("sem dados");
+  });
+
+  it("renderiza TeamLegend com os dois times no scatter", () => {
+    const { container } = render(
+      <Players homeTeam="Tottenham" awayTeam="Leeds" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    const legend = container.querySelector("[data-team-legend]");
+    expect(legend).not.toBeNull();
+    expect(legend!.textContent).toContain("Tottenham");
+    expect(legend!.textContent).toContain("Leeds");
+  });
+
+  it("scatter tem eixos rotulados e InfoPopover de leitura", () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    expect(container.textContent).toContain("Minutos jogados");
+    expect(container.textContent).toContain("Decisivo /90min");
+    expect(screen.getByRole("button", { name: /como ler/i })).toBeInTheDocument();
+  });
+
+  it("scatter desenha linhas de mediana (quadrantes) + rótulo titular decisivo", () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    // recharts <ReferenceLine> renderiza <line class="recharts-reference-line-line">
+    const refs = container.querySelectorAll("line.recharts-reference-line-line");
+    expect(refs.length).toBeGreaterThanOrEqual(2);
+    expect(container.textContent).toContain("titular decisivo");
+  });
+});
+
+describe("<PlayerScatterTooltip />", () => {
+  it("formata minutos com fmtInt e eff com fmtNum (nunca float cru)", () => {
+    render(
+      <PlayerScatterTooltip
+        active
+        payload={[
+          {
+            payload: {
+              x: 2480,
+              y: 0.4525455688246386,
+              name: "M. Salah",
+              sideName: "Leeds",
+            },
+          },
+        ]}
+      />,
+    );
+    expect(screen.getByText("M. Salah · Leeds")).toBeInTheDocument();
+    expect(screen.getByText("2.480")).toBeInTheDocument();
+    expect(screen.getByText("0.45")).toBeInTheDocument();
+    expect(screen.queryByText("0.4525455688246386")).not.toBeInTheDocument();
+  });
+
+  it("inativo → não renderiza nada", () => {
+    const { container } = render(<PlayerScatterTooltip active={false} />);
+    expect(container.querySelector("[data-rich-tooltip]")).toBeNull();
   });
 });

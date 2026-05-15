@@ -14,6 +14,10 @@ import {
   YAxis,
 } from "recharts";
 import type { NormalizedRecentMatch } from "@/lib/fixtures/stats/detail-json-types";
+import { SCATTER_PRESETS } from "@/lib/fixtures/stats/derive";
+import { interpretR, readScatterPair } from "@/lib/fixtures/stats/readings";
+import { InfoPopover } from "@/components/fixtures/stats/_primitives/info-popover";
+import { TeamLegend } from "@/components/fixtures/stats/_primitives/team-legend";
 
 /**
  * Stats users can plot on either axis. Every NormalizedRecentMatch field
@@ -24,6 +28,7 @@ import type { NormalizedRecentMatch } from "@/lib/fixtures/stats/detail-json-typ
 type AxisKey =
   | "goals_ft_for"
   | "goals_ft_against"
+  | "goals_2h_for"
   | "sot_for"
   | "shots_for"
   | "corners_for"
@@ -34,6 +39,7 @@ type AxisKey =
 const OPTIONS: Array<{ key: AxisKey; label: string }> = [
   { key: "goals_ft_for", label: "Gols FT (pró)" },
   { key: "goals_ft_against", label: "Gols sofridos" },
+  { key: "goals_2h_for", label: "Gols 2T (pró)" },
   { key: "sot_for", label: "Chutes no gol" },
   { key: "shots_for", label: "Chutes totais" },
   { key: "corners_for", label: "Cantos" },
@@ -41,6 +47,12 @@ const OPTIONS: Array<{ key: AxisKey; label: string }> = [
   { key: "booking_points_for", label: "Booking points" },
   { key: "fouls_for", label: "Faltas" },
 ];
+
+const AXIS_KEYS = new Set<string>(OPTIONS.map((o) => o.key));
+/** Apenas presets cujas duas métricas existem como eixo plotável aqui. */
+const APPLICABLE_PRESETS = SCATTER_PRESETS.filter(
+  (p) => AXIS_KEYS.has(p.x) && AXIS_KEYS.has(p.y),
+);
 
 function pick(m: NormalizedRecentMatch, k: AxisKey): number {
   return (m[k] ?? 0) as number;
@@ -135,16 +147,68 @@ export function ScatterPlayground({
   const xLabel = OPTIONS.find((o) => o.key === xKey)!.label;
   const yLabel = OPTIONS.find((o) => o.key === yKey)!.label;
 
+  const strength = pearson === null ? null : interpretR(pearson);
+  const readingText =
+    pearson === null ? null : readScatterPair(xKey, yKey, pearson);
+
   return (
     <div className="card @container/card p-4">
       <div className="mb-3 flex flex-wrap items-center gap-3">
-        <span className="label">scatter playground</span>
+        <span className="label flex items-center gap-1.5">
+          scatter playground
+          <InfoPopover label="como ler dispersão">
+            <p>
+              Cada ponto é um jogo recente. Quanto mais os pontos formam uma
+              reta, mais as duas métricas andam juntas. O <strong>r</strong> de
+              Pearson (-1 a +1) resume a força: perto de 0 = sem relação; perto
+              de ±1 = relação forte. Use os atalhos pra pares já úteis pra
+              apostas.
+            </p>
+          </InfoPopover>
+        </span>
         <span
           className="label num text-xs text-[var(--color-ink-muted)]"
           data-testid="scatter-pearson"
         >
           r = {pearson === null ? "—" : pearson.toFixed(3)}
         </span>
+        {strength ? (
+          <span
+            data-testid="scatter-strength"
+            className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2 py-0.5 text-[10px] text-[var(--color-ink-muted)]"
+          >
+            relação {strength}
+          </span>
+        ) : null}
+        <TeamLegend home={homeTeam} away={awayTeam} className="ml-auto" />
+      </div>
+      <div
+        className="mb-3 flex flex-wrap gap-1.5"
+        role="group"
+        aria-label="atalhos de pares"
+      >
+        {APPLICABLE_PRESETS.map((p) => {
+          const active = xKey === p.x && yKey === p.y;
+          return (
+            <button
+              key={p.label}
+              type="button"
+              onClick={() => {
+                setXKey(p.x as AxisKey);
+                setYKey(p.y as AxisKey);
+              }}
+              aria-pressed={active}
+              className={[
+                "label rounded-[var(--radius-sm)] border px-2 py-1 transition-colors",
+                active
+                  ? "border-[var(--color-vermelho-low)] bg-[color-mix(in_srgb,var(--color-vermelho)_15%,transparent)] text-[var(--color-vermelho)]"
+                  : "border-[var(--color-line)] bg-[var(--color-surface-2)] text-[var(--color-ink-muted)] hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)]",
+              ].join(" ")}
+            >
+              {p.label}
+            </button>
+          );
+        })}
       </div>
       <div className="mb-3 flex flex-wrap gap-3">
         <label className="label flex items-center gap-1 text-[var(--color-ink-muted)]">
@@ -215,6 +279,14 @@ export function ScatterPlayground({
           />
         </ResponsiveContainer>
       )}
+      {readingText ? (
+        <p
+          data-testid="scatter-reading"
+          className="mt-3 text-xs leading-relaxed text-[var(--color-ink-muted)]"
+        >
+          {readingText}
+        </p>
+      ) : null}
     </div>
   );
 }
