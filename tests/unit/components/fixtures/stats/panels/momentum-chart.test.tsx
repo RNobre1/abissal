@@ -1,5 +1,6 @@
+import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, cleanup } from "@testing-library/react";
+import { render, cleanup, screen } from "@testing-library/react";
 
 // Mock lightweight-charts — happy-dom has no real canvas / WebGL.
 // `vi.hoisted` puts the mock vars *above* the auto-hoisted `vi.mock`.
@@ -90,6 +91,33 @@ describe("<MomentumChart />", () => {
     );
     unmount();
     expect(removeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a team legend with both team names", () => {
+    const { container } = render(
+      <MomentumChart
+        homeTeam="Tottenham"
+        awayTeam="Leeds"
+        home={homeSeries}
+        away={awaySeries}
+      />,
+    );
+    expect(container.querySelector("[data-team-legend]")).not.toBeNull();
+    expect(screen.getByText("Tottenham")).toBeInTheDocument();
+    expect(screen.getByText("Leeds")).toBeInTheDocument();
+  });
+
+  it("renders a numeric Y axis tick from the value domain", () => {
+    render(
+      <MomentumChart
+        homeTeam="Tottenham"
+        awayTeam="Leeds"
+        home={homeSeries}
+        away={awaySeries}
+      />,
+    );
+    // max value across series = 2.0 → ChartFrame Y tick "2" present.
+    expect(screen.getByText("2")).toBeInTheDocument();
   });
 
   it("does not leak: unmount runs even when only one side has data", () => {

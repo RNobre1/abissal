@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest";
 import { describe, it, expect } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
 import { RecentMatchesPanel } from "@/components/fixtures/stats/panels/recent-matches";
@@ -47,18 +48,43 @@ function mkMatch(
 }
 
 const matches: NormalizedRecentMatch[] = [
-  mkMatch(1, "2026-04-01", { goals_ft_for: 1, sot_for: 3, corners_for: 4, booking_points_for: 10 }),
-  mkMatch(2, "2026-04-15", { goals_ft_for: 2, sot_for: 5, corners_for: 6, booking_points_for: 12 }),
-  mkMatch(3, "2026-05-01", { goals_ft_for: 3, sot_for: 7, corners_for: 7, booking_points_for: 18 }),
+  mkMatch(1, "2026-04-01", {
+    opponent: "Newcastle",
+    goals_ft_for: 1,
+    sot_for: 3,
+    corners_for: 4,
+    booking_points_for: 10,
+  }),
+  mkMatch(2, "2026-04-15", {
+    opponent: "Fulham",
+    goals_ft_for: 2,
+    sot_for: 5,
+    corners_for: 6,
+    booking_points_for: 12,
+  }),
+  mkMatch(3, "2026-05-01", {
+    opponent: "Brighton",
+    goals_ft_for: 3,
+    sot_for: 7,
+    corners_for: 7,
+    booking_points_for: 18,
+  }),
 ];
 
 describe("<RecentMatchesPanel />", () => {
   it("defaults toggle to goals_ft and renders a trend line", () => {
     const { container } = render(
-      <RecentMatchesPanel matches={matches} title="Últimos jogos" width={400} />,
+      <RecentMatchesPanel
+        matches={matches}
+        title="Últimos jogos"
+        teamName="Aston Villa"
+        width={400}
+      />,
     );
-    // Active chip = goals_ft.
-    const activeChip = screen.getByRole("button", { name: /gols ft/i, pressed: true });
+    const activeChip = screen.getByRole("button", {
+      name: /gols ft/i,
+      pressed: true,
+    });
     expect(activeChip).toBeDefined();
     // Two <Line> curves rendered: the data series + the trend.
     const curves = container.querySelectorAll("path.recharts-line-curve");
@@ -66,11 +92,17 @@ describe("<RecentMatchesPanel />", () => {
   });
 
   it("clicking SOT chip switches the active series", () => {
-    render(<RecentMatchesPanel matches={matches} title="X" width={400} />);
+    render(
+      <RecentMatchesPanel
+        matches={matches}
+        title="X"
+        teamName="Aston Villa"
+        width={400}
+      />,
+    );
     const sotChip = screen.getByRole("button", { name: /sot/i });
     fireEvent.click(sotChip);
     expect(sotChip.getAttribute("aria-pressed")).toBe("true");
-    // The goals chip should no longer be pressed.
     const goalsChip = screen.getByRole("button", { name: /gols ft/i });
     expect(goalsChip.getAttribute("aria-pressed")).toBe("false");
   });
@@ -89,26 +121,101 @@ describe("<RecentMatchesPanel />", () => {
   });
 
   it("trend regression skips null/undefined stat values (not coerced to 0)", () => {
-    // Mix finite + null SOT — series where 3 of 5 values are null. If the
-    // panel coerced null → 0 (the old bug) the trend would drag toward 0 and
-    // its slope would flip negative. Filtering nulls keeps the trend
-    // positive (3 → 7 across kept points).
     const sparse: NormalizedRecentMatch[] = [
       mkMatch(10, "2026-04-01", { sot_for: 3, goals_ft_for: 1 }),
-      mkMatch(11, "2026-04-08", { sot_for: null as unknown as number, goals_ft_for: 1 }),
+      mkMatch(11, "2026-04-08", {
+        sot_for: null as unknown as number,
+        goals_ft_for: 1,
+      }),
       mkMatch(12, "2026-04-15", { sot_for: 5, goals_ft_for: 1 }),
-      mkMatch(13, "2026-04-22", { sot_for: null as unknown as number, goals_ft_for: 1 }),
+      mkMatch(13, "2026-04-22", {
+        sot_for: null as unknown as number,
+        goals_ft_for: 1,
+      }),
       mkMatch(14, "2026-05-01", { sot_for: 7, goals_ft_for: 1 }),
     ];
     const { container } = render(
       <RecentMatchesPanel matches={sparse} title="X" width={400} />,
     );
-    // Switch to SOT chip — that's the series with nulls.
     const sotChip = screen.getByRole("button", { name: /sot/i });
     fireEvent.click(sotChip);
-    // The two recharts <Line> curves still rendered (data + trend) — no crash
-    // when regression hits filtered series.
     const curves = container.querySelectorAll("path.recharts-line-curve");
     expect(curves.length).toBe(2);
+  });
+
+  it("renders a team legend with the team name", () => {
+    const { container } = render(
+      <RecentMatchesPanel
+        matches={matches}
+        title="X"
+        teamName="Aston Villa"
+        width={400}
+      />,
+    );
+    expect(container.querySelector("[data-team-legend]")).not.toBeNull();
+    expect(screen.getByText("Aston Villa")).toBeInTheDocument();
+  });
+
+  it("renders a numeric Y axis tick", () => {
+    const { container } = render(
+      <RecentMatchesPanel
+        matches={matches}
+        title="X"
+        teamName="Aston Villa"
+        width={400}
+      />,
+    );
+    // goals_ft_for domain max here is 3 → ChartFrame emits a "3" tick in
+    // its dedicated Y-axis column (scoped so recharts value labels don't
+    // make this ambiguous).
+    const frame = container.querySelector("[data-chart-frame]");
+    expect(frame).not.toBeNull();
+    const yTicks = Array.from(frame!.querySelectorAll("span")).map(
+      (s) => s.textContent,
+    );
+    expect(yTicks).toContain("3");
+    expect(yTicks).toContain("0");
+  });
+
+  it("renders a labelled mean reference line", () => {
+    render(
+      <RecentMatchesPanel
+        matches={matches}
+        title="X"
+        teamName="Aston Villa"
+        width={400}
+      />,
+    );
+    // mean of [1,2,3] = 2 → "média 2"
+    expect(screen.getByText(/média 2/)).toBeInTheDocument();
+  });
+
+  it("uses opponent abbreviations on the X axis", () => {
+    render(
+      <RecentMatchesPanel
+        matches={matches}
+        title="X"
+        teamName="Aston Villa"
+        width={400}
+      />,
+    );
+    // chrono order reversed → oldest first: Newcastle, Fulham, Brighton.
+    expect(screen.getByText("NEW")).toBeInTheDocument();
+    expect(screen.getByText("FUL")).toBeInTheDocument();
+    expect(screen.getByText("BRI")).toBeInTheDocument();
+  });
+
+  it("exposes an InfoPopover trigger to explain the chart", () => {
+    render(
+      <RecentMatchesPanel
+        matches={matches}
+        title="X"
+        teamName="Aston Villa"
+        width={400}
+      />,
+    );
+    expect(
+      screen.getByRole("button", { name: /como ler/i }),
+    ).toBeInTheDocument();
   });
 });

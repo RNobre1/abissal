@@ -1,8 +1,10 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createChart } from "lightweight-charts";
 import type { ISeriesApi, IChartApi } from "lightweight-charts";
+import { ChartFrame } from "@/components/fixtures/stats/_primitives/chart-frame";
+import { TeamLegend } from "@/components/fixtures/stats/_primitives/team-legend";
 
 /**
  * One point on a momentum line. `time` is an ISO date ("YYYY-MM-DD") —
@@ -22,6 +24,18 @@ interface MomentumChartProps {
   height?: number;
 }
 
+/** Build up to 3 ascending Y ticks (0 · mid · top) from the value domain. */
+function deriveYTicks(home: MomentumPoint[], away: MomentumPoint[]): number[] {
+  const vals = [...home, ...away]
+    .map((p) => p.value)
+    .filter((v) => Number.isFinite(v));
+  const max = vals.length ? Math.max(...vals) : 1;
+  const top = Math.max(1, Math.ceil(max));
+  const ticks = new Set<number>([0, top]);
+  if (top >= 2) ticks.add(Math.round(top / 2));
+  return [...ticks].sort((a, b) => a - b);
+}
+
 /**
  * Painel B · momentum trend (lightweight-charts canvas).
  *
@@ -31,7 +45,9 @@ interface MomentumChartProps {
  * rendering stays smooth past ~10 points where SVG-per-dot degrades.
  *
  * The chart instance is created in a useEffect cleanup pair so a remount
- * (StrictMode dev double-render) does not leak a Chromium canvas.
+ * (StrictMode dev double-render) does not leak a Chromium canvas. The
+ * canvas itself is the body of a `<ChartFrame>` that contributes the Y
+ * scale, and a `<TeamLegend>` documents the color↔team mapping.
  */
 export function MomentumChart({
   homeTeam,
@@ -42,6 +58,7 @@ export function MomentumChart({
 }: MomentumChartProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const isEmpty = home.length === 0 && away.length === 0;
+  const yTicks = useMemo(() => deriveYTicks(home, away), [home, away]);
 
   useEffect(() => {
     if (isEmpty) return;
@@ -50,7 +67,7 @@ export function MomentumChart({
 
     const chart: IChartApi = createChart(container, {
       width: container.clientWidth || 480,
-      height,
+      height: Math.max(height - 24, 60),
       layout: {
         background: { color: "transparent" },
         textColor: "#7a7872", // --color-ink-muted
@@ -106,14 +123,15 @@ export function MomentumChart({
     <div className="card @container/card overflow-hidden p-3">
       <div className="mb-2 flex items-center gap-3">
         <span className="label">momentum</span>
-        <span className="num text-xs text-[var(--color-vermelho)]">
-          ● {homeTeam}
-        </span>
-        <span className="num text-xs text-[var(--color-depth)]">
-          ● {awayTeam}
-        </span>
+        <TeamLegend home={homeTeam} away={awayTeam} />
       </div>
-      <div ref={containerRef} style={{ height }} />
+      <ChartFrame
+        yTicks={yTicks}
+        xLabels={[]}
+        height={Math.max(height, 120)}
+      >
+        <div ref={containerRef} style={{ position: "absolute", inset: 0 }} />
+      </ChartFrame>
     </div>
   );
 }
