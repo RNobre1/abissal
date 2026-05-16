@@ -314,10 +314,10 @@ function parseToolArgs(raw: string): unknown {
 
 function summarizeResult(name: string, result: unknown): string {
   if (!result || typeof result !== "object") return String(result);
-  const r = result as Record<string, unknown>;
-  if (typeof r.error === "string") return `error: ${r.error}`;
   if (name === "scan_fixtures") return scanResultSummary(result);
   if (name === "inspect_fixture") return summarizeFixtureToolResult(name, result);
+  const r = result as Record<string, unknown>;
+  if (typeof r.error === "string") return `error: ${r.error}`;
   if (Array.isArray(r.fixtures)) {
     const n = r.fixtures.length;
     const total = typeof r.total === "number" ? r.total : n;

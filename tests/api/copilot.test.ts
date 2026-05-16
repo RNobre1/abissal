@@ -57,6 +57,7 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   adminState.rows = [];
+  adminState.single = undefined;
   process.env = {
     ...ORIGINAL_ENV,
     NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
@@ -424,17 +425,16 @@ describe("/api/copilot — 3 tools", () => {
     ];
     adminState.single = { id: 7, home_team: "Alpha", away_team: "Beta", detail_json: (adminState.rows[0] as { detail_json: unknown }).detail_json };
 
-    const fetchMock = vi.fn()
+    vi.spyOn(globalThis, "fetch")
       .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c1", type: "function", function: { name: "scan_fixtures", arguments: JSON.stringify({ date: "2026-05-16" }) } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }))
       .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { role: "assistant", content: null, tool_calls: [{ id: "c2", type: "function", function: { name: "inspect_fixture", arguments: JSON.stringify({ fixture_id: 7, tool: "get_referee" }) } }] } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }))
       .mockResolvedValueOnce(jsonResponse({ choices: [{ message: { role: "assistant", content: "Pronto." } }], usage: { prompt_tokens: 1, completion_tokens: 1 } }));
-    vi.stubGlobal("fetch", fetchMock);
 
     const { POST } = await import("@/app/api/copilot/route");
     const res = await POST(new Request("http://t/api/copilot", { method: "POST", body: JSON.stringify({ messages: [{ role: "user", content: "melhor árbitro hoje?" }] }) }));
     const json = await res.json();
     expect(res.status).toBe(200);
     expect(json.meta.hops.map((h: { tool: string }) => h.tool)).toEqual(["scan_fixtures", "inspect_fixture"]);
-    expect(json.meta.hops[1].result_summary).toMatch(/get_referee|ok/);
+    expect(json.meta.hops[1].result_summary).toMatch(/^inspect_fixture:/);
   });
 });
