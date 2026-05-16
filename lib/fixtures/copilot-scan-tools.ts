@@ -164,7 +164,9 @@ function getByPath(obj: unknown, path: string): unknown {
 }
 
 function validField(path: string): boolean {
-  return path.startsWith("signals.") || SIGNAL_GROUPS.some((g) => path === g || path.startsWith(`${g}.`));
+  const rest = path.startsWith("signals.") ? path.slice("signals.".length) : path;
+  const head = rest.split(".")[0];
+  return (SIGNAL_GROUPS as readonly string[]).includes(head);
 }
 
 function normPath(path: string): string {
@@ -242,6 +244,8 @@ export async function scanFixtures(args: ScanFixturesArgs, admin: AdminLike): Pr
 
   const total = filtered.length;
 
+  // signals desconhecidos são descartados; se sobrar vazio, projeta TODOS
+  // os grupos (fallback deliberado — nunca devolve signals vazio por engano).
   const wanted = args.signals?.filter((s) => (SIGNAL_GROUPS as readonly string[]).includes(s));
   const projected = filtered.map((e) => {
     if (!wanted || wanted.length === 0) return e;
@@ -250,7 +254,10 @@ export async function scanFixtures(args: ScanFixturesArgs, admin: AdminLike): Pr
     return { ...e, signals: sig as unknown as FixtureSignals };
   });
 
-  const limit = Math.max(1, Math.min(30, Math.floor(args.limit ?? 15)));
+  const rawLimit = args.limit ?? 15;
+  const limit = Number.isFinite(rawLimit)
+    ? Math.max(1, Math.min(30, Math.floor(rawLimit)))
+    : 15;
   return { date, total, fixtures: projected.slice(0, limit) };
 }
 

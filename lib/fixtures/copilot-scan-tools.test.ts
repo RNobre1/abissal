@@ -122,7 +122,29 @@ describe("scanFixtures — filter/sort/projection/limit", () => {
 
   it("returns { error } for an unknown filter field", async () => {
     const res = await scanFixtures({ filters: [{ field: "nope.bad", op: "eq", value: 1 }] }, buildAdmin(rows));
-    expect((res as unknown as { error?: string }).error).toMatch(/campo inválido/);
+    expect(res.error).toMatch(/campo inválido/);
+  });
+
+  it("filters with lte", async () => {
+    const res = await scanFixtures({ filters: [{ field: "cards.referee_avg_booking", op: "lte", value: 25 }] }, buildAdmin(rows));
+    expect(res.fixtures.map((f) => f.id)).toEqual([2]);
+  });
+
+  it("sorts asc", async () => {
+    const res = await scanFixtures({ sort: { field: "cards.referee_avg_booking", dir: "asc" } }, buildAdmin(rows));
+    expect(res.fixtures.map((f) => f.id)).toEqual([2, 1]);
+  });
+
+  it("returns { error } for an unknown sort field (no filters)", async () => {
+    const res = await scanFixtures({ sort: { field: "bogus.x", dir: "desc" } }, buildAdmin(rows));
+    expect(res.error).toMatch(/campo inválido/);
+  });
+
+  it("falls back to all signal groups when the requested group is unknown", async () => {
+    const res = await scanFixtures({ signals: ["does_not_exist"] }, buildAdmin(rows));
+    expect(Object.keys(res.fixtures[0].signals).sort()).toEqual(
+      ["btts", "cards", "first_half", "form", "goals_over", "h2h", "odds"],
+    );
   });
 });
 
