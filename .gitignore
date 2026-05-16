@@ -58,3 +58,6 @@ next-env.d.ts
 
 # superpowers brainstorm sessions (visual companion mockups)
 .superpowers/
+
+# transient git worktrees (autonomous SDD per-task isolation)
+.worktrees/

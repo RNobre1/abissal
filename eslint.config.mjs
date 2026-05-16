@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Transient git worktrees (autonomous SDD per-task isolation) —
+    // duplicated source tree must not be linted/recursed into.
+    ".worktrees/**",
   ]),
 ]);
 
