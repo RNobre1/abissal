@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { MessageCircle, X, ArrowRight } from "lucide-react";
 import { ChatMessageView, type ChatMessage } from "./chat-message";
+import { CopilotToolSteps } from "./copilot-tool-steps";
 
 interface CopilotFabProps {
   /** "today" / "tomorrow" / "YYYY-MM-DD" — passed as a hint to the backend. */
@@ -256,6 +257,9 @@ export function CopilotFab({ date }: CopilotFabProps) {
                       />
                     ) : null}
                     <ChatMessageView message={m} />
+                    {m.role === "assistant" && messagesMeta[i] ? (
+                      <CopilotToolSteps hops={messagesMeta[i].hops} />
+                    ) : null}
                     {showLog && m.role === "assistant" && messagesMeta[i] ? (
                       <CopilotLogDetails meta={messagesMeta[i]} />
                     ) : null}
