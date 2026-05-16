@@ -136,9 +136,13 @@ export interface ScanFixturesArgs {
   date?: string;
   league_substr?: string;
   country?: string;
+  /** Reservado — só honrado a partir da Task 3 (filtros/sort/projeção/limit server-side). */
   filters?: ScanFilter[];
+  /** Reservado — só honrado a partir da Task 3 (filtros/sort/projeção/limit server-side). */
   sort?: ScanSort;
+  /** Reservado — só honrado a partir da Task 3 (filtros/sort/projeção/limit server-side). */
   signals?: string[];
+  /** Reservado — só honrado a partir da Task 3 (filtros/sort/projeção/limit server-side). */
   limit?: number;
 }
 

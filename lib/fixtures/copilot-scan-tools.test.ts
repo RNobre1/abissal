@@ -49,7 +49,7 @@ function baseRow(detail: unknown): FixtureRowLite {
   };
 }
 
-import { scanFixtures, type ScanFixturesArgs } from "./copilot-scan-tools";
+import { scanFixtures } from "./copilot-scan-tools";
 
 function buildAdmin(rows: unknown[]) {
   return {
