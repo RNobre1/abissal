@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   1. Call OpenRouter with system + messages + tools.
  *   2. If the response includes tool_calls, execute query_fixtures and
  *      re-call with the tool results appended.
- *   3. Loop bounded at 3 hops to keep token cost capped.
+ *   3. Loop bounded at MAX_TOOL_HOPS (6) to keep token cost capped.
  *   4. Return the final text content as JSON.
  *
  * No streaming for the first version — keeps the tool dance simple.
@@ -225,7 +225,7 @@ describe("POST /api/copilot", () => {
     expect(toolMsg!.content).toMatch(/Botafogo/);
   });
 
-  it("loop cap: aborts after 3 hops and returns a safe message", async () => {
+  it("loop cap: returns a safe message when the model never finalizes", async () => {
     // Always respond with a tool call — verify we don't loop forever.
     // mockImplementation so each call gets a fresh Response (bodies are
     // single-shot — reusing the same instance would error on hop 2).
