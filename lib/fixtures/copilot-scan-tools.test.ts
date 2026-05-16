@@ -256,4 +256,9 @@ describe("inspectFixture", () => {
     expect(toolProp.enum).toContain("get_insights");
     expect(toolProp.enum?.length).toBe(12);
   });
+
+  it("returns { error } when fixture_id is not a number", async () => {
+    const res = await inspectFixture({ fixture_id: "7" as unknown as number, tool: "get_referee" }, admin);
+    expect((res as { error?: string }).error).toMatch(/fixture_id obrigatório/);
+  });
 });

@@ -368,6 +368,8 @@ export function computeFixtureSignals(row: FixtureRowLite): FixtureSignals {
   };
 }
 
+// Manter em sincronia com FIXTURE_TOOLS[*].function.name em
+// fixture-copilot-tools.ts (fonte de verdade das 12 derivações de A).
 const A_TOOL_NAMES = [
   "get_insights", "get_team_record", "get_recent_matches", "get_h2h",
   "get_splits", "get_distributions", "get_radar", "get_player_stats",
@@ -390,7 +392,7 @@ export async function inspectFixture(
     .select("id, home_team, away_team, detail_json")
     .eq("id", args.fixture_id)
     .maybeSingle();
-  if (!data) return { error: `fixture ${args.fixture_id} não encontrado na janela` };
+  if (!data) return { error: `fixture ${args.fixture_id} não encontrado` };
   const row = data as { home_team: string; away_team: string; detail_json: unknown };
   if (row.detail_json === null || row.detail_json === undefined) {
     return { error: `fixture ${args.fixture_id} sem detail_json ainda` };
