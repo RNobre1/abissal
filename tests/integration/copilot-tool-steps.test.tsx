@@ -2,6 +2,7 @@ import "@testing-library/jest-dom/vitest";
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { CopilotToolSteps } from "@/components/fixtures/copilot-tool-steps";
+import { CopilotFab } from "@/components/fixtures/copilot-fab";
 
 describe("CopilotToolSteps", () => {
   it("renders one chip per hop with name + summary and a success mark", () => {
@@ -33,5 +34,12 @@ describe("CopilotToolSteps", () => {
   it("renders nothing when there are no hops", () => {
     const { container } = render(<CopilotToolSteps hops={[]} />);
     expect(container.firstChild).toBeNull();
+  });
+});
+
+describe("CopilotFab wiring", () => {
+  it("composes with CopilotToolSteps without throwing", () => {
+    const { container } = render(<CopilotFab date="today" />);
+    expect(container).toBeTruthy();
   });
 });
