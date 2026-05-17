@@ -3,7 +3,8 @@ import type { Badge } from "./badges";
 /**
  * Fixture as exposed by the API to the client. Mirrors the columns of the
  * `fixtures` table after serialization (kickoff_utc normalized to ISO-8601 Z,
- * ko_time trimmed to "HH:MM", has_detail derived from detail_json IS NOT NULL).
+ * ko_time trimmed to "HH:MM", has_detail derived from a compact presence probe
+ * on detail_json — see repository.ts; the list query never pulls the blob).
  */
 export interface FixtureDTO {
   id: number;

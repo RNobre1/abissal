@@ -1,10 +1,36 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { brtDayWindowUtc, toIsoUtc, trimKoTime } from "./time";
-import { computeBadges } from "./badges";
-import type { FixtureDTO, FixtureRow } from "./types";
+import type { FixtureDTO } from "./types";
 
 const FIXTURE_COLUMNS =
-  "id, match_date, ko_time, home_team, away_team, league, country, source_url, detail_json, kickoff_utc";
+  "id, match_date, ko_time, home_team, away_team, league, country, source_url, kickoff_utc, " +
+  "hd_probe:detail_json->>team_record";
+
+/**
+ * Compact raw row for the LIST query. We deliberately do NOT select the full
+ * `detail_json` jsonb blob nor any heavy sub-paths (`streaks`,
+ * `referee_record`) — those pulled ~34MB/day and killed the Cloudflare Worker
+ * (Error 1101). We pull ONLY scalar columns plus a presence probe
+ * (`detail_json->>team_record`, the team_record subtree as text) to derive
+ * has_detail. team_record is written by the scraper whenever detail_json
+ * exists, so the probe is non-null iff detail is present (validated against
+ * prod: 0 false-negatives over the full day window; a deep leaf such as
+ * `->home->overall->>type` had a real 1-row false-negative — rejected). The
+ * full window stays well under 300KB vs 34MB. This is local to the repository;
+ * the shared FixtureRow stays as the table-mirror contract.
+ */
+interface CompactFixtureRow {
+  id: number;
+  match_date: string;
+  ko_time: string | null;
+  home_team: string;
+  away_team: string;
+  league: string | null;
+  country: string | null;
+  source_url: string | null;
+  kickoff_utc: string | null;
+  hd_probe: string | null;
+}
 
 /**
  * Returns the fixtures whose kickoff falls inside the BRT calendar day `date`,
@@ -43,12 +69,12 @@ export async function fixturesForBrtDay(
     throw new Error(error.message ?? "supabase query failed");
   }
 
-  const rows = (data ?? []) as FixtureRow[];
+  const rows = (data ?? []) as CompactFixtureRow[];
   const sorted = [...rows].sort(compareFixtures);
   return sorted.map(toDto);
 }
 
-function compareFixtures(a: FixtureRow, b: FixtureRow): number {
+function compareFixtures(a: CompactFixtureRow, b: CompactFixtureRow): number {
   // 1) kickoff_utc ascending, nulls last
   const kAuOrder = compareNullableString(a.kickoff_utc, b.kickoff_utc);
   if (kAuOrder !== 0) return kAuOrder;
@@ -70,8 +96,9 @@ function compareNullableString(a: string | null, b: string | null): number {
   return 0;
 }
 
-function toDto(row: FixtureRow): FixtureDTO {
-  const badges = computeBadges(row.detail_json);
+function toDto(row: CompactFixtureRow): FixtureDTO {
+  // Lista sem badges (payload mínimo p/ não estourar o Worker — ~40MB→KBs). has_detail é proxy via team_record; badges/has_detail exatos voltam via view/RPC (follow-up).
+  const has_detail = row.hd_probe != null;
   return {
     id: row.id,
     match_date: row.match_date,
@@ -81,8 +108,7 @@ function toDto(row: FixtureRow): FixtureDTO {
     league: row.league,
     country: row.country,
     source_url: row.source_url,
-    has_detail: row.detail_json !== null && row.detail_json !== undefined,
+    has_detail,
     kickoff_utc: toIsoUtc(row.kickoff_utc),
-    ...(badges.length > 0 ? { badges } : {}),
   };
 }

@@ -1,5 +1,23 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { FixtureRow } from "@/lib/fixtures/types";
+
+/**
+ * Raw row shape as returned by the COMPACT list select (post outage-1101 fix):
+ * scalar columns + ONE tiny scalar probe (`hd_probe`). The repository no
+ * longer pulls the full detail_json blob nor any heavy sub-paths, so the mock
+ * must mirror this minimal shape.
+ */
+type CompactRow = {
+  id: number;
+  match_date: string;
+  ko_time: string | null;
+  home_team: string;
+  away_team: string;
+  league: string | null;
+  country: string | null;
+  source_url: string | null;
+  kickoff_utc: string | null;
+  hd_probe: string | null;
+};
 
 /**
  * In-memory Supabase mock — captures the query chain calls and returns the
@@ -15,7 +33,7 @@ import type { FixtureRow } from "@/lib/fixtures/types";
  * The final `.order(...)` call must resolve like a thenable to `{ data, error }`.
  */
 type MockState = {
-  rows: FixtureRow[];
+  rows: CompactRow[];
   error: { message: string } | null;
   lastTable: string | null;
   lastSelect: string | null;
@@ -32,7 +50,7 @@ const mockState: MockState = {
   lastOrders: [],
 };
 
-function setRows(rows: FixtureRow[]) {
+function setRows(rows: CompactRow[]) {
   mockState.rows = rows;
   mockState.error = null;
 }
@@ -68,7 +86,7 @@ function buildQueryBuilder() {
     mockState.lastOrders.push({ column, opts });
     // Return a thenable so `await` resolves the chain on the final order().
     return {
-      then(onFulfilled: (value: { data: FixtureRow[] | null; error: { message: string } | null }) => unknown) {
+      then(onFulfilled: (value: { data: CompactRow[] | null; error: { message: string } | null }) => unknown) {
         if (mockState.error) {
           return Promise.resolve(onFulfilled({ data: null, error: mockState.error }));
         }
@@ -98,7 +116,7 @@ import { GET } from "@/app/api/fixtures/route";
 
 const SAMPLE_DATE = "2026-05-12";
 
-function makeRow(overrides: Partial<FixtureRow>): FixtureRow {
+function makeRow(overrides: Partial<CompactRow>): CompactRow {
   return {
     id: 1,
     match_date: SAMPLE_DATE,
@@ -108,7 +126,7 @@ function makeRow(overrides: Partial<FixtureRow>): FixtureRow {
     league: "Premier League",
     country: "england",
     source_url: "https://www.adamchoi.co.uk/fixture/1",
-    detail_json: null,
+    hd_probe: null,
     kickoff_utc: "2026-05-12T19:00:00+00:00",
     ...overrides,
   };
@@ -222,10 +240,14 @@ describe("GET /api/fixtures", () => {
     expect(body.map((r) => r.id)).toEqual([2, 1, 4, 3, 5]);
   });
 
-  it("derives has_detail from detail_json and never ships detail_json", async () => {
+  it("derives has_detail from the scalar probe and never ships detail_json", async () => {
     setRows([
-      makeRow({ id: 1, detail_json: { some: "blob" } }),
-      makeRow({ id: 2, detail_json: null, kickoff_utc: "2026-05-12T20:00:00+00:00" }),
+      makeRow({ id: 1, hd_probe: "Home" }),
+      makeRow({
+        id: 2,
+        hd_probe: null,
+        kickoff_utc: "2026-05-12T20:00:00+00:00",
+      }),
     ]);
 
     const res = await GET(
