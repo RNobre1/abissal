@@ -1,5 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { fixturesForBrtDay } from "./repository";
+import {
+  fixturesForBrtDay,
+  fixturesWithBadgesForDashboard,
+} from "./repository";
 
 /**
  * Mock the supabase chain `.from().select().or().order().order().order()`
@@ -141,5 +144,133 @@ describe("fixturesForBrtDay — DTO contract preserved", () => {
     ]);
     const out = await fixturesForBrtDay("2026-05-12", client);
     expect(out.map((f) => f.id)).toEqual([1, 2, 3]);
+  });
+});
+
+/**
+ * Mock that serves TWO tables/relations: `fixtures` (scalar list) and
+ * `fixture_badges_view` (computed scalars). It captures the `.select()`
+ * string PER relation so the tests can assert no heavy detail_json crosses
+ * the wire on either path. `.in()` is supported for the view join.
+ */
+function buildMultiMock(rowsByTable: Record<string, unknown[]>) {
+  const captured: Record<string, string> = {};
+  function chainFor(table: string) {
+    const chain = {
+      select(arg: string) {
+        captured[table] = arg;
+        return this;
+      },
+      or() {
+        return this;
+      },
+      in() {
+        return this;
+      },
+      order() {
+        return this;
+      },
+      then(resolve: (v: { data: unknown[]; error: null }) => void) {
+        resolve({ data: rowsByTable[table] ?? [], error: null });
+      },
+    };
+    return chain;
+  }
+  const client = {
+    from(table: string) {
+      return chainFor(table);
+    },
+  };
+  return { client, captured };
+}
+
+describe("fixturesWithBadgesForDashboard — badges via Postgres view (B12 follow-up #1)", () => {
+  it("queries fixtures (scalars only) AND fixture_badges_view (no detail_json on either)", async () => {
+    const { client, captured } = buildMultiMock({
+      fixtures: [compactRow({ id: 1, hd_probe: "Home" })],
+      fixture_badges_view: [
+        { fixture_id: 1, badges: ["cartao-alto", "over-alto"], high_signal: true },
+      ],
+    });
+
+    await fixturesWithBadgesForDashboard("2026-05-12", client);
+
+    // The fixtures select is the compact scalar one — no heavy sub-paths.
+    expect(captured.fixtures).toBeDefined();
+    expect(captured.fixtures).not.toContain("detail_json->streaks");
+    expect(captured.fixtures).not.toContain("detail_json->referee_record");
+    expect(captured.fixtures).not.toMatch(/detail_json(?!->)/);
+
+    // The badges come from the view — scalars only.
+    expect(captured.fixture_badges_view).toBeDefined();
+    expect(captured.fixture_badges_view).not.toContain("detail_json");
+    expect(captured.fixture_badges_view).toContain("fixture_id");
+    expect(captured.fixture_badges_view).toContain("badges");
+    expect(captured.fixture_badges_view).toContain("high_signal");
+  });
+
+  it("maps view badge slugs to Badge objects on the matching fixture", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [
+        compactRow({ id: 1, hd_probe: "Home" }),
+        compactRow({ id: 2, hd_probe: "Home" }),
+      ],
+      fixture_badges_view: [
+        {
+          fixture_id: 1,
+          badges: ["cartao-alto", "over-alto"],
+          high_signal: true,
+        },
+        { fixture_id: 2, badges: [], high_signal: false },
+      ],
+    });
+
+    const out = await fixturesWithBadgesForDashboard("2026-05-12", client);
+    const f1 = out.find((f) => f.id === 1)!;
+    const f2 = out.find((f) => f.id === 2)!;
+
+    expect(f1.badges?.map((b) => b.id)).toEqual(["cartao-alto", "over-alto"]);
+    expect(f1.badges?.[0]).toMatchObject({
+      id: "cartao-alto",
+      label: "cartão alto",
+      tone: "cards",
+    });
+    expect(f2.badges).toEqual([]);
+  });
+
+  it("fixture with no view row gets empty badges (graceful)", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [compactRow({ id: 9, hd_probe: "Home" })],
+      fixture_badges_view: [],
+    });
+    const out = await fixturesWithBadgesForDashboard("2026-05-12", client);
+    expect(out[0].badges).toEqual([]);
+  });
+});
+
+describe("fixturesForBrtDay — high_signal exposed for /fixtures realce", () => {
+  it("joins the view's high_signal scalar without pulling badges/detail_json", async () => {
+    const { client, captured } = buildMultiMock({
+      fixtures: [
+        compactRow({ id: 1, hd_probe: "Home" }),
+        compactRow({ id: 2, hd_probe: null }),
+      ],
+      fixture_badges_view: [{ fixture_id: 1, high_signal: true }],
+    });
+
+    const out = await fixturesForBrtDay("2026-05-12", client);
+
+    // The supplementary view query selects ONLY scalars.
+    expect(captured.fixture_badges_view).toBeDefined();
+    expect(captured.fixture_badges_view).not.toContain("detail_json");
+    expect(captured.fixture_badges_view).toContain("high_signal");
+    expect(captured.fixture_badges_view).not.toContain("badges");
+
+    const f1 = out.find((f) => f.id === 1)!;
+    const f2 = out.find((f) => f.id === 2)!;
+    expect(f1.high_signal).toBe(true);
+    expect(f2.high_signal).toBe(false);
+    // Still no badges array on the list DTO (payload minimal).
+    expect(f1).not.toHaveProperty("badges");
   });
 });

@@ -17,6 +17,17 @@ export interface FixtureDTO {
   source_url: string | null;
   has_detail: boolean;
   kickoff_utc: string | null; // ISO-8601 with Z suffix
+  /**
+   * High-signal flag (>=2 outlier badges) computed in Postgres by
+   * `fixture_badges_view`. A pure scalar — the list query joins it WITHOUT
+   * ever pulling badges/detail_json, so the /fixtures realce works without
+   * reopening the B12 payload outage. Absent on rows without a view match.
+   */
+  high_signal?: boolean;
+  /**
+   * Full badge objects — only populated by the dashboard query
+   * (`fixturesWithBadgesForDashboard`), never by the /fixtures list.
+   */
   badges?: Badge[];
 }
 

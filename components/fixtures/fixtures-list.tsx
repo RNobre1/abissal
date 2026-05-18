@@ -54,7 +54,10 @@ export function FixturesList({ fixtures }: FixturesListProps) {
             <ul className="flex flex-col gap-2">
               {group.fixtures.map((fixture) => (
                 <li key={fixture.id}>
-                  <FixtureCard fixture={fixture} />
+                  <FixtureCard
+                    fixture={fixture}
+                    highSignal={fixture.high_signal === true}
+                  />
                 </li>
               ))}
             </ul>

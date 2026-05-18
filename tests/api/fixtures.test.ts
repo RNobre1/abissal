@@ -36,6 +36,7 @@ type MockState = {
   rows: CompactRow[];
   error: { message: string } | null;
   lastTable: string | null;
+  tables: string[];
   lastSelect: string | null;
   lastOr: string | null;
   lastOrders: Array<{ column: string; opts?: { ascending?: boolean; nullsFirst?: boolean } }>;
@@ -45,6 +46,7 @@ const mockState: MockState = {
   rows: [],
   error: null,
   lastTable: null,
+  tables: [],
   lastSelect: null,
   lastOr: null,
   lastOrders: [],
@@ -64,6 +66,7 @@ function resetMock() {
   mockState.rows = [];
   mockState.error = null;
   mockState.lastTable = null;
+  mockState.tables = [];
   mockState.lastSelect = null;
   mockState.lastOr = null;
   mockState.lastOrders = [];
@@ -100,9 +103,23 @@ function buildQueryBuilder() {
   return builder;
 }
 
+// Minimal builder for the supplementary fixture_badges_view query
+// (`.select(...).in("fixture_id", ids)` then awaited). It resolves empty so
+// high_signal is false in these API contract tests (badges are out of scope
+// here — covered by repository.test.ts). It must NOT touch detail_json.
+function buildViewBuilder() {
+  const view: Record<string, unknown> = {};
+  view.select = () => view;
+  view.in = () =>
+    Promise.resolve({ data: [] as unknown[], error: null });
+  return view;
+}
+
 const mockClient = {
   from: (table: string) => {
     mockState.lastTable = table;
+    mockState.tables.push(table);
+    if (table === "fixture_badges_view") return buildViewBuilder();
     return buildQueryBuilder();
   },
 };
@@ -188,7 +205,9 @@ describe("GET /api/fixtures", () => {
     );
     expect(res.status).toBe(200);
     expect(mockState.lastOr).toContain("match_date.eq.2026-05-12");
-    expect(mockState.lastTable).toBe("fixtures");
+    // The fixtures table is queried (the realce join adds a follow-up
+    // fixture_badges_view scalar query — see repository.ts).
+    expect(mockState.tables).toContain("fixtures");
   });
 
   it("returns 400 with { error } when ?date is missing", async () => {
