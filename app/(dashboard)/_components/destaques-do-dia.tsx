@@ -2,9 +2,7 @@ import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 import { fixturesWithBadgesForDashboard } from "@/lib/fixtures/repository";
-import { todayBrt } from "@/lib/fixtures/time";
-import { isHighSignal } from "@/lib/alerts/is-high-signal";
-import { formatUtcAsBrt } from "@/lib/fixtures/time";
+import { todayBrt, formatUtcAsBrt } from "@/lib/fixtures/time";
 import type { FixtureDTO } from "@/lib/fixtures/types";
 import type { Badge } from "@/lib/fixtures/badges";
 import { dismissAlert } from "./actions";
@@ -14,7 +12,7 @@ import { dismissAlert } from "./actions";
  *
  * Server Component — avalia sinais em read-time:
  * 1. Busca fixtures da janela BRT de hoje com sub-paths para badges.
- * 2. Filtra por isHighSignal (≥2 badges).
+ * 2. Filtra por `high_signal === true` (≥2 badges, computado na view SQL).
  * 3. Exclui as dispensadas pelo usuário (tabela alert_dismissals).
  * 4. Se lista vazia, retorna null (sem header órfão).
  */
@@ -26,11 +24,11 @@ export async function DestaquesDoDia() {
   const allFixtures = await fixturesWithBadgesForDashboard(today, admin);
 
   // Filtra apenas alto sinal. high_signal vem JÁ computado da view Postgres
-  // (fixture_badges_view, migration 0017) — escalar, sem detail_json no
-  // Worker. isHighSignal(badges) é o fallback para rows sem match na view.
-  const highSignalFixtures = allFixtures.filter(
-    (f) => f.high_signal === true || isHighSignal(f.badges ?? []),
-  );
+  // (fixture_badges_view, migration 0017) — escalar, sem detail_json no Worker.
+  // fixturesWithBadgesForDashboard seta high_signal e badges atomicamente da
+  // mesma view; não há rows com high_signal=false mas badges.length>=2, logo
+  // o filtro usa somente high_signal (YAGNI — ramo || seria dead code).
+  const highSignalFixtures = allFixtures.filter((f) => f.high_signal === true);
 
   if (highSignalFixtures.length === 0) return null;
 

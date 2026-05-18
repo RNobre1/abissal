@@ -9,7 +9,31 @@
 -- Postgres. The Worker receives only scalars: a text[] of badge slugs and
 -- a high_signal boolean per fixture.
 --
--- Thresholds mirror lib/fixtures/badges.ts exactly:
+-- THRESHOLDS — fonte única TS: lib/fixtures/badge-thresholds.ts
+-- Ao mudar qualquer literal numérico ou substring abaixo, edite TAMBÉM
+-- badge-thresholds.ts na mesma PR. O teste
+-- lib/fixtures/badge-thresholds.parity.test.ts detecta divergência.
+--
+-- Mapeamento SQL → TS:
+--   perc >= 70              → STREAK_PERC_MIN          (CTE strong_streaks)
+--   > 45                    → REFEREE_BOOKING_THRESHOLD  (CTE referee_flag)
+--   >= 3                    → REFEREE_2YA_THRESHOLD      (CTE referee_flag)
+--   >= 5                    → REFEREE_MIN_COMPLETED      (CTE referee_flag)
+--   like '%over 2.5%'       → STREAK_OVER25_SUBSTR       (CTE strong_streaks)
+--   like '%btts%'           → STREAK_BTTS_SUBSTRS[0]     (CTE strong_streaks)
+--   like '%both teams%'     → STREAK_BTTS_SUBSTRS[1]     (CTE strong_streaks)
+--   like '%1h %'            → STREAK_FH_SUBSTRS[0]       (CTE strong_streaks)
+--   like '%first half%'     → STREAK_FH_SUBSTRS[1]       (CTE strong_streaks)
+--   like '%1st half%'       → STREAK_FH_SUBSTRS[2]       (CTE strong_streaks)
+--   [1:3]                   → MAX_BADGES                 (CTE badge_arrays)
+--
+-- Assincronia de cast: (jsonb->>'campo')::numeric lança erro se o valor for
+-- string não-numérica (e.g. ""). O TS usa `?? 0` que trata null/undefined mas
+-- deixaria string passar; aqui usamos `nullif(trim(val),'')::numeric` para
+-- converter string vazia em NULL antes do cast — NULL propaga como -1/0 via
+-- COALESCE, replicando o comportamento de fallback do TS.
+--
+-- Thresholds mirror lib/fixtures/badge-thresholds.ts exactly:
 --   - referee: completed (or fixtures_count) >= 5 AND
 --              (avg_total_booking_points > 45 OR total_yellow_reds >= 3)
 --   - streak "strong": overall_perc >= 70
@@ -52,7 +76,7 @@ with strong_streaks as (
   cross join lateral (
     select
       s.side,
-      coalesce((elem->>'overall_perc')::numeric, -1)                 as perc,
+      coalesce(nullif(trim(elem->>'overall_perc'),'')::numeric, -1)  as perc,
       lower(
         coalesce(elem->>'stat_type', '') || ' ' || coalesce(elem->>'desc', '')
       )                                                              as txt
@@ -68,21 +92,25 @@ with strong_streaks as (
   group by f.id
 ),
 referee_flag as (
+  -- Cast tolerante: nullif(trim(val),'')::numeric converte string vazia em
+  -- NULL antes do cast, replicando o comportamento do TS `ref.completed ?? 0`
+  -- que falha silenciosamente em vez de lançar erro. Valores não-numéricos
+  -- (e.g. "") viram NULL → COALESCE propaga para 0 / -1 como fallback seguro.
   select
     f.id as fixture_id,
     (
       coalesce(
-        (f.detail_json->'referee_record'->>'completed')::numeric,
-        (f.detail_json->'referee_record'->>'fixtures_count')::numeric,
+        nullif(trim(f.detail_json->'referee_record'->>'completed'),    '')::numeric,
+        nullif(trim(f.detail_json->'referee_record'->>'fixtures_count'),'')::numeric,
         0
       ) >= 5
       and (
         coalesce(
-          (f.detail_json->'referee_record'->>'avg_total_booking_points')::numeric,
+          nullif(trim(f.detail_json->'referee_record'->>'avg_total_booking_points'),'')::numeric,
           -1
         ) > 45
         or coalesce(
-          (f.detail_json->'referee_record'->>'total_yellow_reds')::numeric,
+          nullif(trim(f.detail_json->'referee_record'->>'total_yellow_reds'),'')::numeric,
           -1
         ) >= 3
       )

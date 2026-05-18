@@ -11,7 +11,27 @@
  *   - Sample-size gate on the referee (`completed >= 5`) — otherwise a debutant
  *     ref with 1 booking-heavy game would mint a badge that means nothing.
  *   - Cap the output at 3 to keep the card from turning into a Christmas tree.
+ *
+ * THRESHOLDS — fonte única: `lib/fixtures/badge-thresholds.ts`.
+ * Ao mudar qualquer threshold ou substring, edite TAMBÉM:
+ *   `supabase/migrations/0017_fixture_badges.sql`
+ *   CTEs: `strong_streaks` (STREAK_PERC_MIN, substrings de streak),
+ *         `referee_flag`   (REFEREE_BOOKING_THRESHOLD, REFEREE_2YA_THRESHOLD,
+ *                           REFEREE_MIN_COMPLETED),
+ *         `badge_arrays`   (MAX_BADGES via array slice [1:3]).
+ * O teste `lib/fixtures/badge-thresholds.parity.test.ts` detecta divergência.
  */
+
+import {
+  MAX_BADGES,
+  STREAK_PERC_MIN,
+  REFEREE_BOOKING_THRESHOLD,
+  REFEREE_2YA_THRESHOLD,
+  REFEREE_MIN_COMPLETED,
+  STREAK_OVER25_SUBSTR,
+  STREAK_BTTS_SUBSTRS,
+  STREAK_FH_SUBSTRS,
+} from "./badge-thresholds";
 
 export type BadgeTone = "cards" | "over" | "btts" | "first-half";
 
@@ -52,12 +72,6 @@ export function badgesFromSlugs(slugs: unknown): Badge[] {
   }
   return out;
 }
-
-const MAX_BADGES = 3;
-const STREAK_PERC_MIN = 70;
-const REFEREE_BOOKING_THRESHOLD = 45;
-const REFEREE_2YA_THRESHOLD = 3;
-const REFEREE_MIN_COMPLETED = 5;
 
 interface Streak {
   desc?: string;
@@ -143,19 +157,19 @@ function streakStrong(s: Streak): boolean {
 function isOver25Streak(s: Streak): boolean {
   if (!streakStrong(s)) return false;
   const t = streakText(s);
-  return t.includes("over 2.5");
+  return t.includes(STREAK_OVER25_SUBSTR);
 }
 
 function isBttsStreak(s: Streak): boolean {
   if (!streakStrong(s)) return false;
   const t = streakText(s);
-  return t.includes("btts") || t.includes("both teams");
+  return STREAK_BTTS_SUBSTRS.some((sub) => t.includes(sub));
 }
 
 function isFirstHalfStreak(s: Streak): boolean {
   if (!streakStrong(s)) return false;
   const t = streakText(s);
-  return t.includes("1h ") || t.includes("first half") || t.includes("1st half");
+  return STREAK_FH_SUBSTRS.some((sub) => t.includes(sub));
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
