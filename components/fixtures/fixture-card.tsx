@@ -5,6 +5,7 @@ import { formatUtcAsBrt } from "@/lib/fixtures/time";
 
 interface FixtureCardProps {
   fixture: FixtureDTO;
+  highSignal?: boolean;
 }
 
 const TONE_DESCRIPTION: Record<BadgeTone, string> = {
@@ -14,7 +15,7 @@ const TONE_DESCRIPTION: Record<BadgeTone, string> = {
   "first-half": "Os dois lados vêm de sequência forte de gols no 1º tempo.",
 };
 
-export function FixtureCard({ fixture }: FixtureCardProps) {
+export function FixtureCard({ fixture, highSignal }: FixtureCardProps) {
   const ko = formatUtcAsBrt(fixture.kickoff_utc) ?? fixture.ko_time ?? "TBD";
   const badges = fixture.badges ?? [];
 
@@ -23,6 +24,12 @@ export function FixtureCard({ fixture }: FixtureCardProps) {
       href={`/fixtures/${fixture.id}`}
       className="card card-hover flex flex-col gap-1.5 px-3 py-2.5 lg:px-4 lg:py-3"
       aria-label={`Analisar ${fixture.home_team} vs ${fixture.away_team}`}
+      {...(highSignal ? { "data-high-signal": "true" } : {})}
+      style={
+        highSignal
+          ? { borderColor: "var(--color-depth)" }
+          : undefined
+      }
     >
       <div className="flex items-center gap-3 lg:gap-4">
         <span
