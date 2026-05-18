@@ -9,6 +9,8 @@ import {
 } from "@/lib/fixtures/fixture-copilot-tools";
 import { recordLlmRequest } from "@/lib/llm-logs";
 
+export const maxDuration = 100;
+
 const SYSTEM_PROMPT = `Você é um copiloto de apostas analisando UM jogo específico de futebol.
 Você SÓ pode afirmar números que vieram de uma das ferramentas — nunca invente
 estatística, jogador, árbitro ou odd. Use as ferramentas para puxar a camada
@@ -32,7 +34,20 @@ const bodySchema = z
     path: ["messages"],
   });
 
+// Orçamento do tool-loop. `export const maxDuration` é convenção Vercel/OpenNext
+// e NÃO é garantida pelo Cloudflare Workers — trate como hint.
+// O guard REAL é REQUEST_DEADLINE_MS: ele só barra o INÍCIO do próximo hop;
+// NÃO interrompe a chamada OpenRouter em andamento, o tool-exec nem o write de
+// log que vêm depois. Por isso o pior caso real ≈
+//   REQUEST_DEADLINE_MS + OPENROUTER_CALL_TIMEOUT_MS + (~5s tool+log).
+// Invariante: REQUEST_DEADLINE_MS + OPENROUTER_CALL_TIMEOUT_MS ≤ maxDuration
+//   → 65_000 + 20_000 = 85_000 ≤ 100_000 ✓
+// O hop cap evita loop infinito independente do wall-clock.
+// Reasoner (deepseek-r1) usa 16k tokens/chamada → cap menor para não estourar orçamento.
 const MAX_TOOL_HOPS = 6;
+const REASONER_MAX_TOOL_HOPS = 3;
+const OPENROUTER_CALL_TIMEOUT_MS = 20_000;
+const REQUEST_DEADLINE_MS = 65_000;
 const OPENROUTER_ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
 const REASONER_MODEL = "deepseek/deepseek-r1";
 const REASONER_MAX_TOKENS = 16000;
@@ -114,9 +129,23 @@ export async function POST(request: Request): Promise<Response> {
     usageTotal.total_tokens += u.total_tokens ?? u.prompt_tokens + u.completion_tokens;
   }
 
+  const hopCap = useReasoner ? REASONER_MAX_TOOL_HOPS : MAX_TOOL_HOPS;
+  let exitReason: "cap" | "deadline" = "cap";
+
   try {
-    for (let hop = 0; hop < MAX_TOOL_HOPS; hop++) {
-      const upstream = await callOpenRouter(messages, env.OPENROUTER_API_KEY, model, useReasoner ? REASONER_MAX_TOKENS : undefined);
+    for (let hop = 0; hop < hopCap; hop++) {
+      // Guard no TOPO: barra o início do próximo hop se o deadline foi atingido.
+      if (Date.now() - startedAt > REQUEST_DEADLINE_MS) {
+        exitReason = "deadline";
+        break;
+      }
+      const upstream = await callOpenRouter(
+        messages,
+        env.OPENROUTER_API_KEY,
+        model,
+        useReasoner ? REASONER_MAX_TOKENS : undefined,
+        OPENROUTER_CALL_TIMEOUT_MS,
+      );
       accumulateUsage(upstream.usage);
       const msg = upstream.choices[0].message;
       if (msg.reasoning) reasoning = msg.reasoning;
@@ -146,8 +175,15 @@ export async function POST(request: Request): Promise<Response> {
         });
         messages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify(result) });
       }
+      // Guard PÓS tool-exec: o trabalho pesado ocorreu entre os dois pontos de checagem.
+      if (Date.now() - startedAt > REQUEST_DEADLINE_MS) {
+        exitReason = "deadline";
+        break;
+      }
     }
 
+    // Atingiu hopCap ou deadline — retorna JSON próprio com mensagem segura,
+    // sem queimar mais orçamento. NUNCA deixa a plataforma matar e devolver HTML.
     const cappedMeta = meta();
     await recordLlmRequest(admin, {
       route: "fixture-copilot", fixture_id: parsed.fixture_id, model, cached: false,
@@ -155,10 +191,11 @@ export async function POST(request: Request): Promise<Response> {
       prompt_tokens: cappedMeta.usage_total.prompt_tokens,
       completion_tokens: cappedMeta.usage_total.completion_tokens,
       total_tokens: cappedMeta.usage_total.total_tokens, hops: cappedMeta.hops,
-      error: "max_tool_hops reached",
+      error: exitReason === "deadline" ? "deadline_exceeded" : "max_tool_hops reached",
     });
     return Response.json({
-      content: "Não consegui concluir em até 6 consultas. Tente uma pergunta mais direta.",
+      content:
+        "Não consegui finalizar a análise a tempo. Tente uma pergunta mais específica sobre o jogo.",
       meta: cappedMeta,
     });
   } catch (err) {
@@ -174,25 +211,36 @@ export async function POST(request: Request): Promise<Response> {
 }
 
 async function callOpenRouter(
-  messages: UpstreamMessage[], apiKey: string, model: string, maxTokens?: number,
+  messages: UpstreamMessage[],
+  apiKey: string,
+  model: string,
+  maxTokens: number | undefined,
+  timeoutMs: number,
 ): Promise<UpstreamResponse> {
   const body: Record<string, unknown> = {
     model, messages, tools: FIXTURE_TOOLS, tool_choice: "auto",
   };
   if (maxTokens) body.max_tokens = maxTokens;
-  const res = await fetch(OPENROUTER_ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": "https://abissal.rnobre.dev",
-      "X-Title": "Abissal Fixture Copilot",
-    },
-    body: JSON.stringify(body),
-  });
-  if (!res.ok) {
-    const t = await res.text().catch(() => "");
-    throw new Error(`OpenRouter ${res.status}: ${t.slice(0, 200)}`);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(OPENROUTER_ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://abissal.rnobre.dev",
+        "X-Title": "Abissal Fixture Copilot",
+      },
+      body: JSON.stringify(body),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const t = await res.text().catch(() => "");
+      throw new Error(`OpenRouter ${res.status}: ${t.slice(0, 200)}`);
+    }
+    return res.json() as Promise<UpstreamResponse>;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json() as Promise<UpstreamResponse>;
 }

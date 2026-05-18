@@ -122,13 +122,23 @@ export function FixtureCopilotDrawer({
           })),
         }),
       });
-      const body = (await res.json()) as {
-        content?: string;
-        error?: string;
-        meta?: CopilotMeta;
-      };
-      if (!res.ok) {
-        setError(body.error ?? `HTTP ${res.status}`);
+      // Parse defensivo: usa res.text() + JSON.parse para nunca lançar erro cru
+      // de JSON quando a plataforma devolve HTML (e.g. Cloudflare Workers kill).
+      const raw = await res.text();
+      let body: { content?: string; error?: string; meta?: CopilotMeta } | null = null;
+      try {
+        const parsed: unknown = raw ? JSON.parse(raw) : null;
+        if (parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)) {
+          body = parsed as { content?: string; error?: string; meta?: CopilotMeta };
+        }
+      } catch {
+        body = null;
+      }
+      if (!res.ok || !body) {
+        setError(
+          body?.error ??
+            "O copilot demorou demais ou falhou. Tente uma pergunta mais específica sobre o jogo.",
+        );
         return;
       }
       setMessages((prev) => {
