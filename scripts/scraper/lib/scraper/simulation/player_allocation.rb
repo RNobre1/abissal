@@ -10,8 +10,13 @@ module AdamStats
       module PlayerAllocation
         XI_SIZE = 11
         # League minutes-per-game proxy: full match. Used only to scale the
-        # `minutes` contribution into the ranking score.
+        # `minutes` contribution into the titularity RANKING score.
         LEAGUE_MPG = 90.0
+        # Hard cap on a player's EXPECTED minutes for the upcoming match.
+        # Intentionally a SEPARATE constant from LEAGUE_MPG even though both are
+        # 90.0 today: they govern unrelated knobs (ranking-score normalizer vs.
+        # per-match minutes cap). Do not "dedupe" them — collapsing into one
+        # would couple two independent tuning dimensions.
         FULL_MATCH_MINUTES = 90.0
 
         module_function

@@ -97,26 +97,16 @@ module AdamStats
         end
         private_class_method :usable_avgs?
 
-        # Day-slice league baseline aggregated from the team avgs blocks. With
-        # only the two teams in this fixture we have < MIN_TEAMS_FOR_DAY_BASELINE
-        # samples ⇒ fall back to the neutral persisted baseline (POC §2).
-        def league_baseline(avgs)
-          blocks = %w[home_home home_overall away_away away_overall]
-                   .map { |k| fetch(avgs, k) }
-                   .select { |b| b.is_a?(Hash) }
-          fors = blocks.map { |b| val(b, 'avgGoalsFor') }.compact
-          ags  = blocks.map { |b| val(b, 'avgGoalsAg') }.compact
-
-          # Distinct teams represented ≈ 2 here; always below the N=6 threshold,
-          # so we degrade to the neutral baseline but keep the observed scale.
-          return NEUTRAL_BASELINE if fors.size < MIN_TEAMS_FOR_DAY_BASELINE
-
-          {
-            'avg_goals_for' => mean(fors),
-            'avg_goals_ag' => mean(ags),
-            'avg_goals_home' => NEUTRAL_BASELINE['avg_goals_home'],
-            'avg_goals_away' => NEUTRAL_BASELINE['avg_goals_away']
-          }
+        # Day-slice league baseline. The current single-fixture invocation only
+        # ever sees the two teams in this fixture (< MIN_TEAMS_FOR_DAY_BASELINE
+        # distinct samples), so we always degrade to the neutral persisted
+        # baseline (spec §6.4 / POC §2). The multi-fixture aggregation branch
+        # (and the `mean` helper it used) was dead — no caller passes a wider
+        # day slice today — so it was removed (YAGNI). `avgs` is still accepted
+        # so a future day-slice caller can reintroduce aggregation here without
+        # changing the call site.
+        def league_baseline(_avgs)
+          NEUTRAL_BASELINE
         end
         private_class_method :league_baseline
 
@@ -236,10 +226,18 @@ module AdamStats
 
         # Deterministic seed derived from the fixture identity ⇒ stable across
         # re-runs of the same fixture (reproducible) but distinct per fixture.
+        #
+        # Seed material is restricted to identity that is INVARIANT in
+        # detail_json across re-scrapes: home|away|league. kickoff_utc is
+        # deliberately EXCLUDED — it may be absent or differently formatted
+        # ('2026-05-18T20:00:00Z' vs '2026-05-18 20:00:00 UTC') between scrape
+        # runs, which would silently change the whole simulation day-to-day and
+        # muddy T4 calibration. Determinism (not uniqueness) is the contract;
+        # distinct fixtures already diverge via their `avgs` Monte Carlo inputs.
         def derive_seed(d)
           key = [
             fetch(d, 'home_team'), fetch(d, 'away_team'),
-            fetch(d, 'league'), fetch(d, 'kickoff_utc')
+            fetch(d, 'league')
           ].map(&:to_s).join('|')
           Digest::SHA256.hexdigest(key)[0, 12].to_i(16)
         end
@@ -261,11 +259,6 @@ module AdamStats
           nil
         end
         private_class_method :val
-
-        def mean(arr)
-          arr.empty? ? 0.0 : arr.sum.to_f / arr.size
-        end
-        private_class_method :mean
       end
     end
   end

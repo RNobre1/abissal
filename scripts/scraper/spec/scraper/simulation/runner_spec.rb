@@ -28,7 +28,7 @@ RSpec.describe AdamStats::Scraper::Simulation::Runner do
 
     it 'returns a ready-to-persist scalar hash' do
       expect(result).to be_a(Hash)
-      expect(result[:status]).to eq('pending').or eq('simulated')
+      expect(result[:status]).to eq('pending')
       expect(result[:p_home] + result[:p_draw] + result[:p_away]).to be_within(1e-6).of(1.0)
       expect(result[:p_btts]).to be_between(0.0, 1.0)
       expect(result[:p_over_25]).to be_between(0.0, 1.0)
@@ -50,6 +50,26 @@ RSpec.describe AdamStats::Scraper::Simulation::Runner do
       a = described_class.simulate(enriched_detail)
       b = described_class.simulate(enriched_detail)
       expect(a).to eq(b)
+    end
+
+    # Regression: the seed must be invariant to fields that vary across
+    # re-scrapes (kickoff_utc may be absent OR formatted differently in
+    # detail_json from run to run). Round-trip through JSON twice — once WITH
+    # kickoff_utc present, once WITHOUT — and assert byte-identical output.
+    # Proves the cross-RUN guarantee, not just same-in-memory-hash.
+    it 'output is invariant to kickoff_utc presence/format across re-scrapes' do
+      base = enriched_detail
+
+      with_ko = JSON.parse(JSON.generate(base.merge('kickoff_utc' => '2026-05-18T20:00:00Z')))
+      without_ko = JSON.parse(JSON.generate(base.reject { |k, _| k == 'kickoff_utc' }))
+      with_other_ko = JSON.parse(JSON.generate(base.merge('kickoff_utc' => '2026-05-19 18:30:00 UTC')))
+
+      out_with    = described_class.simulate(with_ko)
+      out_without = described_class.simulate(without_ko)
+      out_other   = described_class.simulate(with_other_ko)
+
+      expect(JSON.generate(out_with)).to eq(JSON.generate(out_without))
+      expect(JSON.generate(out_with)).to eq(JSON.generate(out_other))
     end
   end
 

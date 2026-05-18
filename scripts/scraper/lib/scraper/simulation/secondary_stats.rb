@@ -32,7 +32,7 @@ module AdamStats
         # method of moments: Var = μ + μ²/r ⇒ r = μ² / (Var − μ).
         # Returns nil when the sample is empty or NOT overdispersed (Var ≤ μ).
         def dispersion_from(values)
-          vals = Array(values).map { |v| Float(v) rescue nil }.compact
+          vals = Array(values).map { |v| coerce_float(v) }.compact
           return nil if vals.size < 2
 
           n = vals.size.to_f
@@ -42,6 +42,16 @@ module AdamStats
 
           (mu**2) / (var - mu)
         end
+
+        # Explicit narrow rescue (project idiom — matches rates.rb / runner.rb /
+        # player_allocation.rb) instead of a bare `Float(v) rescue nil`, which
+        # would swallow every StandardError, not just bad-input coercion.
+        def coerce_float(v)
+          Float(v)
+        rescue ArgumentError, TypeError
+          nil
+        end
+        private_class_method :coerce_float
 
         # Knuth's algorithm for small λ; transformed-rejection-ish guard for
         # large λ via a normal approximation (kept simple, deterministic).

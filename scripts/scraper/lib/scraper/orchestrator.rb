@@ -42,7 +42,43 @@ module AdamStats
     # problemática NUNCA derruba o scrape (Lição #11). O Runner já degrada sem
     # raise; este rescue cobre falha de DB/serialização por linha.
     module SimulationHook
-      UPSERT_SQL = <<~SQL.freeze
+      # Idempotência: o scraper re-simula a MESMA fixture todo dia. Há DUAS
+      # partial unique indexes em fixture_simulations (0018) — uma para linhas
+      # com fixture_id, outra para linhas sem. Um único `ON CONFLICT (cols)`
+      # não consegue mirar as duas de forma limpa.
+      #
+      # Design escolhido (o mais simples CORRETO): DELETE-then-INSERT da
+      # identidade da fixture, ambos na MESMA conexão/transação por fixture.
+      # O DELETE cobre os dois caminhos (com e sem fixture_id) com um único
+      # predicado, sem ramificar SQL nem precisar de dois statements
+      # ON CONFLICT distintos. Garantia líquida: re-rodar o scraper para a
+      # mesma fixture SUBSTITUI a linha (idempotente), nunca empilha — e fecha
+      # de quebra o risco de linha meio-escrita (DELETE+INSERT atômico).
+      #
+      # Predicado de identidade espelha exatamente as duas unique indexes:
+      #   - fixture_id presente → casa por (fixture_id, kickoff_utc)
+      #   - fixture_id nil      → casa por (home_team, away_team, kickoff_utc)
+      # kickoff_utc nil é comparado via IS NOT DISTINCT FROM (NULL = NULL).
+      #
+      # Params (posicional): $1 fixture_id, $2 home_team, $3 away_team,
+      # $4 kickoff_utc. `league` NÃO é bound aqui (não faz parte de nenhuma
+      # das duas chaves de dedup) — ver #delete_params.
+      DELETE_PRIOR_SQL = <<~SQL.freeze
+        DELETE FROM fixture_simulations
+        WHERE (
+          $1::bigint IS NOT NULL
+          AND fixture_id = $1::bigint
+          AND kickoff_utc IS NOT DISTINCT FROM $4::timestamptz
+        ) OR (
+          $1::bigint IS NULL
+          AND fixture_id IS NULL
+          AND home_team = $2
+          AND away_team = $3
+          AND kickoff_utc IS NOT DISTINCT FROM $4::timestamptz
+        )
+      SQL
+
+      INSERT_SQL = <<~SQL.freeze
         INSERT INTO fixture_simulations
           (fixture_id, home_team, away_team, league, kickoff_utc, model_version,
            p_home, p_draw, p_away, p_btts, p_over_25,
@@ -72,7 +108,15 @@ module AdamStats
               sim = Simulation::Runner.simulate(detail)
               next if sim.nil? || sim[:status] == 'unsimulable'
 
-              conn.exec_params(UPSERT_SQL, build_params(fixture, sim))
+              params = build_params(fixture, sim)
+              # DELETE+INSERT atômico por fixture: re-rodar substitui a linha
+              # (idempotente), nunca empilha. Lição #11: o rescue abaixo isola
+              # a fixture; ROLLBACK garante que uma falha não deixa a linha
+              # antiga apagada sem a nova no lugar.
+              conn.transaction do
+                conn.exec_params(DELETE_PRIOR_SQL, delete_params(params))
+                conn.exec_params(INSERT_SQL, params)
+              end
             rescue StandardError => e
               logger.call("[scrape] simulation failed for #{source_url}: #{e.class}: #{e.message}")
             end
@@ -83,6 +127,15 @@ module AdamStats
         # reconciler/baseline. O scrape em si já persistiu as fixtures.
         logger.call("[scrape] simulation hook failed (non-fatal): #{e.class}: #{e.message}")
       end
+
+      # Extrai os 4 params da identidade de dedup a partir do array completo
+      # de build_params ([fixture_id, home, away, league, kickoff, ...]).
+      # Ordem casa com DELETE_PRIOR_SQL: $1 fixture_id, $2 home, $3 away,
+      # $4 kickoff (league/idx 3 é descartado — não é chave).
+      def delete_params(params)
+        [params[0], params[1], params[2], params[4]]
+      end
+      private_class_method :delete_params
 
       def build_params(fixture, sim)
         kickoff = UkTimeHelper.to_utc_or_noon(fixture.match_date, fixture.ko_time)

@@ -51,6 +51,35 @@ create table if not exists public.fixture_simulations (
 create index if not exists fixture_simulations_status_kickoff_idx
   on public.fixture_simulations (status, kickoff_utc);
 
+-- ------------------------------------------------------------
+-- Dedup keys (idempotência do upsert do scraper).
+--
+-- O scraper roda diariamente e re-simula a MESMA fixture várias vezes
+-- (até a fixture sair da janela de purga). Sem chave de dedup o INSERT
+-- empilhava N linhas por fixture e corrompia a reconciliação T4
+-- (calibração contaria a mesma simulação várias vezes / pegaria uma
+-- linha meio-escrita).
+--
+-- A identidade da fixture tem DOIS formatos: ou um `fixture_id` numérico
+-- (extraído do source_url /fixture/<id>), ou nil (source sem id). Por
+-- isso DUAS partial unique indexes complementares — juntas cobrem 100%
+-- das linhas dedupáveis:
+--   - fid_uidx:   linhas COM fixture_id  → chave (fixture_id, kickoff_utc)
+--   - teams_uidx: linhas SEM fixture_id  → chave (home_team, away_team, kickoff_utc)
+--
+-- Edge aceito conscientemente (NÃO over-engineerar): uma linha com
+-- fixture_id NULL E kickoff_utc NULL é genuinamente inchaveável e PODE
+-- duplicar. É raríssimo (fixture sem id numérico no source_url E sem
+-- horário) e não vale uma 3ª chave sintética; documentado aqui de
+-- propósito como limite conhecido.
+create unique index if not exists fixture_simulations_fid_uidx
+  on public.fixture_simulations (fixture_id, kickoff_utc)
+  where fixture_id is not null;
+
+create unique index if not exists fixture_simulations_teams_uidx
+  on public.fixture_simulations (home_team, away_team, kickoff_utc)
+  where fixture_id is null;
+
 alter table public.fixture_simulations enable row level security;
 
 -- RLS: postura service-role-only intencional — idêntica a ai_predictions
