@@ -108,10 +108,10 @@ begin
   -- Snapshot idempotente: gera (ou atualiza) o snapshot do dia do resolve.
   -- Falha não reverte o ledger — snapshot é cache reconstruível.
   begin
-    PERFORM generate_balance_snapshots(p_resolved_at::date);
+    PERFORM generate_balance_snapshots(v_resolved_at::date);
   exception when others then
     RAISE WARNING 'resolve_bet: generate_balance_snapshots falhou para % (%): %',
-      p_resolved_at::date, SQLERRM, SQLSTATE;
+      v_resolved_at::date, SQLSTATE, SQLERRM;
   end;
 end;
 $$;
@@ -244,3 +244,9 @@ order by user_id, period_type desc, period desc;
 
 grant select on public.roi_by_house_view  to authenticated;
 grant select on public.roi_by_period_view to authenticated;
+
+-- RLS isolation: views devem rodar como invoker para que o RLS do usuário
+-- autenticado se aplique — mesma correção aplicada em 0005_security_hardening.sql
+-- nas views antigas (house_balance_view / bet_summary_view / daily_pl_view).
+alter view public.roi_by_house_view  set (security_invoker = true);
+alter view public.roi_by_period_view set (security_invoker = true);

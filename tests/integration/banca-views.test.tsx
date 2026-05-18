@@ -10,6 +10,8 @@
  * CLAUDE.md (Lesson B13) e follow-up em docs/tasks/loop-banca/01-followup-sql-harness.md.
  */
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
@@ -285,5 +287,32 @@ describe("BancaPage — edge case: yield null em roi_by_period_view", () => {
     // fmtPct(null) → "—"
     const dashes = screen.getAllByText("—");
     expect(dashes.length).toBeGreaterThan(0);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────────
+// C1 — Change-detector: security_invoker = true nas DUAS views novas (C1/OWASP A01)
+// Garante que a migration 0014 não pode ser mergeada sem o ALTER VIEW que
+// impede RLS bypass / vazamento cross-tenant.
+// ──────────────────────────────────────────────────────────────────────────────
+
+describe("migration 0014 — security_invoker nas views ROI (change-detector C1)", () => {
+  const migrationPath = join(
+    __dirname,
+    "../../supabase/migrations/0014_banca_loop.sql",
+  );
+  const sql = readFileSync(migrationPath, "utf-8");
+
+  it("roi_by_house_view possui ALTER VIEW ... security_invoker = true (RLS isolation)", () => {
+    // Regex aceita qualquer whitespace entre tokens — tolerante a formatação.
+    expect(sql).toMatch(
+      /alter\s+view\s+public\.roi_by_house_view\s+set\s*\(\s*security_invoker\s*=\s*true\s*\)/i,
+    );
+  });
+
+  it("roi_by_period_view possui ALTER VIEW ... security_invoker = true (RLS isolation)", () => {
+    expect(sql).toMatch(
+      /alter\s+view\s+public\.roi_by_period_view\s+set\s*\(\s*security_invoker\s*=\s*true\s*\)/i,
+    );
   });
 });

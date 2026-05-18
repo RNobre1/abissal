@@ -72,6 +72,7 @@ Adicionar job `.github/workflows/test.yml`:
 - [ ] `generate_balance_snapshots` é idempotente (dois INSERTs com mesma data → mesma linha via `ON CONFLICT DO UPDATE`).
 - [ ] `roi_by_house_view` retorna `pl`, `yield`, `roi`, `win_rate` com valores numericamente corretos para dataset de seed.
 - [ ] `roi_by_period_view` agrega por mês (`YYYY-MM`) e retorna `rolling-30d` corretamente.
+- [ ] **Isolamento cross-tenant (C1/OWASP A01):** consultar `roi_by_house_view` ou `roi_by_period_view` como usuário A não retorna nenhuma linha do usuário B. Validar criando dois usuários com bets distintos via seed e confirmando que cada sessão autenticada vê apenas suas próprias linhas (exige harness Postgres real + `SET LOCAL role` por sessão para simular RLS).
 
 ---
 
