@@ -8,6 +8,8 @@ import {
   type FixtureToolCtx,
 } from "@/lib/fixtures/fixture-copilot-tools";
 import { recordLlmRequest } from "@/lib/llm-logs";
+import { extractPrediction } from "@/lib/ai/prediction-block";
+import { recordPrediction } from "@/lib/ai/predictions-repository";
 
 export const maxDuration = 100;
 
@@ -16,7 +18,19 @@ Você SÓ pode afirmar números que vieram de uma das ferramentas — nunca inve
 estatística, jogador, árbitro ou odd. Use as ferramentas para puxar a camada
 tratada (insights, splits, radar, recent matches, etc.) e responda em português
 do Brasil, em markdown, citando o valor e a leitura para aposta. Se uma
-ferramenta retornar {error}, diga o que faltou e siga com o que tem.`;
+ferramenta retornar {error}, diga o que faltou e siga com o que tem.
+
+Ao finalizar sua resposta, adicione SEMPRE um bloco de predição estruturada no
+seguinte formato exato, sem comentários adicionais sobre ele na prosa:
+
+\`\`\`json
+{"prediction":{"winner":"home|draw|away","confidence":<0.0-1.0>,"over_under_2_5":"over|under"}}
+\`\`\`
+
+Onde: winner é quem você prevê vencer (home=mandante, draw=empate, away=visitante);
+confidence é sua confiança de 0 a 1; over_under_2_5 é sua previsão sobre o
+total de gols (over=mais de 2.5 gols, under=2.5 ou menos). Este bloco é
+metadado de calibração — não comente sobre ele na sua análise.`;
 
 const chatMessageSchema = z.object({
   role: z.enum(["user", "assistant"]),
@@ -82,11 +96,11 @@ export async function POST(request: Request): Promise<Response> {
   const admin = createAdminClient();
   const { data: row, error: rowErr } = await (admin as unknown as {
     from: (t: string) => {
-      select: (c: string) => { eq: (k: string, v: number) => { maybeSingle: () => Promise<{ data: { id: number; home_team: string; away_team: string; detail_json: unknown } | null; error: unknown }> } };
+      select: (c: string) => { eq: (k: string, v: number) => { maybeSingle: () => Promise<{ data: { id: number; home_team: string; away_team: string; league: string | null; kickoff_utc: string | null; detail_json: unknown } | null; error: unknown }> } };
     };
   })
     .from("fixtures")
-    .select("id, home_team, away_team, detail_json")
+    .select("id, home_team, away_team, league, kickoff_utc, detail_json")
     .eq("id", parsed.fixture_id)
     .maybeSingle();
 
@@ -152,6 +166,7 @@ export async function POST(request: Request): Promise<Response> {
 
       if (!msg.tool_calls || msg.tool_calls.length === 0) {
         const finalMeta = meta();
+        const content = msg.content ?? "";
         await recordLlmRequest(admin, {
           route: "fixture-copilot", fixture_id: parsed.fixture_id, model, cached: false,
           reasoner: useReasoner, latency_ms: finalMeta.latency_ms,
@@ -159,7 +174,27 @@ export async function POST(request: Request): Promise<Response> {
           completion_tokens: finalMeta.usage_total.completion_tokens,
           total_tokens: finalMeta.usage_total.total_tokens, hops: finalMeta.hops,
         });
-        return Response.json({ content: msg.content ?? "", meta: finalMeta });
+        // Extrai predição estruturada e persiste fire-and-forget (nunca bloqueia a resposta).
+        const pred = extractPrediction(content);
+        if (pred) {
+          // Extrai o trecho do bloco para raw_excerpt
+          const blockMatch = content.match(/```json[\s\S]*?```/);
+          void recordPrediction(admin, {
+            route: "fixture-copilot",
+            fixture_id: parsed.fixture_id,
+            home_team: row.home_team,
+            away_team: row.away_team,
+            league: row.league ?? null,
+            kickoff_utc: row.kickoff_utc ?? null,
+            model,
+            reasoner: useReasoner,
+            pred_winner: pred.winner,
+            pred_confidence: pred.confidence,
+            pred_over_under: pred.over_under_2_5,
+            raw_excerpt: blockMatch ? blockMatch[0] : null,
+          });
+        }
+        return Response.json({ content, meta: finalMeta });
       }
 
       messages.push({ role: "assistant", content: msg.content ?? null, tool_calls: msg.tool_calls });
