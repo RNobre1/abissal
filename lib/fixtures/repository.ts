@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { brtDayWindowUtc, toIsoUtc, trimKoTime } from "./time";
 import type { FixtureDTO } from "./types";
+import { computeBadges } from "./badges";
 
 const FIXTURE_COLUMNS =
   "id, match_date, ko_time, home_team, away_team, league, country, source_url, kickoff_utc, " +
@@ -94,6 +95,76 @@ function compareNullableString(a: string | null, b: string | null): number {
   if (a < b) return -1;
   if (a > b) return 1;
   return 0;
+}
+
+/**
+ * Columns for the dashboard badges query. Selects only the two sub-paths
+ * needed by computeBadges (referee_record + streaks) — NOT the full blob.
+ * Roughly 2–10 KB per fixture vs ~80KB for the full detail_json.
+ * Separate from FIXTURE_COLUMNS to preserve the /fixtures list payload guard.
+ */
+const BADGE_COLUMNS =
+  "id, match_date, ko_time, home_team, away_team, league, country, source_url, kickoff_utc, " +
+  "hd_probe:detail_json->>team_record, " +
+  "ref_record:detail_json->referee_record, " +
+  "streaks:detail_json->streaks";
+
+interface BadgeRow extends CompactFixtureRow {
+  ref_record: unknown;
+  streaks: unknown;
+}
+
+/**
+ * Returns fixtures for the given BRT day including computed badges.
+ * Used by the dashboard's "Destaques do dia" section — NOT by the /fixtures
+ * list (which uses the minimal FIXTURE_COLUMNS query to stay under CF limits).
+ */
+export async function fixturesWithBadgesForDashboard(
+  date: string,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: SupabaseClient<any, any, any> | any,
+): Promise<FixtureDTO[]> {
+  const { startUtc, endUtc } = brtDayWindowUtc(date);
+
+  const orExpr =
+    `and(kickoff_utc.gte.${startUtc},kickoff_utc.lt.${endUtc}),` +
+    `and(kickoff_utc.is.null,match_date.eq.${date})`;
+
+  const { data, error } = await supabase
+    .from("fixtures")
+    .select(BADGE_COLUMNS)
+    .or(orExpr)
+    .order("kickoff_utc", { ascending: true, nullsFirst: false })
+    .order("ko_time", { ascending: true, nullsFirst: false })
+    .order("id", { ascending: true });
+
+  if (error) {
+    throw new Error(error.message ?? "supabase query failed");
+  }
+
+  const rows = (data ?? []) as BadgeRow[];
+  const sorted = [...rows].sort(compareFixtures);
+  return sorted.map(toBadgeDto);
+}
+
+function toBadgeDto(row: BadgeRow): FixtureDTO {
+  const has_detail = row.hd_probe != null;
+  const badges = has_detail
+    ? computeBadges({ referee_record: row.ref_record, streaks: row.streaks })
+    : [];
+  return {
+    id: row.id,
+    match_date: row.match_date,
+    ko_time: trimKoTime(row.ko_time),
+    home_team: row.home_team,
+    away_team: row.away_team,
+    league: row.league,
+    country: row.country,
+    source_url: row.source_url,
+    has_detail,
+    kickoff_utc: toIsoUtc(row.kickoff_utc),
+    badges,
+  };
 }
 
 function toDto(row: CompactFixtureRow): FixtureDTO {

@@ -26,7 +26,8 @@ function buildClient(userId: string) {
     from: (table: string) => {
       if (table !== "alert_dismissals") throw new Error("wrong table");
       return {
-        select: (cols: string) => ({
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        select: (_: string) => ({
           eq: (col: string, val: unknown) => ({
             // simula RLS: filtra pelo user_id exato
             then: (cb: (r: unknown) => unknown) => {

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fmt } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Sparkline } from "@/components/sparkline";
+import { DestaquesDoDia } from "./_components/destaques-do-dia";
 
 export default async function OverviewPage() {
   const supabase = await createClient();
@@ -88,6 +89,8 @@ export default async function OverviewPage() {
         <span className="label">visão geral</span>
         <span className="label">{fmt.date(new Date())}</span>
       </header>
+
+      <DestaquesDoDia />
 
       {isEmpty ? <FirstRun /> : (
         <>

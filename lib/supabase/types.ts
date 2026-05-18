@@ -14,6 +14,24 @@ export type Database = {
   }
   public: {
     Tables: {
+      alert_dismissals: {
+        Row: {
+          user_id: string
+          fixture_id: number
+          dismissed_at: string
+        }
+        Insert: {
+          user_id: string
+          fixture_id: number
+          dismissed_at?: string
+        }
+        Update: {
+          user_id?: string
+          fixture_id?: number
+          dismissed_at?: string
+        }
+        Relationships: []
+      }
       audit_log: {
         Row: {
           action: Database["public"]["Enums"]["audit_action"]
