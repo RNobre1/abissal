@@ -124,3 +124,44 @@ export function calibrationBuckets(
 
   return buckets;
 }
+
+// ── brierScore ────────────────────────────────────────────────────────────────
+
+/**
+ * Brier score binário: penalidade quadrática `(p − y)²` de uma probabilidade
+ * prevista `p ∈ [0,1]` contra o desfecho real `y ∈ {0,1}`.
+ *
+ * Menor é melhor. Predição perfeita = 0; pior caso = 1.
+ * Puro, sem I/O.
+ */
+export function brierScore(p: number, y: 0 | 1): number {
+  const d = p - y;
+  return d * d;
+}
+
+// ── brierScoreMulticlass ──────────────────────────────────────────────────────
+
+/** Distribuição de probabilidade 1X2 (home/draw/away). */
+export interface Outcome1x2Probs {
+  home: number;
+  draw: number;
+  away: number;
+}
+
+/**
+ * Brier score multiclasse para o mercado 1X2: `Σ_i (p_i − y_i)²` onde `y` é o
+ * one-hot do desfecho real (1 na classe ocorrida, 0 nas demais).
+ *
+ * Menor é melhor. Predição perfeita = 0; pior caso (toda massa na classe
+ * errada) = 2 para a forma one-hot de 3 classes.
+ * Puro, sem I/O.
+ */
+export function brierScoreMulticlass(
+  probs: Outcome1x2Probs,
+  outcome: "home" | "draw" | "away",
+): number {
+  const dh = probs.home - (outcome === "home" ? 1 : 0);
+  const dd = probs.draw - (outcome === "draw" ? 1 : 0);
+  const da = probs.away - (outcome === "away" ? 1 : 0);
+  return dh * dh + dd * dd + da * da;
+}

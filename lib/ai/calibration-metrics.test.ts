@@ -4,6 +4,8 @@ import {
   scoreOverUnder,
   hitRate,
   calibrationBuckets,
+  brierScore,
+  brierScoreMulticlass,
   type ResolvedPrediction,
 } from "./calibration-metrics";
 
@@ -149,5 +151,68 @@ describe("calibrationBuckets", () => {
     expect(activeBucket).toBeDefined();
     expect(activeBucket!.n).toBe(1);
     expect(activeBucket!.realizedAccuracy).toBe(1);
+  });
+});
+
+// ── brierScore (binário) ──────────────────────────────────────────────────────
+
+describe("brierScore", () => {
+  it("p=0.7, y=1 → (0.7−1)² = 0.09", () => {
+    expect(brierScore(0.7, 1)).toBeCloseTo(0.09, 10);
+  });
+  it("p=0.7, y=0 → (0.7−0)² = 0.49", () => {
+    expect(brierScore(0.7, 0)).toBeCloseTo(0.49, 10);
+  });
+  it("predição perfeita p=1, y=1 → 0", () => {
+    expect(brierScore(1, 1)).toBe(0);
+  });
+  it("predição perfeita p=0, y=0 → 0", () => {
+    expect(brierScore(0, 0)).toBe(0);
+  });
+  it("pior caso p=1, y=0 → 1", () => {
+    expect(brierScore(1, 0)).toBe(1);
+  });
+  it("pior caso p=0, y=1 → 1", () => {
+    expect(brierScore(0, 1)).toBe(1);
+  });
+  it("p=0.5 → 0.25 independente de y", () => {
+    expect(brierScore(0.5, 0)).toBeCloseTo(0.25, 10);
+    expect(brierScore(0.5, 1)).toBeCloseTo(0.25, 10);
+  });
+});
+
+// ── brierScoreMulticlass (1X2) ────────────────────────────────────────────────
+
+describe("brierScoreMulticlass", () => {
+  it("{0.5,0.3,0.2}, outcome home → 0.25+0.09+0.04 = 0.38", () => {
+    expect(
+      brierScoreMulticlass({ home: 0.5, draw: 0.3, away: 0.2 }, "home"),
+    ).toBeCloseTo(0.38, 10);
+  });
+  it("{0.5,0.3,0.2}, outcome draw → 0.25+0.49+0.04 = 0.78", () => {
+    expect(
+      brierScoreMulticlass({ home: 0.5, draw: 0.3, away: 0.2 }, "draw"),
+    ).toBeCloseTo(0.78, 10);
+  });
+  it("{0.5,0.3,0.2}, outcome away → 0.25+0.09+0.64 = 0.98", () => {
+    expect(
+      brierScoreMulticlass({ home: 0.5, draw: 0.3, away: 0.2 }, "away"),
+    ).toBeCloseTo(0.98, 10);
+  });
+  it("predição perfeita {1,0,0}, outcome home → 0", () => {
+    expect(
+      brierScoreMulticlass({ home: 1, draw: 0, away: 0 }, "home"),
+    ).toBe(0);
+  });
+  it("pior caso {0,0,1}, outcome home → 1+0+1 = 2 (limite superior)", () => {
+    expect(
+      brierScoreMulticlass({ home: 0, draw: 0, away: 1 }, "home"),
+    ).toBeCloseTo(2, 10);
+  });
+  it("uniforme {1/3,1/3,1/3}, qualquer outcome → 2/3", () => {
+    const u = 1 / 3;
+    expect(
+      brierScoreMulticlass({ home: u, draw: u, away: u }, "draw"),
+    ).toBeCloseTo(2 / 3, 10);
   });
 });
