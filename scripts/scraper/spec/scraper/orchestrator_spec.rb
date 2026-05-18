@@ -619,7 +619,9 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       logged = []
       logger = ->(m) { logged << m }
       conn = double('conn')
-      allow(conn).to receive(:exec_params)
+      # Pre-check SELECT → no existing row ⇒ simula (comportamento original).
+      allow(conn).to receive(:exec_params).with(/SELECT/i, anything).and_return([])
+      allow(conn).to receive(:exec_params).with(/DELETE|INSERT/i, anything)
       allow(conn).to receive(:transaction) { |&blk| blk.call }
       allow(AdamStats::Scraper::DB).to receive(:with_connection).and_yield(conn)
 
@@ -647,22 +649,27 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       end.not_to raise_error
 
       expect(logged.any? { |m| m.include?(fixture.source_url) && m.match?(/fail|error|explode/i) }).to be(true)
-      # The good fixture still got upserted — idempotent design issues a
-      # DELETE-prior + INSERT per fixture (2 exec_params for the 1 good row).
-      expect(conn).to have_received(:exec_params).twice
+      # 2 fixtures × 1 pre-check SELECT each + 1 DELETE + 1 INSERT for the
+      # single good row (the bad one raises in Runner.simulate after its
+      # pre-check) = 4 exec_params total.
+      expect(conn).to have_received(:exec_params).with(/SELECT/i, anything).twice
+      expect(conn).to have_received(:exec_params).with(/DELETE|INSERT/i, anything).twice
       expect(conn).to have_received(:transaction).once
     end
 
     it 'skips upsert for unsimulable results (no raise)' do
       conn = double('conn')
-      allow(conn).to receive(:exec_params)
+      # Pre-check SELECT → no existing row ⇒ prossegue para simular.
+      allow(conn).to receive(:exec_params).with(/SELECT/i, anything).and_return([])
+      allow(conn).to receive(:exec_params).with(/DELETE|INSERT/i, anything)
       allow(conn).to receive(:transaction) { |&blk| blk.call }
       allow(AdamStats::Scraper::DB).to receive(:with_connection).and_yield(conn)
       allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate)
         .and_return(status: 'unsimulable', model_version: 'v')
 
       described_class.run([fixture], { fixture.source_url => { 'x' => 1 } }, logger: ->(_) {})
-      expect(conn).not_to have_received(:exec_params)
+      # unsimulable ⇒ NENHUM DELETE/INSERT (só o pre-check SELECT roda).
+      expect(conn).not_to have_received(:exec_params).with(/DELETE|INSERT/i, anything)
     end
 
     it 'is a no-op when there are no details' do
@@ -752,6 +759,156 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       expect(rows.length).to eq(1)
       expect(rows.first['p_home'].to_f).to be_within(1e-6).of(0.61)
       expect(rows.first['fixture_id']).to be_nil
+    end
+
+    # ------------------------------------------------------------------
+    # Incremental pre-check (fix/sim-hook-incremental): antes da MC cara,
+    # um SELECT barato decide SIMULAR vs PULAR. Fecha o estouro do timeout
+    # do scrape (re-simulava TODA fixture todo dia) E o clobber de linha
+    # já reconciliada (resolved/unresolvable) que destruía calibração.
+    # ------------------------------------------------------------------
+    let(:current_mv) { AdamStats::Scraper::Simulation::Runner::MODEL_VERSION }
+
+    def sim_result_mv(p_home, model_version: 'v', status: 'pending')
+      sim_result(p_home).merge(model_version: model_version, status: status)
+    end
+
+    def insert_existing_row(fixture_id:, home:, away:, kickoff:, model_version:, status:,
+                            p_home: 0.10, resolved: false)
+      conn = DBHelper.connect
+      conn.exec_params(
+        "INSERT INTO fixture_simulations " \
+        "(fixture_id, home_team, away_team, league, kickoff_utc, model_version, " \
+        " p_home, p_draw, p_away, status" \
+        "#{resolved ? ', actual_home_goals, actual_away_goals, correct_winner, correct_over_under, actual_resolved_at' : ''}) " \
+        "VALUES ($1,$2,$3,'L',$4::timestamptz,$5,$6,0.3,0.2,$7" \
+        "#{resolved ? ',2,1,true,true,now()' : ''})",
+        [fixture_id, home, away, kickoff, model_version, p_home, status]
+      )
+      conn.close
+    end
+
+    it '1. no existing row → a fixture_simulations row IS created (new fixture)' do
+      fx = AdamStats::Scraper::Fixture.new(
+        match_date: Date.new(2026, 5, 18), ko_time: '20:00',
+        home_team: 'A', away_team: 'B', league: 'L',
+        source_url: '/fixture/424242/l-a-vs-b', country: nil
+      )
+      allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate)
+        .and_return(sim_result_mv(0.10, model_version: current_mv))
+
+      described_hook.run([fx], { fx.source_url => { 'x' => 1 } }, logger: ->(_) {})
+
+      rows = count_sims
+      expect(rows.length).to eq(1)
+      expect(rows.first['fixture_id'].to_i).to eq(424_242)
+    end
+
+    it '2. existing pending row with SAME model_version → SKIP (no simulate, row intact)' do
+      fx = AdamStats::Scraper::Fixture.new(
+        match_date: Date.new(2026, 5, 18), ko_time: '20:00',
+        home_team: 'A', away_team: 'B', league: 'L',
+        source_url: '/fixture/424242/l-a-vs-b', country: nil
+      )
+      kickoff = AdamStats::Scraper::UkTimeHelper
+                .to_utc_or_noon(fx.match_date, fx.ko_time)
+                .strftime('%Y-%m-%d %H:%M:%S UTC')
+      insert_existing_row(fixture_id: 424_242, home: 'A', away: 'B',
+                          kickoff: kickoff, model_version: current_mv,
+                          status: 'pending', p_home: 0.99)
+      before_row = count_sims.first
+
+      expect(AdamStats::Scraper::Simulation::Runner).not_to receive(:simulate)
+      described_hook.run([fx], { fx.source_url => { 'x' => 1 } }, logger: ->(_) {})
+
+      rows = count_sims
+      expect(rows.length).to eq(1)
+      expect(rows.first['id']).to eq(before_row['id'])
+      expect(rows.first['p_home'].to_f).to be_within(1e-6).of(0.99)
+      expect(rows.first['created_at']).to eq(before_row['created_at'])
+    end
+
+    it '3. existing RESOLVED row → SKIP: reconciliation columns UNTOUCHED (calibration not clobbered)' do
+      fx = AdamStats::Scraper::Fixture.new(
+        match_date: Date.new(2026, 5, 18), ko_time: '20:00',
+        home_team: 'A', away_team: 'B', league: 'L',
+        source_url: '/fixture/424242/l-a-vs-b', country: nil
+      )
+      kickoff = AdamStats::Scraper::UkTimeHelper
+                .to_utc_or_noon(fx.match_date, fx.ko_time)
+                .strftime('%Y-%m-%d %H:%M:%S UTC')
+      insert_existing_row(fixture_id: 424_242, home: 'A', away: 'B',
+                          kickoff: kickoff, model_version: current_mv,
+                          status: 'resolved', p_home: 0.42, resolved: true)
+      before_row = count_sims.first
+
+      expect(AdamStats::Scraper::Simulation::Runner).not_to receive(:simulate)
+      described_hook.run([fx], { fx.source_url => { 'x' => 1 } }, logger: ->(_) {})
+
+      rows = count_sims
+      expect(rows.length).to eq(1)
+      r = rows.first
+      expect(r['id']).to eq(before_row['id'])
+      expect(r['status']).to eq('resolved')
+      expect(r['actual_home_goals'].to_i).to eq(2)
+      expect(r['actual_away_goals'].to_i).to eq(1)
+      expect(r['correct_winner']).to eq('t')
+      expect(r['actual_resolved_at']).to eq(before_row['actual_resolved_at'])
+      expect(r['p_home'].to_f).to be_within(1e-6).of(0.42)
+    end
+
+    it '4. existing row with DIFFERENT model_version → re-simulates and REPLACES it' do
+      fx = AdamStats::Scraper::Fixture.new(
+        match_date: Date.new(2026, 5, 18), ko_time: '20:00',
+        home_team: 'A', away_team: 'B', league: 'L',
+        source_url: '/fixture/424242/l-a-vs-b', country: nil
+      )
+      kickoff = AdamStats::Scraper::UkTimeHelper
+                .to_utc_or_noon(fx.match_date, fx.ko_time)
+                .strftime('%Y-%m-%d %H:%M:%S UTC')
+      insert_existing_row(fixture_id: 424_242, home: 'A', away: 'B',
+                          kickoff: kickoff, model_version: 'sim-OLD',
+                          status: 'pending', p_home: 0.10)
+
+      allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate)
+        .and_return(sim_result_mv(0.77, model_version: current_mv))
+      described_hook.run([fx], { fx.source_url => { 'x' => 1 } }, logger: ->(_) {})
+
+      rows = count_sims
+      expect(rows.length).to eq(1)
+      expect(rows.first['model_version']).to eq(current_mv)
+      expect(rows.first['p_home'].to_f).to be_within(1e-6).of(0.77)
+    end
+
+    it '5. pre-check SELECT failure → fail-open (still simulates; one error never drops the sim)' do
+      fx = AdamStats::Scraper::Fixture.new(
+        match_date: Date.new(2026, 5, 18), ko_time: '20:00',
+        home_team: 'A', away_team: 'B', league: 'L',
+        source_url: '/fixture/424242/l-a-vs-b', country: nil
+      )
+      allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate)
+        .and_return(sim_result_mv(0.33, model_version: current_mv))
+
+      # Make ONLY the pre-check SELECT raise; DELETE/INSERT must still run.
+      real_exec = AdamStats::Scraper::DB.method(:with_connection)
+      allow(AdamStats::Scraper::DB).to receive(:with_connection) do |&blk|
+        real_exec.call do |conn|
+          orig = conn.method(:exec_params)
+          allow(conn).to receive(:exec_params) do |sql, *args|
+            raise PG::Error, 'precheck boom' if sql.match?(/SELECT/i) && sql.match?(/fixture_simulations/i)
+
+            orig.call(sql, *args)
+          end
+          blk.call(conn)
+        end
+      end
+
+      logged = []
+      described_hook.run([fx], { fx.source_url => { 'x' => 1 } }, logger: ->(m) { logged << m })
+
+      rows = count_sims
+      expect(rows.length).to eq(1)
+      expect(rows.first['p_home'].to_f).to be_within(1e-6).of(0.33)
     end
   end
 end
