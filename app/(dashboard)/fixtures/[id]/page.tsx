@@ -46,6 +46,8 @@ import { StreaksHeatmap } from "@/components/fixtures/stats/panels/streaks-heatm
 import { Players } from "@/components/fixtures/stats/panels/players";
 import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-browser";
 import { FixtureCopilotDrawer } from "@/components/fixtures/fixture-copilot-drawer";
+import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
+import { SimulationPanel } from "./_components/simulation-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -219,8 +221,18 @@ export default async function StatsPage({ params }: StatsPageProps) {
   const kickoffBrt =
     formatUtcAsBrt(kickoffIso) ?? trimKoTime(row.ko_time) ?? null;
 
+  // Pre-game simulation (separate scalar-only table). Degrades to null when
+  // the migration/table is absent — the SIM panel shows a graceful
+  // "simulação indisponível" state instead of crashing the page.
+  const sim = await getFixtureSimulation(row.id, untyped);
+
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
-  const panels = buildPanels(detail, row.home_team, row.away_team);
+  const panels = buildPanels(
+    detail,
+    row.home_team,
+    row.away_team,
+    sim,
+  );
 
   return (
     <>
@@ -255,12 +267,49 @@ export default async function StatsPage({ params }: StatsPageProps) {
  * Predictions, Insights) self-render `null` when their data is empty;
  * we still mount them so the Suspense slot can stream in if data arrives.
  */
+/**
+ * Reads the enriched T1 `avgs` foundation field (num_matches per side) off
+ * detail_json — the page already holds detail in memory via the existing
+ * scalar-safe FIXTURE_COLUMNS path, so this introduces no new heavy select.
+ * Used only to honestly surface the model's sample size in the SIM panel.
+ */
+function readAvgsSampleSize(
+  detail: DetailJson | null,
+): { home: number | null; away: number | null } {
+  const avgs = (detail as unknown as { avgs?: Record<string, unknown> } | null)
+    ?.avgs;
+  const pick = (block: unknown): number | null => {
+    if (!block || typeof block !== "object") return null;
+    const n = (block as Record<string, unknown>).num_matches;
+    return typeof n === "number" && Number.isFinite(n) ? n : null;
+  };
+  return {
+    home: pick(avgs?.home_overall) ?? pick(avgs?.home_home),
+    away: pick(avgs?.away_overall) ?? pick(avgs?.away_away),
+  };
+}
+
 function buildPanels(
   detail: DetailJson | null,
   homeTeam: string,
   awayTeam: string,
+  sim: Awaited<ReturnType<typeof getFixtureSimulation>>,
 ): PanelSlot[] {
-  if (!detail) return [];
+  const simSlot: PanelSlot = {
+    id: "SIM",
+    colSpan: "span 12 / span 12",
+    label: "simulação pré-jogo",
+    node: (
+      <SimulationPanel
+        sim={sim}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        sampleSize={readAvgsSampleSize(detail)}
+      />
+    ),
+  };
+
+  if (!detail) return [simSlot];
 
   const homeRecord = deriveTeamRecord(detail.team_record?.home);
   const awayRecord = deriveTeamRecord(detail.team_record?.away);
@@ -310,6 +359,7 @@ function buildPanels(
   const insights = rankInsights(allInsights);
 
   return [
+    simSlot,
     {
       id: "B",
       colSpan: "span 12 / span 12",

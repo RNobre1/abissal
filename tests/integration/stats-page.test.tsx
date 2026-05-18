@@ -72,8 +72,23 @@ function buildQueryBuilder() {
   return builder;
 }
 
+/**
+ * The page also reads the pre-game simulation from `fixture_simulations`
+ * (Wave 2b / Task 3). These tests focus on the fixtures/hero/panels
+ * contract, so the simulation table resolves to `null` (the SIM panel
+ * degrades gracefully) and we DON'T let it clobber `lastTable`/`lastEq`.
+ */
+function buildNullSimBuilder() {
+  const builder: Record<string, unknown> = {};
+  builder.select = () => builder;
+  builder.eq = () => builder;
+  builder.maybeSingle = () => Promise.resolve({ data: null, error: null });
+  return builder;
+}
+
 const mockClient = {
   from: (table: string) => {
+    if (table === "fixture_simulations") return buildNullSimBuilder();
     mockState.lastTable = table;
     return buildQueryBuilder();
   },

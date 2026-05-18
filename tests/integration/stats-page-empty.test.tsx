@@ -10,9 +10,9 @@ import type { FixtureRow } from "@/lib/fixtures/types";
  *  - Hero still renders (teams + kickoff visible).
  *  - "stats em breve — scraper atualiza diariamente" fallback message
  *    replaces the KPI grid.
- *  - No data-panel slot is mounted (page.tsx returns an empty
- *    `panels` array, so the responsive layout shows the
- *    "painéis em construção" empty-state instead).
+ *  - The pre-game simulation panel (SIM) is ALWAYS mounted and shows a
+ *    graceful "simulação indisponível" state when there is no simulation
+ *    (Wave 2b / Task 3 — honest degradation, never a crash).
  */
 
 // lightweight-charts touches canvas/WebGL — not implemented by happy-dom.
@@ -53,9 +53,20 @@ function buildQueryBuilder() {
   return builder;
 }
 
+function buildNullBuilder() {
+  const builder: Record<string, unknown> = {};
+  builder.select = () => builder;
+  builder.eq = () => builder;
+  builder.maybeSingle = () => Promise.resolve({ data: null, error: null });
+  return builder;
+}
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
-    from: () => buildQueryBuilder(),
+    from: (table: string) =>
+      table === "fixture_simulations"
+        ? buildNullBuilder()
+        : buildQueryBuilder(),
   }),
 }));
 
@@ -119,17 +130,22 @@ describe("StatsPage empty-state (detail_json === null)", () => {
     expect(screen.getByText(/stats em breve/i)).toBeDefined();
   });
 
-  it("shows the 'painéis em construção' placeholder when there are no panels to render", async () => {
+  it("still mounts the SIM panel with a graceful unavailable state when detail_json is null", async () => {
     setRow(makeEmptyRow());
 
     const { container } = await renderPage("7");
 
-    // page.tsx returns panels=[] when detail is null →
-    // StatsLayoutResponsive renders the empty-state section.
-    expect(container.querySelector("[data-panels-empty]")).not.toBeNull();
-    // And no panel slot mounted.
-    expect(container.querySelectorAll("[data-panel]").length).toBe(0);
-    expect(screen.getByText(/painéis em construção/i)).toBeDefined();
+    // Even with no detail_json / no simulation, the SIM slot is always
+    // mounted and degrades honestly (no "painéis em construção", no crash).
+    const sim = container.querySelector('[data-panel="SIM"]');
+    expect(sim).not.toBeNull();
+    expect((sim?.textContent ?? "").toLowerCase()).toContain(
+      "simulação indisponível",
+    );
+    // No stats panels (B, A-home, ...) since detail is null — only SIM.
+    expect(
+      container.querySelector('[data-panel="A-home"]'),
+    ).toBeNull();
   });
 
   it("does not render any KPI tiles (no odds tile values) when detail_json is null", async () => {
