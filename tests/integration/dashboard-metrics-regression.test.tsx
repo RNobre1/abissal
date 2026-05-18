@@ -21,6 +21,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { render, screen } from "@testing-library/react";
 
@@ -299,12 +300,23 @@ describe("Dashboard — denominadores negativos (paridade com código original)"
     const element = await OverviewPage();
     render(element);
 
-    // netCapital = 200 - 500 = -300 → computeRoi → null → ?? 0 → fmt.signedPercent(0)
-    // resolvedStaked = 0 → computeYield → null → ?? 0 → fmt.signedPercent(0)
-    // Ambos rendem "0,00%" no DOM (sinal zero pode ser "+0,00%" ou "0,00%" conforme Intl).
-    // Basta que pelo menos uma ocorrência de "0,00%" apareça — confirma que não houve
-    // divisão por denominador negativo/zero (que produziria NaN% ou Infinity%).
-    const hits = screen.queryAllByText(/0,00%/);
-    expect(hits.length).toBeGreaterThan(0);
+    // netCapital = 200 - 500 = -300 → computeRoi(netCapital <= 0) → null → ?? 0 → fmt.signedPercent(0) = "+0,00%"
+    // Guard buggy (=== 0): computeRoi(-300) não retorna null; computa 450/-300 = -1.5 → "-150,00%".
+    //   cumulativePl = balance - netCapital = 150 - (-300) = 450.
+    //
+    // Ancoragem específica no card ROI (não no yield ou win rate) para discriminar a regressão:
+    //   - com guard correto (<= 0): card ROI exibe "+0,00%" ✓
+    //   - com guard buggy (=== 0): card ROI exibe "-150,00%" → queryByText("+0,00%") retorna null → FAIL ✓
+
+    const roiLabel = screen.getByText("ROI");
+    const roiCard = roiLabel.closest("div");
+    expect(roiCard).not.toBeNull();
+
+    // Asserção primária: card ROI deve exibir exatamente "+0,00%".
+    // String exata não casa com "-150,00%" (o valor com guard buggy).
+    expect(within(roiCard!).queryByText("+0,00%")).not.toBeNull();
+
+    // Asserção negativa explícita: garante que o resultado do bug não está presente.
+    expect(within(roiCard!).queryByText("-150,00%")).toBeNull();
   });
 });
