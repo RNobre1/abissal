@@ -10,6 +10,7 @@ require_relative 'persister'
 require_relative 'detail_parser'
 require_relative 'league_baseline'
 require_relative 'playwright_session'
+require_relative 'prediction_reconciler'
 
 module AdamStats
   module Scraper
@@ -130,6 +131,15 @@ module AdamStats
           stats = persister.persist(parsed, detail_json_by_source_url: details_by_url)
         else
           stats = Stats.new(inserted: 0, updated: 0, failed: 0)
+        end
+
+        # Reconcilia predições pendentes pré-purga: busca placar final via choistats
+        # e atualiza ai_predictions. Rescue isolado: falha não derruba o pipeline.
+        begin
+          recon_stats = PredictionReconciler.new(logger: logger).run
+          logger.call("[scrape] reconciler: #{recon_stats.inspect}")
+        rescue StandardError => e
+          logger.call("[scrape] reconciler failed (non-fatal): #{e.class}: #{e.message}")
         end
 
         deleted = repo.purge_older_than(retention_days)
