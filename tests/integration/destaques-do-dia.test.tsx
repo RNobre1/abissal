@@ -25,19 +25,26 @@ type MockFixtureRow = {
   ko_time: string | null;
   match_date: string;
   hd_probe: string | null;
-  // sub-paths for badge computation
-  ref_record: unknown;
-  streaks: unknown;
+};
+
+// Badges agora vêm da view Postgres fixture_badges_view (migration 0017) —
+// escalares (badges text[], high_signal bool), SEM detail_json no Worker.
+type MockBadgeViewRow = {
+  fixture_id: number;
+  badges: string[];
+  high_signal: boolean;
 };
 
 type MockDismissalRow = { fixture_id: number };
 
 let mockFixtures: MockFixtureRow[] = [];
+let mockBadgeView: MockBadgeViewRow[] = [];
 let mockDismissals: MockDismissalRow[] = [];
 let mockUser: { id: string } | null = { id: "user-a" };
 
 function resetMocks() {
   mockFixtures = [];
+  mockBadgeView = [];
   mockDismissals = [];
   mockUser = { id: "user-a" };
 }
@@ -59,6 +66,9 @@ const mockAdminClient = {
   from: (table: string) => {
     if (table === "fixtures") {
       return buildQueryChain(mockFixtures);
+    }
+    if (table === "fixture_badges_view") {
+      return buildQueryChain(mockBadgeView);
     }
     if (table === "alert_dismissals") {
       return buildQueryChain(mockDismissals);
@@ -118,8 +128,11 @@ import { DestaquesDoDia } from "@/app/(dashboard)/_components/destaques-do-dia";
 
 // ---- helpers ----------------------------------------------------------------
 
+// Registra uma fixture de ALTO sinal: linha em fixtures (escalares) +
+// linha na view com >=2 badges e high_signal=true (a view Postgres já
+// computou isso a partir de detail_json DENTRO do banco).
 function makeHighSignalFixture(id: number): MockFixtureRow {
-  return {
+  const row: MockFixtureRow = {
     id,
     home_team: `Home${id}`,
     away_team: `Away${id}`,
@@ -129,34 +142,18 @@ function makeHighSignalFixture(id: number): MockFixtureRow {
     ko_time: "20:00",
     match_date: "2026-05-18",
     hd_probe: "Home",
-    // ref com avg_total_booking_points > 45 e streaks over25 em ambos os lados
-    ref_record: {
-      name: "M. Oliver",
-      completed: 10,
-      avg_total_booking_points: 50,
-      total_yellow_reds: 0,
-    },
-    streaks: {
-      home: [
-        {
-          stat_type: "over 2.5",
-          desc: "over 2.5 goals streak",
-          overall_perc: 80,
-        },
-      ],
-      away: [
-        {
-          stat_type: "over 2.5",
-          desc: "over 2.5 goals streak",
-          overall_perc: 75,
-        },
-      ],
-    },
   };
+  mockBadgeView.push({
+    fixture_id: id,
+    badges: ["cartao-alto", "over-alto"],
+    high_signal: true,
+  });
+  return row;
 }
 
+// Fixture de BAIXO sinal: sem badges na view (high_signal=false).
 function makeLowSignalFixture(id: number): MockFixtureRow {
-  return {
+  const row: MockFixtureRow = {
     id,
     home_team: `Low${id}`,
     away_team: `LowAway${id}`,
@@ -166,9 +163,9 @@ function makeLowSignalFixture(id: number): MockFixtureRow {
     ko_time: "22:00",
     match_date: "2026-05-18",
     hd_probe: "Home",
-    ref_record: null,
-    streaks: { home: [], away: [] },
   };
+  mockBadgeView.push({ fixture_id: id, badges: [], high_signal: false });
+  return row;
 }
 
 // ---- testes -----------------------------------------------------------------

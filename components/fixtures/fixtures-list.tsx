@@ -1,7 +1,6 @@
 import type { FixtureDTO } from "@/lib/fixtures/types";
 import { groupFixturesByLeague } from "@/lib/fixtures/leagues";
 import { FixtureCard } from "./fixture-card";
-import { isHighSignal } from "@/lib/alerts/is-high-signal";
 
 interface FixturesListProps {
   fixtures: FixtureDTO[];
@@ -57,7 +56,7 @@ export function FixturesList({ fixtures }: FixturesListProps) {
                 <li key={fixture.id}>
                   <FixtureCard
                     fixture={fixture}
-                    highSignal={isHighSignal(fixture.badges ?? [])}
+                    highSignal={fixture.high_signal === true}
                   />
                 </li>
               ))}

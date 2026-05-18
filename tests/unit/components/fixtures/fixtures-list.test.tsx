@@ -5,16 +5,16 @@ import type { FixtureDTO } from "@/lib/fixtures/types";
 
 function fx(over: Partial<FixtureDTO> & { id: number }): FixtureDTO {
   return {
-    id: over.id,
-    match_date: over.match_date ?? "2026-05-12",
-    ko_time: over.ko_time ?? "20:00",
-    home_team: over.home_team ?? "Home",
-    away_team: over.away_team ?? "Away",
-    league: over.league ?? null,
-    country: over.country ?? null,
-    source_url: over.source_url ?? null,
-    has_detail: over.has_detail ?? true,
-    kickoff_utc: over.kickoff_utc ?? null,
+    match_date: "2026-05-12",
+    ko_time: "20:00",
+    home_team: "Home",
+    away_team: "Away",
+    league: null,
+    country: null,
+    source_url: null,
+    has_detail: true,
+    kickoff_utc: null,
+    ...over,
   };
 }
 
@@ -52,5 +52,25 @@ describe("<FixturesList />", () => {
   it("renders the empty state when there are no fixtures", () => {
     render(<FixturesList fixtures={[]} />);
     expect(screen.getByText(/sem jogos/i)).toBeDefined();
+  });
+
+  it("realça o card quando high_signal=true (vem da view Postgres, escalar)", () => {
+    const { container } = render(
+      <FixturesList
+        fixtures={[
+          fx({ id: 1, home_team: "Flamengo", high_signal: true }),
+          fx({ id: 2, home_team: "Vasco", high_signal: false }),
+          fx({ id: 3, home_team: "Fluminense" }), // sem high_signal → off
+        ]}
+      />,
+    );
+    const links = Array.from(container.querySelectorAll("a"));
+    const flamengo = links.find((a) => a.textContent?.includes("Flamengo"))!;
+    const vasco = links.find((a) => a.textContent?.includes("Vasco"))!;
+    const flu = links.find((a) => a.textContent?.includes("Fluminense"))!;
+
+    expect(flamengo.getAttribute("data-high-signal")).toBe("true");
+    expect(vasco.getAttribute("data-high-signal")).toBeNull();
+    expect(flu.getAttribute("data-high-signal")).toBeNull();
   });
 });

@@ -25,9 +25,11 @@ export async function DestaquesDoDia() {
   const admin = createAdminClient();
   const allFixtures = await fixturesWithBadgesForDashboard(today, admin);
 
-  // Filtra apenas alto sinal
-  const highSignalFixtures = allFixtures.filter((f) =>
-    isHighSignal(f.badges ?? []),
+  // Filtra apenas alto sinal. high_signal vem JÁ computado da view Postgres
+  // (fixture_badges_view, migration 0017) — escalar, sem detail_json no
+  // Worker. isHighSignal(badges) é o fallback para rows sem match na view.
+  const highSignalFixtures = allFixtures.filter(
+    (f) => f.high_signal === true || isHighSignal(f.badges ?? []),
   );
 
   if (highSignalFixtures.length === 0) return null;
