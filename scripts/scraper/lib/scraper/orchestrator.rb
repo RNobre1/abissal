@@ -78,6 +78,39 @@ module AdamStats
         )
       SQL
 
+      # Pre-check incremental: ANTES da Monte Carlo cara (10k sims + DELETE
+      # +INSERT por fixture, serial — re-simular TODA fixture whitelistada
+      # todo dia estourava o timeout de 20min do scrape-daily.yml), um único
+      # SELECT barato e index-backed decide se vale re-simular.
+      #
+      # Espelha EXATAMENTE a identidade de dedup do DELETE_PRIOR_SQL (mesmas
+      # duas partial unique indexes de 0018: fid_uidx p/ fixture_id presente,
+      # teams_uidx p/ fixture_id nil). Params posicionais idênticos a
+      # delete_params: $1 fixture_id, $2 home, $3 away, $4 kickoff_utc.
+      # Retorna status + model_version da linha existente (0 ou 1 linha).
+      PRECHECK_SQL = <<~SQL.freeze
+        SELECT status, model_version
+        FROM fixture_simulations
+        WHERE (
+          $1::bigint IS NOT NULL
+          AND fixture_id = $1::bigint
+          AND kickoff_utc IS NOT DISTINCT FROM $4::timestamptz
+        ) OR (
+          $1::bigint IS NULL
+          AND fixture_id IS NULL
+          AND home_team = $2
+          AND away_team = $3
+          AND kickoff_utc IS NOT DISTINCT FROM $4::timestamptz
+        )
+        LIMIT 1
+      SQL
+
+      # Status terminais: a linha já foi reconciliada (jogo aconteceu ou foi
+      # dado como irreconciliável). Re-simular uma projeção pré-jogo para ela
+      # é sem sentido E destrutivo (o DELETE+INSERT apagaria actual_*/correct_*
+      # e a calibração T4). NUNCA reescrever uma linha terminal.
+      TERMINAL_STATUSES = %w[resolved unresolvable].freeze
+
       INSERT_SQL = <<~SQL.freeze
         INSERT INTO fixture_simulations
           (fixture_id, home_team, away_team, league, kickoff_utc, model_version,
@@ -99,12 +132,24 @@ module AdamStats
         by_source = {}
         fixtures.each { |fx| by_source[fx.source_url] = fx }
 
+        simulated = 0
+        skipped = 0
+
         AdamStats::Scraper::DB.with_connection do |conn|
           detail_json_by_source_url.each do |source_url, detail|
             fixture = by_source[source_url]
             next if fixture.nil?
 
             begin
+              # Pre-check incremental barato (1 SELECT index-backed) ANTES da
+              # MC cara. fail-open: se o SELECT da pré-checagem falhar para
+              # ESTA fixture, simula mesmo assim (um erro transitório nunca
+              # pode silenciosamente derrubar uma simulação).
+              if skip_simulation?(conn, fixture)
+                skipped += 1
+                next
+              end
+
               sim = Simulation::Runner.simulate(detail)
               next if sim.nil? || sim[:status] == 'unsimulable'
 
@@ -117,16 +162,52 @@ module AdamStats
                 conn.exec_params(DELETE_PRIOR_SQL, delete_params(params))
                 conn.exec_params(INSERT_SQL, params)
               end
+              simulated += 1
             rescue StandardError => e
               logger.call("[scrape] simulation failed for #{source_url}: #{e.class}: #{e.message}")
             end
           end
         end
+        logger.call("[scrape] simulation hook: #{simulated} simulated, #{skipped} skipped (incremental pre-check)")
       rescue StandardError => e
         # Falha global do hook (ex.: DB indisponível) — non-fatal, igual ao
         # reconciler/baseline. O scrape em si já persistiu as fixtures.
         logger.call("[scrape] simulation hook failed (non-fatal): #{e.class}: #{e.message}")
       end
+
+      # Decide se PULA a simulação cara desta fixture (true = não simula nem
+      # escreve; segue para a próxima). Faz UM SELECT barato e index-backed.
+      #
+      # Tabela de decisão:
+      #   - linha inexistente                          → SIMULA  (false)
+      #   - status terminal (resolved|unresolvable)    → PULA    (true)
+      #   - status não-terminal E model_version igual  → PULA    (true)
+      #   - model_version diferente                    → SIMULA  (false)
+      #
+      # fail-open: qualquer erro no SELECT da pré-checagem ⇒ SIMULA (false).
+      # Um erro transitório de DB numa fixture jamais pode dropar a sim;
+      # o rescue por-fixture do #run isola, este rescue garante o fallback.
+      def skip_simulation?(conn, fixture)
+        kickoff = UkTimeHelper.to_utc_or_noon(fixture.match_date, fixture.ko_time)
+        identity = [
+          fixture_api_id(fixture),
+          fixture.home_team,
+          fixture.away_team,
+          kickoff&.strftime('%Y-%m-%d %H:%M:%S UTC')
+        ]
+        row = conn.exec_params(PRECHECK_SQL, identity).first
+        return false if row.nil? # nova fixture → simula
+
+        return true if TERMINAL_STATUSES.include?(row['status']) # nunca clobberar reconciliação
+
+        # Mesmo model_version sob status não-terminal → projeção barata-mente
+        # estável (deriva de *Avgs season-level); re-rodar MC só reescreveria
+        # números quase idênticos a 2s/fixture. Não vale.
+        row['model_version'] == Simulation::Runner::MODEL_VERSION
+      rescue StandardError
+        false # fail-open: erro na pré-checagem ⇒ simula mesmo assim
+      end
+      private_class_method :skip_simulation?
 
       # Extrai os 4 params da identidade de dedup a partir do array completo
       # de build_params ([fixture_id, home, away, league, kickoff, ...]).
