@@ -392,11 +392,33 @@ export function SimulationPanel({
               do modelo.
             </p>
           </InfoPopover>
+          {sim.calibrated_via_isotonic ? (
+            <CalibrationBadge n={sim.calibration_n} />
+          ) : null}
         </span>
       }
     >
       {body}
     </PanelShell>
+  );
+}
+
+/**
+ * Badge sutil (F3-prod) — sinaliza que as probs 1X2 exibidas foram pós-
+ * processadas pela curva isotônica ativa em `model_calibration`. Visual
+ * deliberadamente discreto (cinza/muted, mesmo tipo do `BadgeChip` do
+ * fixture-card), só pra dar honestidade ao número.
+ */
+function CalibrationBadge({ n }: { n: number | null }) {
+  const label = n != null ? `calibrado (isotônica, n=${n})` : "calibrado (isotônica)";
+  return (
+    <span
+      data-calibrated-via="isotonic"
+      title="Probabilidades 1X2 ajustadas pela curva isotônica ativa para este model_version."
+      className="inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--color-line-subtle)] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-muted)]"
+    >
+      {label}
+    </span>
   );
 }
 
