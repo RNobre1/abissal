@@ -89,6 +89,8 @@ const EXPECTED_SCALAR_COLUMNS = [
  * select string, plus optional `.order(...)`/`.limit(...)` for the fallback.
  */
 interface CapturedQuery {
+  /** F3-prod: distingue queries de fixture_simulations das de model_calibration. */
+  table?: string;
   select?: string;
   eqs: Array<{ column: string; value: unknown }>;
   orders: Array<{ column: string; opts?: unknown }>;
@@ -112,11 +114,18 @@ function buildMock(opts: {
   error?: { message: string } | null;
   fallbackError?: { message: string } | null;
   throwOnFrom?: boolean;
+  /**
+   * Curvas isotônicas devolvidas pelo segundo `.from("model_calibration")`.
+   * Default: array vazio → "sem calibração ativa", probs originais.
+   */
+  calibrationRows?: Array<Record<string, unknown>> | null;
+  /** Erro na query de model_calibration → degrada pra sem calibração. */
+  calibrationError?: { message: string } | null;
 }) {
   const queries: CapturedQuery[] = [];
 
-  function makeChain() {
-    const cap: CapturedQuery = { eqs: [], orders: [] };
+  function makeFixtureSimChain() {
+    const cap: CapturedQuery = { table: "fixture_simulations", eqs: [], orders: [] };
     queries.push(cap);
     const chain = {
       select(arg: string) {
@@ -163,13 +172,45 @@ function buildMock(opts: {
     return chain;
   }
 
+  /**
+   * Chain de model_calibration — diferente: o terminal é `.is("effective_until", null)`
+   * que devolve `{data, error}` direto (não há `.maybeSingle()`, a query
+   * devolve uma LISTA de até 4 rows).
+   */
+  function makeCalibrationChain() {
+    const cap: CapturedQuery = { table: "model_calibration", eqs: [], orders: [] };
+    queries.push(cap);
+    const chain = {
+      select(arg: string) {
+        cap.select = arg;
+        return this;
+      },
+      eq(column: string, value: unknown) {
+        cap.eqs.push({ column, value });
+        return this;
+      },
+      is(column: string, value: unknown) {
+        cap.eqs.push({ column: `${column} IS`, value });
+        return Promise.resolve(
+          opts.calibrationError
+            ? { data: null, error: opts.calibrationError }
+            : { data: opts.calibrationRows ?? [], error: null },
+        );
+      },
+    };
+    return chain;
+  }
+
   const client = {
     from(table: string) {
+      if (table === "model_calibration") {
+        return makeCalibrationChain();
+      }
       if (opts.throwOnFrom) {
         throw new Error('relation "fixture_simulations" does not exist');
       }
       void table;
-      return makeChain();
+      return makeFixtureSimChain();
     },
   };
   return { client, queries };
@@ -348,9 +389,11 @@ describe("getFixtureSimulation — teams/kickoff fallback", () => {
     expect(dto, "fallback must resolve the row").not.toBeNull();
     expect(dto!.home_team).toBe("Chelsea");
 
-    // No apiId ⇒ exactly one query path, and it filters by teams.
-    expect(queries.length).toBe(1);
-    const fb = queries[0];
+    // No apiId ⇒ exactly one fixture_simulations query path; F3-prod adiciona
+    // uma SEGUNDA query (model_calibration) — filtramos pra contar só a 1ª.
+    const fxQueries = queries.filter((q) => q.table === "fixture_simulations");
+    expect(fxQueries.length).toBe(1);
+    const fb = fxQueries[0];
     expect(fb.eqs.some((e) => e.column === "home_team" && e.value === "Chelsea")).toBe(true);
     expect(fb.eqs.some((e) => e.column === "away_team" && e.value === "Tottenham")).toBe(true);
     // Must constrain by kickoff (same teams can recur within retention) and
@@ -372,10 +415,12 @@ describe("getFixtureSimulation — teams/kickoff fallback", () => {
     const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
 
     expect(dto, "fallback must rescue a primary miss").not.toBeNull();
-    expect(queries.length).toBe(2); // primary (miss) + fallback (hit)
-    expect(queries[0].eqs.some((e) => e.column === "fixture_id")).toBe(true);
+    // F3-prod adiciona model_calibration; contamos só fixture_simulations.
+    const fxQueries = queries.filter((q) => q.table === "fixture_simulations");
+    expect(fxQueries.length).toBe(2); // primary (miss) + fallback (hit)
+    expect(fxQueries[0].eqs.some((e) => e.column === "fixture_id")).toBe(true);
     expect(
-      queries[1].eqs.some((e) => e.column === "home_team"),
+      fxQueries[1].eqs.some((e) => e.column === "home_team"),
     ).toBe(true);
   });
 
@@ -386,7 +431,10 @@ describe("getFixtureSimulation — teams/kickoff fallback", () => {
     });
     const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
     expect(dto!.fixture_id).toBe(19427226);
-    expect(queries.length).toBe(1); // fallback never ran
+    // F3-prod: contamos só queries de fixture_simulations (a 2ª query é
+    // model_calibration buscando curvas — sempre dispara quando há row).
+    const fxQueries = queries.filter((q) => q.table === "fixture_simulations");
+    expect(fxQueries.length).toBe(1); // fallback never ran
   });
 });
 
@@ -499,5 +547,211 @@ describe("getFixtureSimulation — DTO mapping + graceful degradation", () => {
     });
     const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
     expect(dto!.status).toBe("unsimulable");
+  });
+});
+
+/**
+ * F3-prod — aplicação das curvas isotônicas de calibração na leitura.
+ *
+ * Quando há curvas ativas em `model_calibration` para o mesmo
+ * `model_version` da sim row, o reader aplica `applyIsotonic` em cada
+ * uma das 4 métricas (1x2-home/draw/away + over25). As 3 probs 1X2 são
+ * re-normalizadas pra somar 1.0 mantendo razões; over25 é independente.
+ * Se NENHUMA das 3 curvas 1X2 existe, probs ficam inalteradas e
+ * `calibrated_via_isotonic = false`. Sempre degrada graciosamente em
+ * erro (probs originais preservadas).
+ */
+describe("getFixtureSimulation — F3-prod calibração isotônica", () => {
+  // Curvas "espelho-deslocado" que produzem deltas mensuráveis. Toda
+  // probabilidade x ∈ [0,1] cai dentro do range coberto por essas curvas
+  // (clamping nas bordas é OK pros casos de teste).
+  const homeShift: Array<[number, number]> = [
+    [0.0, 0.0],
+    [0.5, 0.6],
+    [1.0, 1.0],
+  ];
+  const drawShift: Array<[number, number]> = [
+    [0.0, 0.0],
+    [0.5, 0.4],
+    [1.0, 1.0],
+  ];
+  const awayShift: Array<[number, number]> = [
+    [0.0, 0.0],
+    [0.5, 0.45],
+    [1.0, 1.0],
+  ];
+  const overShift: Array<[number, number]> = [
+    [0.0, 0.0],
+    [0.5, 0.55],
+    [1.0, 1.0],
+  ];
+
+  const MODEL_V = "sim-v7-poisson-dc-nb-mc10k";
+
+  it("aplica isotônica nas 3 probs 1X2 + over25, renormaliza pra soma=1 ± 1e-9", async () => {
+    const { client } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: MODEL_V,
+        p_home: 0.5,
+        p_draw: 0.5,
+        p_away: 0.5,
+        p_over_25: 0.5,
+      }),
+      calibrationRows: [
+        { metric: "1x2-home", pairs: homeShift, n: 320, effective_from: "2026-05-22T10:00:00Z" },
+        { metric: "1x2-draw", pairs: drawShift, n: 320, effective_from: "2026-05-22T10:00:00Z" },
+        { metric: "1x2-away", pairs: awayShift, n: 320, effective_from: "2026-05-22T10:00:00Z" },
+        { metric: "over25", pairs: overShift, n: 320, effective_from: "2026-05-22T10:00:00Z" },
+      ],
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+
+    expect(dto).not.toBeNull();
+    // 0.5 → home=0.6, draw=0.4, away=0.45. Soma = 1.45 → normaliza:
+    //   home = 0.6/1.45 ≈ 0.4138, draw = 0.4/1.45 ≈ 0.2759, away = 0.45/1.45 ≈ 0.3103
+    expect(dto!.p_home).toBeCloseTo(0.6 / 1.45, 6);
+    expect(dto!.p_draw).toBeCloseTo(0.4 / 1.45, 6);
+    expect(dto!.p_away).toBeCloseTo(0.45 / 1.45, 6);
+    // Soma 1X2 ≈ 1.0 exato
+    expect(dto!.p_home! + dto!.p_draw! + dto!.p_away!).toBeCloseTo(1.0, 9);
+    // Over25 NÃO entra na normalização — vira direto o valor da curva.
+    expect(dto!.p_over_25).toBeCloseTo(0.55, 6);
+  });
+
+  it("calibrated_via_isotonic=true e calibration_n=meta.n quando há ≥1 curva 1X2", async () => {
+    const { client } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: MODEL_V,
+        p_home: 0.4,
+        p_draw: 0.3,
+        p_away: 0.3,
+        p_over_25: 0.55,
+      }),
+      calibrationRows: [
+        { metric: "1x2-home", pairs: homeShift, n: 380, effective_from: "2026-05-22T10:00:00Z" },
+        { metric: "over25", pairs: overShift, n: 420, effective_from: "2026-05-22T10:00:00Z" },
+      ],
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+    expect(dto!.calibrated_via_isotonic).toBe(true);
+    expect(dto!.calibration_n).toBe(420); // max(n) das curvas devolvidas
+  });
+
+  it("calibrated_via_isotonic=false quando só over25 (sem 1X2): não conta como calibração de mercado", async () => {
+    // Decisão explícita: o flag rastreia se o resultado 1X2 (o ângulo
+    // principal exibido) foi calibrado. Só over25 não deve "contaminar"
+    // o badge — over25 é uma side-prob no painel.
+    const { client } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: MODEL_V,
+        p_home: 0.4,
+        p_draw: 0.3,
+        p_away: 0.3,
+        p_over_25: 0.5,
+      }),
+      calibrationRows: [
+        { metric: "over25", pairs: overShift, n: 200, effective_from: "2026-05-22T10:00:00Z" },
+      ],
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+    // Over25 foi aplicado, mas o flag fica false porque nenhuma 1X2 entrou.
+    expect(dto!.p_over_25).toBeCloseTo(0.55, 6);
+    expect(dto!.calibrated_via_isotonic).toBe(false);
+    expect(dto!.calibration_n).toBeNull();
+  });
+
+  it("calibrated_via_isotonic=false quando model_version sem curva (não corrompe DTO)", async () => {
+    const { client } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: MODEL_V,
+        p_home: 0.55,
+        p_draw: 0.25,
+        p_away: 0.2,
+        p_over_25: 0.6,
+      }),
+      calibrationRows: [], // nenhuma curva ativa
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+    expect(dto!.calibrated_via_isotonic).toBe(false);
+    expect(dto!.calibration_n).toBeNull();
+    // Probs preservadas.
+    expect(dto!.p_home).toBeCloseTo(0.55, 6);
+    expect(dto!.p_draw).toBeCloseTo(0.25, 6);
+    expect(dto!.p_away).toBeCloseTo(0.2, 6);
+    expect(dto!.p_over_25).toBeCloseTo(0.6, 6);
+  });
+
+  it("p_home null → não tenta calibrar nada, calibrated=false", async () => {
+    const { client, queries } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: MODEL_V,
+        p_home: null,
+        p_draw: null,
+        p_away: null,
+        p_over_25: null,
+      }),
+      calibrationRows: [
+        { metric: "1x2-home", pairs: homeShift, n: 320, effective_from: "2026-05-22T10:00:00Z" },
+      ],
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+    expect(dto!.calibrated_via_isotonic).toBe(false);
+    expect(dto!.calibration_n).toBeNull();
+    expect(dto!.p_home).toBeNull();
+    // E não deve nem ter chamado model_calibration: short-circuit em p_home==null
+    // economiza um round-trip.
+    const calQ = queries.find((q) =>
+      q.eqs.some((e) => e.column === "model_version"),
+    );
+    expect(calQ, "no calibration query should fire when p_home is null").toBeUndefined();
+  });
+
+  it("supabase erro buscando curvas → calibrated=false, probs originais (degrada)", async () => {
+    const { client } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: MODEL_V,
+        p_home: 0.55,
+        p_draw: 0.25,
+        p_away: 0.2,
+        p_over_25: 0.62,
+      }),
+      calibrationError: { message: "model_calibration does not exist" },
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+    expect(dto).not.toBeNull();
+    expect(dto!.calibrated_via_isotonic).toBe(false);
+    expect(dto!.calibration_n).toBeNull();
+    expect(dto!.p_home).toBeCloseTo(0.55, 6);
+    expect(dto!.p_draw).toBeCloseTo(0.25, 6);
+    expect(dto!.p_away).toBeCloseTo(0.2, 6);
+    expect(dto!.p_over_25).toBeCloseTo(0.62, 6);
+  });
+
+  it("model_version null na sim row → não chama curvas, mantém probs", async () => {
+    const { client, queries } = buildMock({
+      primaryRow: fullSimRow({
+        fixture_id: 19427226,
+        model_version: null,
+        p_home: 0.4,
+      }),
+      calibrationRows: [
+        { metric: "1x2-home", pairs: homeShift, n: 320, effective_from: "2026-05-22T10:00:00Z" },
+      ],
+    });
+    const dto = await getFixtureSimulation(ROUTE_ID_FIXTURE, client);
+    expect(dto!.calibrated_via_isotonic).toBe(false);
+    expect(dto!.calibration_n).toBeNull();
+    expect(dto!.p_home).toBeCloseTo(0.4, 6);
+    // Verifica que NÃO há query de model_calibration nas queries capturadas.
+    const calQ = queries.find((q) =>
+      q.eqs.some((e) => e.column === "model_version"),
+    );
+    expect(calQ).toBeUndefined();
   });
 });
