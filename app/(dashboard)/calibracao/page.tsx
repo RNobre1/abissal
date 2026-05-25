@@ -458,8 +458,9 @@ export default async function CalibracaoPage() {
           <span className="label">calibração isotônica</span>
           <h3 className="mt-2 text-base font-semibold">curvas ativas (pós-modelo)</h3>
           <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-            ajuste isotônico (PAV) das probabilidades por métrica. Ainda não
-            aplicado na leitura — só metadados aqui.
+            ajuste isotônico (PAV) das probabilidades por métrica. Aplicado na
+            leitura de cada fixture (`getFixtureSimulation`) — badge
+            &ldquo;calibrado (isotônica, n=…)&rdquo; no painel SIM sinaliza.
           </p>
         </header>
 

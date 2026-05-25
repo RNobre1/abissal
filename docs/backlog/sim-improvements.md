@@ -43,17 +43,18 @@
 
 ### Follow-ups derivados da Wave 1
 
-- [ ] **F3-prod** — Aplicar curva isotônica ativa na leitura (`getFixtureSimulation`). Pré-condição: ter ≥1 curva treinada em prod via `scripts/calibracao/fit-isotonic.ts`.
+- [x] **F3-prod** — Aplicar curva isotônica ativa na leitura (`getFixtureSimulation`). **SHIPPED 2026-05-24.** Reader `lib/calibracao/active-curves-repository.ts` (novo) lê `model_calibration` ativa por `model_version`; `applyCalibration` em `simulation-repository.ts` aplica as 4 curvas (1x2-home/draw/away + over25), re-normaliza 1X2, expõe `calibrated_via_isotonic` + `calibration_n` no DTO. UI: chip discreto no eyebrow do `SimulationPanel`. 758/758 testes verdes.
+  - Commits: `afb7c39` (repo + tests), `2ff1c81` (aplicação + tests), `a6debee` (UI).
+  - Cobertura inicial em prod: 12 curvas ativas (v7 com 300 amostras, v2 com 376, v1 com 49).
 - [ ] **F10b** — Tratar `player_extra.form` (parsing de `statName` + mapping → goals/cards/sot).
 - [ ] **MV-floor** — Mover assertion de `MODEL_VERSION` pra constante "floor" centralizada (lição do bump v3→v4 quebrar spec do F6).
 
 ### Wave 2 — Auto-tuning por liga (sozinho)
 
-- [ ] **F4** — Cron mensal L-BFGS minimizando log-loss sobre histórico, por liga. Substitui `NEUTRAL_BASELINE` + `RHO_BY_LEAGUE` vazio. Persistir em `model_calibration` (effective_from/effective_until).
-  - Status: pending
-  - Custo: ~3d
-  - Cobre: A1 (baselines por liga) + A5 (ρ por liga) + parte de C2.
-  - Commits: _(a registrar)_
+- [x] **F4** — Calibração por liga via Method of Moments. **SHIPPED 2026-05-21** (lib + script + migration). **F4-apply SHIPPED 2026-05-24** (Runner consome `LeagueCalibration.load(conn)` + threshold override pra ligas prioritárias com `low_confidence` flag).
+  - 5 ligas calibradas em prod (Premier 54, Primera Division 33, Super League 33, Pro League 31, MLS 26 ⚠ low_confidence).
+  - Override de threshold em `lib/calibracao/league-params.ts` (commit `7d6b2f9`): `priorityLeagues` map relaxa minSamples pra 20 em MLS + top-5 europeias + Brasileirão.
+  - Substitui `NEUTRAL_BASELINE` + `RHO_BY_LEAGUE` por liga calibrada quando disponível; fallback transparente quando não.
 
 ### Wave 3 — A/B infra (gate pra Wave 4)
 
