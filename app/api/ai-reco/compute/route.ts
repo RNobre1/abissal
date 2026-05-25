@@ -241,7 +241,7 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const model = env.OPENROUTER_MODEL || "deepseek/deepseek-r1";
+  const model = env.AI_RECO_MODEL;
 
   const promptCandidates: PromptCandidate[] = betCandidates.map((c) => ({
     market: c.market,
