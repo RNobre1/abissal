@@ -9,7 +9,6 @@ import {
   computeWinRate,
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
-import { DestaquesDoDia } from "./_components/destaques-do-dia";
 import { OportunidadesIa } from "./_components/oportunidades-ia";
 
 export default async function OverviewPage() {
@@ -89,8 +88,6 @@ export default async function OverviewPage() {
       </header>
 
       <OportunidadesIa />
-
-      <DestaquesDoDia />
 
       {isEmpty ? <FirstRun /> : (
         <>
