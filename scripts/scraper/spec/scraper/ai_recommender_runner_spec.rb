@@ -34,7 +34,7 @@ module AdamStats::Scraper
     describe 'dry_run mode' do
       it 'nao chama insert no DB e nao chama IA' do
         conn = conn_double
-        allow(conn).to receive(:query).with(/SELECT.*fixture_simulations/im).and_return([])
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([])
         runner = described_class.new(conn: conn, logger: logger, client: client, dry_run: true)
         expect { runner.run }.not_to raise_error
         expect(client).not_to have_received(:call)
@@ -44,7 +44,7 @@ module AdamStats::Scraper
     describe 'when there are no upcoming sim rows' do
       it 'nao chama IA nem tenta inserir' do
         conn = conn_double
-        allow(conn).to receive(:query).with(/SELECT.*fixture_simulations/im).and_return([])
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([])
         runner = described_class.new(conn: conn, logger: logger, client: client)
         runner.run
         expect(client).not_to have_received(:call)
@@ -82,8 +82,8 @@ module AdamStats::Scraper
           )
         }
         conn = conn_double
-        allow(conn).to receive(:query).with(/SELECT.*fixture_simulations/im).and_return([sim_row])
-        allow(conn).to receive(:query).with(/SELECT.*league_parameters/im).and_return([])
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([sim_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
         captured_inserts = []
         allow(conn).to receive(:exec_params) do |sql, params|
           captured_inserts << [sql, params] if sql.include?('INSERT INTO ai_recommendations')
@@ -96,6 +96,142 @@ module AdamStats::Scraper
         expect(client).not_to have_received(:call)
         expect(captured_inserts.length).to eq(1)
         expect(captured_inserts.first[1]).to include('skip')
+      end
+    end
+
+    describe 'pre-filter: edge alto em liga NAO calibrada' do
+      let(:high_edge_sim_row) do
+        {
+          'fixture_id' => '999',
+          'home_team' => 'Kolding IF',
+          'away_team' => 'Some Team',
+          'league' => 'Uncalibrated League',
+          'kickoff_utc' => '2026-05-30T15:00:00Z',
+          # Probs do simulador super off (ruido amplificado). p_btts=0.99 + odd 2.0 = edge 98%
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.99',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'Kolding IF' => { 'decimal_odds' => 2.0 },
+                'Draw' => { 'decimal_odds' => 3.0 },
+                'Some Team' => { 'decimal_odds' => 3.2 }
+              },
+              'Match Goals Overs/Unders' => {
+                'Over 2.5' => { 'decimal_odds' => 2.0 },
+                'Under 2.5' => { 'decimal_odds' => 1.85 }
+              },
+              'BTTS' => {
+                'Yes' => { 'decimal_odds' => 2.0 },
+                'No' => { 'decimal_odds' => 1.9 }
+              }
+            }
+          )
+        }
+      end
+
+      it 'NAO chama a IA quando top candidate edge>30 em liga nao-calibrada (persiste skip direto)' do
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([high_edge_sim_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        captured_inserts = []
+        allow(conn).to receive(:exec_params) do |sql, params|
+          captured_inserts << [sql, params] if sql.include?('INSERT INTO ai_recommendations')
+          []
+        end
+
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        runner.run
+
+        expect(client).not_to have_received(:call)
+        expect(captured_inserts.length).to eq(1)
+        params = captured_inserts.first[1]
+        expect(params).to include('skip')
+        expect(params).to include('edge_suspect_pre_filtered')
+      end
+
+      it 'CHAMA a IA normalmente quando top candidate edge>30 mas liga CALIBRADA' do
+        calibrated_row = high_edge_sim_row.merge('league' => 'Premier League')
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([calibrated_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([{ 'league' => 'Premier League' }])
+        allow(conn).to receive(:exec_params).and_return([{ 'id' => 1 }])
+
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        runner.run
+
+        expect(client).to have_received(:call)
+      end
+
+      it 'CHAMA a IA quando top candidate edge<=30 em liga nao-calibrada' do
+        moderate_row = high_edge_sim_row.merge(
+          # Probs mais realistas: p_btts=0.60 * 2.0 = 20% edge (moderado)
+          'p_btts' => '0.60'
+        )
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([moderate_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        allow(conn).to receive(:exec_params).and_return([{ 'id' => 1 }])
+
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        runner.run
+
+        expect(client).to have_received(:call)
+      end
+    end
+
+    describe 'sanity guard pos-IA (defesa secundária)' do
+      # NOTA: o pre-filtro já bloqueia o caso onde TOP candidate tem edge>30.
+      # Como o IA escolhe entre os candidatos (edge<=top por definição), na prática
+      # sanity pos-IA é redundante com pre-filtro EM RUBY. Mantido como camada extra
+      # de segurança caso algum caminho futuro pule o pre-filtro (ex: passa
+      # `bet_candidates` manualmente). Aqui testamos a unidade `apply_sanity_guard!`
+      # diretamente sobre decisão+candidato.
+      it 'sobrescreve verdict pra skip quando candidato escolhido edge>30 + !calibrated' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client)
+        decision = { verdict: 'bet', market: 'btts', side: 'sim',
+                     units_final: 0.5, prob_estimated: 0.7,
+                     reduction_reason: nil, confidence: 'alto' }
+        chosen = { market: 'btts', side: 'sim', edge_pct: 50.0 }
+        result = runner.send(:apply_sanity_guard, decision, chosen, false)
+        expect(result[:verdict]).to eq('skip')
+        expect(result[:reduction_reason]).to eq('edge_suspect_high_in_uncalibrated_league')
+        expect(result[:units_final]).to eq(0)
+      end
+
+      it 'NAO sobrescreve quando liga CALIBRADA' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client)
+        decision = { verdict: 'bet', market: 'btts', side: 'sim', units_final: 1.5 }
+        chosen = { market: 'btts', side: 'sim', edge_pct: 50.0 }
+        result = runner.send(:apply_sanity_guard, decision, chosen, true)
+        expect(result[:verdict]).to eq('bet')
+        expect(result[:units_final]).to eq(1.5)
+      end
+
+      it 'NAO sobrescreve quando edge_pct <= 30' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client)
+        decision = { verdict: 'bet', market: 'btts', side: 'sim', units_final: 0.5 }
+        chosen = { market: 'btts', side: 'sim', edge_pct: 25.0 }
+        result = runner.send(:apply_sanity_guard, decision, chosen, false)
+        expect(result[:verdict]).to eq('bet')
+      end
+
+      it 'passa through quando verdict ja eh skip' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client)
+        decision = { verdict: 'skip', confidence: 'baixo' }
+        result = runner.send(:apply_sanity_guard, decision, nil, false)
+        expect(result[:verdict]).to eq('skip')
+      end
+    end
+
+    describe 'FIXTURES_QUERY prioritization' do
+      it 'ORDER BY prioriza ligas calibradas (subquery em league_parameters)' do
+        sql = described_class::FIXTURES_QUERY
+        # A query precisa olhar pra league_parameters dentro do ORDER BY (subquery)
+        # ou em um CASE/IN clause. Validação de substring:
+        expect(sql).to match(/league_parameters/i)
+        expect(sql).to match(/ORDER BY/i)
       end
     end
 
@@ -132,8 +268,8 @@ module AdamStats::Scraper
             ) }
         ]
         conn = conn_double
-        allow(conn).to receive(:query).with(/SELECT.*fixture_simulations/im).and_return(sims)
-        allow(conn).to receive(:query).with(/SELECT.*league_parameters/im).and_return([])
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return(sims)
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
 
         runner = described_class.new(conn: conn, logger: logger, client: client)
         expect { runner.run }.not_to raise_error

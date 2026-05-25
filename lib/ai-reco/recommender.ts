@@ -26,10 +26,24 @@ export interface RunOptions {
   model: string;
   apiKey: string;
   leagueCalibrated: boolean;
+  /**
+   * edge_pct do candidato selecionado (top da edge table).
+   * Quando informado, `applySanityGuard` força skip se edge > threshold
+   * em liga não-calibrada. Caso típico: simulador sem `league_parameters`
+   * próprios produz ruído amplificado (ex: Kolding IF edge 114%).
+   */
+  edgePct?: number;
   fetchImpl?: typeof fetch;
   baseUrl?: string;
   maxTokens?: number;
 }
+
+/**
+ * Threshold acima do qual edge_pct é "suspeito" em liga não-calibrada.
+ * 30% é gigantesco em mercados líquidos; sem calibração isotônica
+ * representa quase sempre ruído amplificado do simulador.
+ */
+export const SANITY_EDGE_THRESHOLD = 30;
 
 export interface RunResult {
   ok: boolean;
@@ -96,6 +110,32 @@ export function enforceCaps(d: AiDecision, leagueCalibrated: boolean): AiDecisio
   return { ...d, units_final: Number(capped.toFixed(2)) };
 }
 
+/**
+ * Sanity guard pós-IA: força skip quando o candidato selecionado vem com
+ * edge_pct acima do threshold em liga não-calibrada. Cenário típico:
+ * simulador sem `league_parameters` calibrados produz probs com viés alto,
+ * e a IA "compra" o edge irreal (ex: Kolding IF edge 114%, 2026-05-25).
+ *
+ * Sincronizar com `scripts/scraper/lib/scraper/ai_recommender_runner.rb`
+ * (mesma lógica em Ruby, pós-decisão da IA / pré-persist).
+ */
+export function applySanityGuard(
+  d: AiDecision,
+  ctx: { edgePct?: number | null; leagueCalibrated: boolean },
+): AiDecision {
+  if (d.verdict !== "bet") return d;
+  if (ctx.leagueCalibrated) return d;
+  const edge = ctx.edgePct;
+  if (typeof edge !== "number" || !Number.isFinite(edge)) return d;
+  if (edge <= SANITY_EDGE_THRESHOLD) return d;
+  return {
+    ...d,
+    verdict: "skip",
+    units_final: 0,
+    reduction_reason: "edge_suspect_high_in_uncalibrated_league",
+  };
+}
+
 export async function runRecommender(
   prompt: { system: string; user: string },
   opts: RunOptions,
@@ -151,7 +191,11 @@ export async function runRecommender(
       };
     }
 
-    const decision = enforceCaps(parsed, opts.leagueCalibrated);
+    const capped = enforceCaps(parsed, opts.leagueCalibrated);
+    const decision = applySanityGuard(capped, {
+      edgePct: opts.edgePct,
+      leagueCalibrated: opts.leagueCalibrated,
+    });
     return {
       ok: true,
       decision,

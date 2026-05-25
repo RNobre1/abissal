@@ -14,10 +14,21 @@ module AdamStats
     # Spec §4.3 + Wave 2 do plan IA-2 Recomendador (2026-05-24).
     class AiRecommenderRunner
       EDGE_THRESHOLD = 5.0
+      # Acima desse edge_pct, em liga NAO calibrada, recusamos a bet:
+      # simulador sem league_parameters produz ruido amplificado
+      # (ex: Kolding IF edge 114%, 2026-05-25). Espelha SANITY_EDGE_THRESHOLD
+      # em lib/ai-reco/recommender.ts.
+      SANITY_EDGE_THRESHOLD = 30.0
       RECO_VERSION = 'reco-v1'.freeze
       DEFAULT_MODEL = 'deepseek/deepseek-r1'.freeze
       DEFAULT_BANKROLL = 1000.0
 
+      # Cron query priorizada (B19 — 2026-05-25):
+      # 1. Fixtures de ligas CALIBRADAS primeiro (tem isotonic_lookup +
+      #    league_parameters próprios — IA tem dados pra decidir).
+      # 2. Dentro do subset, kickoff_utc mais cedo.
+      # 3. Ligas não-calibradas depois, também por kickoff_utc.
+      # LIMIT 50 mantém budget de tokens controlado.
       FIXTURES_QUERY = <<~SQL.freeze
         SELECT s.id, s.fixture_id, s.home_team, s.away_team, s.league, s.kickoff_utc,
                s.model_version,
@@ -31,7 +42,12 @@ module AdamStats
           AND s.kickoff_utc < now() + INTERVAL '48 hours'
           AND s.status = 'pending'
           AND s.fixture_id IS NOT NULL
-        ORDER BY s.kickoff_utc ASC
+        ORDER BY
+          EXISTS (
+            SELECT 1 FROM league_parameters lp
+            WHERE lp.league = s.league AND lp.effective_until IS NULL
+          ) DESC,
+          s.kickoff_utc ASC
         LIMIT 50
       SQL
 
@@ -142,12 +158,46 @@ module AdamStats
           return persist_skip(conn, row, candidates, league_calibrated)
         end
 
+        # Pre-filter (B19 — 2026-05-25): edge irreal em liga sem isotonic_lookup
+        # quase certamente é ruído amplificado. Bloqueia antes de gastar tokens.
+        top_edge = bet_candidates.first[:edge_pct]
+        if !league_calibrated && top_edge.to_f > SANITY_EDGE_THRESHOLD
+          return persist_skip(conn, row, candidates, league_calibrated,
+                              reduction_reason: 'edge_suspect_pre_filtered',
+                              summary_line: "Edge #{top_edge.round(1)}% em liga não-calibrada — provável ruído do simulador",
+                              reasoning: "Top candidate (#{bet_candidates.first[:market]}/#{bet_candidates.first[:side]}) com edge #{top_edge.round(1)}% > #{SANITY_EDGE_THRESHOLD}% em liga sem league_parameters calibrados. Pre-filtro bloqueou pra economizar tokens.")
+        end
+
         if @dry_run
           @logger.call("[ai-reco] dry-run skipping IA call for fixture #{row['fixture_id']}")
           return
         end
 
         run_ia_for(conn, row, candidates, bet_candidates, league_calibrated)
+      end
+
+      # Sanity guard pos-IA: equivalente Ruby ao applySanityGuard de
+      # lib/ai-reco/recommender.ts. Recebe a decisao final da IA + o
+      # candidato escolhido (com edge_pct calculado pela edge_calculator)
+      # e forca skip se edge>SANITY_EDGE_THRESHOLD em liga nao-calibrada.
+      #
+      # Em Ruby, o pre-filter (acima) ja bloqueia 99% dos casos pois o
+      # top candidate tem edge >= chosen.edge. Mantemos esta funcao como
+      # segunda camada defensiva (caso bypass futuro / chosen != top).
+      def apply_sanity_guard(decision, chosen_candidate, league_calibrated)
+        return decision unless decision.is_a?(Hash)
+        return decision unless decision[:verdict].to_s == 'bet'
+        return decision if league_calibrated
+        return decision unless chosen_candidate.is_a?(Hash)
+
+        edge = chosen_candidate[:edge_pct].to_f
+        return decision unless edge > SANITY_EDGE_THRESHOLD
+
+        decision.merge(
+          verdict: 'skip',
+          units_final: 0,
+          reduction_reason: 'edge_suspect_high_in_uncalibrated_league'
+        )
       end
 
       def run_ia_for(conn, row, all_candidates, bet_candidates, league_calibrated)
@@ -294,7 +344,10 @@ module AdamStats
         end.join('; ')
       end
 
-      def persist_skip(conn, row, candidates, league_calibrated)
+      def persist_skip(conn, row, candidates, league_calibrated,
+                       reduction_reason: nil,
+                       summary_line: 'Nenhum candidato com edge >= 5%',
+                       reasoning: 'Nenhum mercado com valor; skip.')
         if @dry_run
           @logger.call("[ai-reco] dry-run skip persist for fixture #{row['fixture_id']}")
           return
@@ -308,11 +361,11 @@ module AdamStats
             JSON.generate(candidates), league_calibrated,
             'skip', nil, nil,
             nil, nil, nil, nil,
-            nil, nil, nil, 'baixo',
-            'Nenhum candidato com edge >= 5%', 'Nenhum mercado com valor; skip.', '[]', 0.0
+            nil, nil, reduction_reason, 'baixo',
+            summary_line, reasoning, '[]', 0.0
           ]
         )
-        @logger.call("[ai-reco] skip persisted fixture #{row['fixture_id']}")
+        @logger.call("[ai-reco] skip persisted fixture #{row['fixture_id']}#{reduction_reason ? " (#{reduction_reason})" : ''}")
       end
 
       def insert_llm_log(conn, row, result, prompt, cost)
@@ -340,6 +393,10 @@ module AdamStats
         chosen = if d[:verdict] == 'bet'
                    all_candidates.find { |c| c[:market] == d[:market] && c[:side] == d[:side] }
                  end
+
+        # Sanity guard pos-IA: segunda camada defensiva (pre-filter ja
+        # bloqueia o top, mas chosen != top em casos raros).
+        d = apply_sanity_guard(d, chosen, league_calibrated)
 
         conn.exec_params(
           RECO_INSERT_SQL,
