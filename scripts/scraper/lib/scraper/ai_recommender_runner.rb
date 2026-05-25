@@ -29,6 +29,12 @@ module AdamStats
       RECO_VERSION = 'reco-v1'.freeze
       DEFAULT_MODEL = 'deepseek/deepseek-r1'.freeze
       DEFAULT_BANKROLL = 1000.0
+      # Blending sim × mercado (v1 universal — 2026-05-25).
+      # 0.5 = mistura 50/50 prob_calibrated_sim + prob_market_devigged.
+      # Reduz edges absurdos em ligas não-calibradas (Kolding IF 114% → ~57%).
+      # Override via ENV AI_RECO_BLEND_ALPHA (0..1). Override por liga é TODO v2
+      # (fit em fixture_simulations resolvidas — quando houver dataset por liga).
+      DEFAULT_BLEND_ALPHA = 0.5
 
       # Cron query priorizada (B19 — 2026-05-25):
       # 1. Fixtures de ligas CALIBRADAS primeiro (tem isotonic_lookup +
@@ -93,7 +99,7 @@ module AdamStats
       SQL
 
       def initialize(conn: nil, logger: ->(m) { warn m }, client: nil,
-                     dry_run: false, bankroll: nil, model: nil)
+                     dry_run: false, bankroll: nil, model: nil, blend_alpha: nil)
         @conn = conn
         @logger = logger
         @client = client
@@ -103,8 +109,10 @@ module AdamStats
         # (truthy), o que furava o fallback. Normalizar pra nil antes do `||`.
         env_bankroll = ENV['AI_RECO_BANKROLL'].to_s.strip
         env_model = ENV['AI_RECO_MODEL'].to_s.strip
+        env_alpha = ENV['AI_RECO_BLEND_ALPHA'].to_s.strip
         @bankroll = bankroll || (env_bankroll.empty? ? DEFAULT_BANKROLL : env_bankroll.to_f)
         @model = model || (env_model.empty? ? DEFAULT_MODEL : env_model)
+        @blend_alpha = blend_alpha || (env_alpha.empty? ? DEFAULT_BLEND_ALPHA : env_alpha.to_f)
       end
 
       def run
@@ -158,7 +166,7 @@ module AdamStats
 
         league_calibrated = calibrated_leagues.include?(row['league'])
 
-        candidates = AiReco::EdgeCalculator.build(sim, odds, @bankroll)
+        candidates = AiReco::EdgeCalculator.build(sim, odds, @bankroll, blend_alpha: @blend_alpha)
         bet_candidates = candidates.select { |c| c[:edge_pct] >= EDGE_THRESHOLD }
 
         if bet_candidates.empty?

@@ -63,5 +63,126 @@ module AdamStats::Scraper::AiReco
       # 0.55 * 2.10 - 1 = 0.155 → 15.5%
       expect(home[:edge_pct]).to be_within(0.1).of(15.5)
     end
+
+    # -----------------------------------------------------------------------
+    # Blending sim × mercado (v1 universal, α=0.5 default in plumbing)
+    # -----------------------------------------------------------------------
+
+    describe 'blending sim × mercado (blend_alpha < 1.0)' do
+      it 'α=1.0 (default) — comportamento idêntico ao status quo (regressão)' do
+        a = EdgeCalculator.build(base_sim, base_odds, 1000)
+        b = EdgeCalculator.build(base_sim, base_odds, 1000, blend_alpha: 1.0)
+        expect(b.length).to eq(a.length)
+        a.zip(b).each do |x, y|
+          expect(y[:market]).to eq(x[:market])
+          expect(y[:side]).to eq(x[:side])
+          expect(y[:edge_pct]).to be_within(1e-6).of(x[:edge_pct])
+          expect(y[:kelly_units]).to be_within(1e-6).of(x[:kelly_units])
+          expect(y[:prob_calibrated]).to be_within(1e-6).of(x[:prob_calibrated])
+        end
+      end
+
+      it 'α=0.0 — edge igual em todos lados do mesmo mercado (== -vig do bookmaker)' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, blend_alpha: 0.0)
+        one_x2 = out.select { |c| c[:market] == '1x2' }
+        expect(one_x2.length).to eq(3)
+        one_x2.each_cons(2) { |a, b| expect(a[:edge_pct]).to be_within(1e-4).of(b[:edge_pct]) }
+        # baseOdds invs sum ≈ 1.0251 → edge ≈ -2.45%
+        expect(one_x2.first[:edge_pct]).to be_within(0.5).of(-2.45)
+      end
+
+      it 'α=0.0 com odds sem vig (2.0, 4.0, 4.0) → edge ≈ 0' do
+        sim = { p_home: 0.5, p_draw: 0.25, p_away: 0.25 }
+        odds = { home: 2.0, draw: 4.0, away: 4.0 }
+        out = EdgeCalculator.build(sim, odds, 1000, blend_alpha: 0.0)
+        out.select { |c| c[:market] == '1x2' }.each do |c|
+          expect(c[:edge_pct].abs).to be < 0.001
+        end
+      end
+
+      it 'α=0.5 — sim=0.6, market_devig=0.3, odd=10/3 → blended=0.45, edge=50%' do
+        sim = { p_home: 0.6, p_draw: 0.2, p_away: 0.2 }
+        odds = { home: 10.0 / 3, draw: 2.857142857, away: 2.857142857 }
+        out = EdgeCalculator.build(sim, odds, 1000, blend_alpha: 0.5)
+        home = out.find { |c| c[:market] == '1x2' && c[:side] == 'home' }
+        expect(home[:prob_market]).to be_within(0.001).of(0.3)
+        expect(home[:prob_blended]).to be_within(0.001).of(0.45)
+        expect(home[:edge_pct]).to be_within(0.5).of(50.0)
+      end
+
+      it 'EdgeCandidate inclui prob_market e prob_blended quando blend_alpha < 1.0' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, blend_alpha: 0.5)
+        out.each do |c|
+          expect(c).to have_key(:prob_market)
+          expect(c).to have_key(:prob_blended)
+          expect(c[:prob_market]).to be_a(Numeric)
+          expect(c[:prob_blended]).to be_a(Numeric)
+        end
+      end
+
+      it 'blending opera só em mercados disponíveis (1x2 sem over25/btts)' do
+        partial = { home: 2.10, draw: 3.50, away: 3.80 }
+        out = EdgeCalculator.build(base_sim, partial, 1000, blend_alpha: 0.5)
+        expect(out.length).to eq(3)
+        out.each { |c| expect(c[:market]).to eq('1x2') }
+      end
+
+      it 'Kolding-like: sim=0.575, market_devig~0.27, odd=3.7 → α=0.5 reduz edge de 112% pra ~56%' do
+        sim = { p_home: 0.575, p_draw: 0.20, p_away: 0.225 }
+        odds = { home: 3.7, draw: 3.4, away: 2.30 }
+        no_blend = EdgeCalculator.build(sim, odds, 1000)
+        blend = EdgeCalculator.build(sim, odds, 1000, blend_alpha: 0.5)
+        home_no = no_blend.find { |c| c[:market] == '1x2' && c[:side] == 'home' }
+        home_bl = blend.find { |c| c[:market] == '1x2' && c[:side] == 'home' }
+        expect(home_no[:edge_pct]).to be_within(1.0).of(112.75)
+        expect(home_bl[:edge_pct]).to be > 50
+        expect(home_bl[:edge_pct]).to be < 60
+        expect(home_bl[:edge_pct]).to be < home_no[:edge_pct]
+      end
+
+      it 'isotonic + blending: cal aplicada ao sim antes do blend' do
+        lookup = { '1x2-home' => ->(p) { p + 0.05 } }
+        out = EdgeCalculator.build(base_sim, base_odds, 1000,
+                                   blend_alpha: 0.5, isotonic_lookup: lookup)
+        home = out.find { |c| c[:market] == '1x2' && c[:side] == 'home' }
+        expect(home[:prob_calibrated]).to be_within(0.001).of(0.55)
+        # market devig: invs (0.4762, 0.2857, 0.2632) sum 1.0251 → home=0.4645
+        expect(home[:prob_market]).to be_within(0.01).of(0.4645)
+        # blended = 0.5*0.55 + 0.5*0.4645 = 0.5072
+        expect(home[:prob_blended]).to be_within(0.01).of(0.5072)
+      end
+    end
+
+    describe '.devig_proportional' do
+      it '3 odds sem vig (2.0, 4.0, 4.0) → (0.5, 0.25, 0.25) soma 1.0' do
+        probs = EdgeCalculator.devig_proportional([2.0, 4.0, 4.0])
+        expect(probs[0]).to be_within(1e-6).of(0.5)
+        expect(probs[1]).to be_within(1e-6).of(0.25)
+        expect(probs[2]).to be_within(1e-6).of(0.25)
+        expect(probs.compact.sum).to be_within(1e-6).of(1.0)
+      end
+
+      it '3 odds com vig (2.0, 3.0, 3.0) → (3/7, 2/7, 2/7) soma 1.0' do
+        probs = EdgeCalculator.devig_proportional([2.0, 3.0, 3.0])
+        expect(probs[0]).to be_within(1e-4).of(3.0 / 7)
+        expect(probs[1]).to be_within(1e-4).of(2.0 / 7)
+        expect(probs[2]).to be_within(1e-4).of(2.0 / 7)
+        expect(probs.compact.sum).to be_within(1e-6).of(1.0)
+      end
+
+      it '2 odds (1.91, 1.91) → (0.5, 0.5)' do
+        probs = EdgeCalculator.devig_proportional([1.91, 1.91])
+        expect(probs[0]).to be_within(1e-6).of(0.5)
+        expect(probs[1]).to be_within(1e-6).of(0.5)
+      end
+
+      it 'ignora odds inválidas (nil, ≤1)' do
+        probs = EdgeCalculator.devig_proportional([2.0, nil, 3.0])
+        expect(probs.length).to eq(3)
+        expect(probs[1]).to be_nil
+        valid = [probs[0], probs[2]].compact
+        expect(valid.sum).to be_within(1e-6).of(1.0)
+      end
+    end
   end
 end

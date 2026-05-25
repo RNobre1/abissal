@@ -63,6 +63,15 @@ const RECO_VERSION = "reco-v1";
 const ROUTE_LABEL = "ai-reco-on-demand";
 const EDGE_THRESHOLD_PCT = 5.0;
 const DEFAULT_BANKROLL = 1000.0;
+/**
+ * Blending sim × mercado (v1 universal — 2026-05-25).
+ * 0.5 = mistura 50/50 prob_calibrated_sim + prob_market_devigged.
+ * Reduz edges absurdos em ligas não-calibradas (Kolding IF 114% → ~57%).
+ * Sincronizar com `DEFAULT_BLEND_ALPHA` em
+ * `scripts/scraper/lib/scraper/ai_recommender_runner.rb`.
+ * Override via ENV AI_RECO_BLEND_ALPHA (0..1). Override por liga é TODO v2.
+ */
+const DEFAULT_BLEND_ALPHA = 0.5;
 
 const bodySchema = z.object({
   fixtureId: z.number().int().positive(),
@@ -192,8 +201,14 @@ export async function POST(request: Request): Promise<Response> {
   // ---------------------------------------------------------------------------
   // 7. Edge table + candidate filter
   // ---------------------------------------------------------------------------
+  const envAlpha = Number(process.env.AI_RECO_BLEND_ALPHA);
+  const blendAlpha =
+    Number.isFinite(envAlpha) && envAlpha >= 0 && envAlpha <= 1
+      ? envAlpha
+      : DEFAULT_BLEND_ALPHA;
   const allCandidates = buildEdgeTable(simInput, odds, bankroll, {
     isotonicLookup,
+    blendAlpha,
   });
   const betCandidates = allCandidates.filter(
     (c) => c.edge_pct >= EDGE_THRESHOLD_PCT,

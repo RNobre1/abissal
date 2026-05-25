@@ -227,6 +227,11 @@ interface FixtureRecord {
   homeScore: number | null;
   awayScore: number | null;
   candidates: EdgeCandidate[];
+  /** Inputs preservados pra reconstruir candidates com blendAlpha distinto
+   *  por cenário sem refetch ao Supabase. */
+  simInput: SimInput;
+  odds: OddsInput;
+  isotonicLookup: Partial<Record<string, (p: number) => number>>;
   resolvedAt: string | null;
 }
 
@@ -427,7 +432,20 @@ function brierOver25(pOver: number, observed: 0 | 1): number {
 // Scenarios
 // ---------------------------------------------------------------------------
 
-const SCENARIOS: Array<{ opts: ScenarioOpts; description: string }> = [
+/**
+ * Cada cenário declara opts (gate de aposta) e um `blendAlpha` opcional.
+ * Quando `blendAlpha < 1.0`, a `buildEdgeTable` é chamada com blending sim ×
+ * mercado, e o `edge_pct` consumido pelos gates já vem reduzido pela média
+ * ponderada. Default 1.0 (status quo).
+ *
+ * Cenários F, G, H adicionados em 2026-05-25 para validar empiricamente o
+ * impacto do blending sim × mercado (v1 universal) sobre ROI/WR/Brier.
+ */
+const SCENARIOS: Array<{
+  opts: ScenarioOpts;
+  description: string;
+  blendAlpha?: number;
+}> = [
   {
     description:
       "A — baseline: best edge ≥ 5%, sem sanity guard, sem requireCalibrated",
@@ -492,6 +510,42 @@ const SCENARIOS: Array<{ opts: ScenarioOpts; description: string }> = [
       requireCalibrated: true,
       sanityGuard: true,
     },
+  },
+  // Blending sim × mercado (v1 universal, 2026-05-25).
+  // Cenários abaixo aplicam α<1.0 (mistura sim/mercado devigado) e variam o
+  // edgeMinPct pra mapear o trade-off entre gate de edge e blending.
+  {
+    description:
+      "F — A com blending α=0.5 (sim × mercado_devigged): edge ≥ 5%, sem guards",
+    opts: {
+      name: "F",
+      edgeMinPct: 5,
+      requireCalibrated: false,
+      sanityGuard: false,
+    },
+    blendAlpha: 0.5,
+  },
+  {
+    description:
+      "G — A com blending α=0.3 (mais peso pro mercado): edge ≥ 5%, sem guards",
+    opts: {
+      name: "G",
+      edgeMinPct: 5,
+      requireCalibrated: false,
+      sanityGuard: false,
+    },
+    blendAlpha: 0.3,
+  },
+  {
+    description:
+      "H — D20 com blending α=0.5: edge ≥ 20% blended, sem guards",
+    opts: {
+      name: "H",
+      edgeMinPct: 20,
+      requireCalibrated: false,
+      sanityGuard: false,
+    },
+    blendAlpha: 0.5,
   },
 ];
 
@@ -822,6 +876,9 @@ async function main(): Promise<void> {
       homeScore: sim.actual_home_goals,
       awayScore: sim.actual_away_goals,
       candidates,
+      simInput,
+      odds,
+      isotonicLookup: lookup,
       resolvedAt: sim.actual_resolved_at,
     });
   }
@@ -888,7 +945,7 @@ async function main(): Promise<void> {
   const allCsv: CsvRow[] = [];
   const metricsList: ScenarioMetrics[] = [];
 
-  for (const { opts, description } of SCENARIOS) {
+  for (const { opts, description, blendAlpha } of SCENARIOS) {
     let nBets = 0;
     let nWins = 0;
     let nResolved = 0;
@@ -898,7 +955,16 @@ async function main(): Promise<void> {
     let brierScenarioN = 0;
 
     for (const rec of records) {
-      const pick = chooseBetForScenario(rec.candidates, opts, {
+      // Quando o cenário tem blendAlpha (< 1.0), reconstruimos a edge table
+      // com blending sim × mercado. Senão usamos o cache (alpha=1.0 default).
+      const candidates =
+        blendAlpha !== undefined && blendAlpha < 1.0
+          ? buildEdgeTable(rec.simInput, rec.odds, 1000, {
+              isotonicLookup: rec.isotonicLookup,
+              blendAlpha,
+            })
+          : rec.candidates;
+      const pick = chooseBetForScenario(candidates, opts, {
         leagueCalibrated: rec.leagueCalibrated,
       });
 

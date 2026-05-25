@@ -100,6 +100,10 @@ module AdamStats::Scraper
     end
 
     describe 'pre-filter: edge alto em liga NAO calibrada' do
+      # Sim super off + odd longa: garante que mesmo APÓS blending sim×mercado
+      # (α=0.5 universal) a edge_pct fica > 50. Pra odd=4.0 e prob_market_devig
+      # ~ 0.25, sim=0.99 → blended = 0.5*0.99 + 0.5*0.25 = 0.62 → edge = 148%.
+      # Pre-blending puro era edge = 0.99*4.0-1 = 296%.
       let(:high_edge_sim_row) do
         {
           'fixture_id' => '999',
@@ -107,16 +111,15 @@ module AdamStats::Scraper
           'away_team' => 'Some Team',
           'league' => 'Uncalibrated League',
           'kickoff_utc' => '2026-05-30T15:00:00Z',
-          # Probs do simulador super off (ruido amplificado). p_btts=0.99 + odd 2.0 = edge 98%
-          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
-          'p_over_25' => '0.50', 'p_btts' => '0.99',
+          'p_home' => '0.99', 'p_draw' => '0.005', 'p_away' => '0.005',
+          'p_over_25' => '0.50', 'p_btts' => '0.50',
           'top_scorelines' => '[]', 'sim_stats' => '{}',
           'detail_json' => JSON.generate(
             'odds_summary' => {
               'Result' => {
-                'Kolding IF' => { 'decimal_odds' => 2.0 },
-                'Draw' => { 'decimal_odds' => 3.0 },
-                'Some Team' => { 'decimal_odds' => 3.2 }
+                'Kolding IF' => { 'decimal_odds' => 4.0 },
+                'Draw' => { 'decimal_odds' => 4.0 },
+                'Some Team' => { 'decimal_odds' => 2.0 }
               },
               'Match Goals Overs/Unders' => {
                 'Over 2.5' => { 'decimal_odds' => 2.0 },
@@ -167,8 +170,13 @@ module AdamStats::Scraper
       it 'CHAMA a IA quando top candidate edge=40 em liga nao-calibrada (entre old 30 e new 50)' do
         # Backtest mostrou que edges 30-50% em ligas nao-calibradas contem
         # winners — threshold v2 (50) deixa passar pra IA decidir.
-        # Probs: p_btts=0.70 * 2.0 = 40% edge
-        passthru_row = high_edge_sim_row.merge('p_btts' => '0.70')
+        # Pra ter edge_blended ~40 com odd=2.0: blended ~0.70 → sim ~ 0.95
+        # (com prob_market_devig ~0.49, blended = 0.5*0.95+0.5*0.49 = 0.72,
+        #  edge = 0.72*2.0-1 = 44%).
+        passthru_row = high_edge_sim_row.merge(
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_btts' => '0.95'
+        )
         conn = conn_double
         allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([passthru_row])
         allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
@@ -182,7 +190,8 @@ module AdamStats::Scraper
 
       it 'CHAMA a IA quando top candidate edge<=50 em liga nao-calibrada' do
         moderate_row = high_edge_sim_row.merge(
-          # Probs mais realistas: p_btts=0.60 * 2.0 = 20% edge (moderado)
+          # Probs mais realistas: sim_btts=0.60, odd 2.0 → edge_raw=20%
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
           'p_btts' => '0.60'
         )
         conn = conn_double
