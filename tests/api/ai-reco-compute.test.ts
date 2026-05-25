@@ -269,19 +269,19 @@ function makeFixtureRow(over: Partial<FixtureRow> = {}): FixtureRow {
     source_url: "https://www.adamchoi.co.uk/fixture/19427226/england-premier-league-liverpool-vs-tottenham",
     kickoff_utc: "2026-05-25T15:00:00Z",
     detail_json: {
-      odds: {
-        "1X2": {
-          "1": { average: 2.10 },
-          X: { average: 3.50 },
-          "2": { average: 3.80 },
+      odds_summary: {
+        Result: {
+          Liverpool: { bookmaker: "UNIBET", decimal_odds: 2.10 },
+          Draw: { bookmaker: "UNIBET", decimal_odds: 3.50 },
+          Tottenham: { bookmaker: "UNIBET", decimal_odds: 3.80 },
         },
-        OVER_UNDER_2_5: {
-          OVER: { average: 1.85 },
-          UNDER: { average: 2.00 },
+        "Match Goals Overs/Unders": {
+          "Over 2.5": { bookmaker: "UNIBET", decimal_odds: 1.85 },
+          "Under 2.5": { bookmaker: "UNIBET", decimal_odds: 2.00 },
         },
         BTTS: {
-          YES: { average: 1.80 },
-          NO: { average: 2.10 },
+          Yes: { bookmaker: "UNIBET", decimal_odds: 1.80 },
+          No: { bookmaker: "UNIBET", decimal_odds: 2.10 },
         },
       },
       referee: { name: "Anthony Taylor" },

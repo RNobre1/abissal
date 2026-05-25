@@ -142,15 +142,15 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!sim) {
     return NextResponse.json(
-      { error: "sim or odds missing" },
+      { error: "sim missing for this fixture" },
       { status: 400 },
     );
   }
 
-  const odds = extractOdds(fixture.detail_json);
+  const odds = extractOdds(fixture.detail_json, fixture.home_team, fixture.away_team);
   if (!odds) {
     return NextResponse.json(
-      { error: "sim or odds missing" },
+      { error: "odds missing in detail_json.odds_summary" },
       { status: 400 },
     );
   }
@@ -343,40 +343,58 @@ export async function POST(request: Request): Promise<Response> {
 // ---------------------------------------------------------------------------
 
 /**
- * Extracts the 7 markets (1X2, OVER_UNDER_2_5, BTTS) from `detail_json.odds`.
- * Mirrors `AiRecommenderRunner#extract_odds` (Ruby). Returns `null` when
- * `detail_json` is missing/malformed or no markets are present.
+ * Extracts the 7 markets do `detail_json.odds_summary`.
+ *
+ * Shape REAL do choistats (verificado empiricamente 2026-05-24):
+ *   odds_summary:
+ *     "Result":   { "<home_team_name>", "Draw", "<away_team_name>" }
+ *     "BTTS":     { "Yes", "No" }
+ *     "Match Goals Overs/Unders": { "Over 2.5", "Under 2.5", ... }
+ *   Cada valor: { "bookmaker": "X", "decimal_odds": Float }
+ *
+ * Espelha `AiRecommenderRunner#extract_odds` (Ruby) pós-fix do mesmo bug
+ * (commit 099c863). Lição B15 + repete em Lição "shape REAL do producer".
+ *
+ * Returns `null` when detail_json is missing/malformed ou todos markets vazios.
  */
-function extractOdds(detailJson: Record<string, unknown> | null): OddsInput | null {
+function extractOdds(
+  detailJson: Record<string, unknown> | null,
+  homeTeam: string,
+  awayTeam: string,
+): OddsInput | null {
   if (!detailJson || typeof detailJson !== "object") return null;
   const oddsRootRaw =
-    (detailJson as Record<string, unknown>).odds ??
-    (detailJson as Record<string, unknown>).odds_summary;
+    (detailJson as Record<string, unknown>).odds_summary ??
+    (detailJson as Record<string, unknown>).odds;
   if (!oddsRootRaw || typeof oddsRootRaw !== "object") return null;
-  const oddsRoot = oddsRootRaw as Record<string, Record<string, Record<string, unknown>>>;
+  const oddsRoot = oddsRootRaw as Record<string, unknown>;
+
+  const resultMarket = (oddsRoot["Result"] ?? {}) as Record<string, unknown>;
+  const bttsMarket = (oddsRoot["BTTS"] ?? {}) as Record<string, unknown>;
+  const mgMarket = (oddsRoot["Match Goals Overs/Unders"] ?? {}) as Record<string, unknown>;
 
   const out: OddsInput = {
-    home: digAvg(oddsRoot, "1X2", "1"),
-    draw: digAvg(oddsRoot, "1X2", "X"),
-    away: digAvg(oddsRoot, "1X2", "2"),
-    over25: digAvg(oddsRoot, "OVER_UNDER_2_5", "OVER"),
-    under25: digAvg(oddsRoot, "OVER_UNDER_2_5", "UNDER"),
-    btts_sim: digAvg(oddsRoot, "BTTS", "YES"),
-    btts_nao: digAvg(oddsRoot, "BTTS", "NO"),
+    home:     digDecimal(resultMarket, homeTeam),
+    draw:     digDecimal(resultMarket, "Draw"),
+    away:     digDecimal(resultMarket, awayTeam),
+    over25:   digDecimal(mgMarket, "Over 2.5"),
+    under25:  digDecimal(mgMarket, "Under 2.5"),
+    btts_sim: digDecimal(bttsMarket, "Yes"),
+    btts_nao: digDecimal(bttsMarket, "No"),
   };
 
   const allMissing = Object.values(out).every((v) => v == null);
   return allMissing ? null : out;
 }
 
-function digAvg(
-  root: Record<string, Record<string, Record<string, unknown>>>,
-  market: string,
-  side: string,
+/** Field is `decimal_odds` (not `average`). Tolerant: returns null on miss. */
+function digDecimal(
+  marketNode: Record<string, unknown>,
+  key: string,
 ): number | null {
-  const node = root[market]?.[side];
+  const node = marketNode[key];
   if (!node || typeof node !== "object") return null;
-  const v = (node as Record<string, unknown>).average;
+  const v = (node as Record<string, unknown>).decimal_odds;
   return typeof v === "number" && Number.isFinite(v) ? v : null;
 }
 
