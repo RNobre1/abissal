@@ -44,7 +44,8 @@ import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
  *   5. Load active isotonic curves via `getActiveCurves(model_version)` and
  *      build the lookup map passed into `buildEdgeTable`.
  *   6. Detect league_calibrated via `league_parameters` (effective row).
- *   7. Build edge table, filter `edge_pct >= 5`.
+ *   7. Build edge table, filter `edge_pct >= 20` (v2 — 2026-05-25 tarde,
+ *      elevado de 5%; backtest histórico mostrou ROI projetado +14.4%).
  *   8. If no candidates → persist `verdict='skip'` and return 200 (no IA call).
  *   9. Else → buildPrompt → runRecommender → persist both `llm_request_logs`
  *      and `ai_recommendations` rows.
@@ -61,7 +62,17 @@ export const maxDuration = 100;
 
 const RECO_VERSION = "reco-v1";
 const ROUTE_LABEL = "ai-reco-on-demand";
-const EDGE_THRESHOLD_PCT = 5.0;
+/**
+ * Threshold mínimo de edge_pct (após blending) pra virar bet candidate.
+ * Histórico:
+ *   v1 (2026-05-25 manhã): 5.0
+ *   v2 (2026-05-25 tarde): 20.0 — backtest de 30d mostrou
+ *     `D20 (edge≥20%) ROI +14.4%` vs `A (edge≥5%) ROI +8.1%`.
+ *     Combinado com blending α=0.5 (H): ROI projetado +18.66%.
+ *     Espelha `EDGE_THRESHOLD` do Ruby runner.
+ *     Ref: docs/superpowers/specs/2026-05-25-backtest-ai-reco-relatorio.md
+ */
+const EDGE_THRESHOLD_PCT = 20.0;
 const DEFAULT_BANKROLL = 1000.0;
 /**
  * Blending sim × mercado (v1 universal — 2026-05-25).
@@ -230,7 +241,7 @@ export async function POST(request: Request): Promise<Response> {
       verdict: "skip",
       confidence: "baixo",
       reasoning: "Nenhum mercado com valor; skip.",
-      summary_line: "Nenhum candidato com edge >= 5%",
+      summary_line: "Nenhum candidato com edge >= 20%",
       red_flags: [],
     };
 
@@ -684,7 +695,7 @@ async function persistSkip(args: {
         units_final: null,
         reduction_reason: null,
         confidence: "baixo",
-        summary_line: "Nenhum candidato com edge >= 5%",
+        summary_line: "Nenhum candidato com edge >= 20%",
         reasoning_full: "Nenhum mercado com valor; skip.",
         red_flags: [],
         cost_usd: 0,

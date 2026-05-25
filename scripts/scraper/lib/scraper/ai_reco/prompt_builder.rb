@@ -57,7 +57,7 @@ module AdamStats
           user << "Kickoff (UTC): #{kickoff_utc || '—'}\n"
           user << "Árbitro: #{referee_label}\n\n"
 
-          user << "# Candidatos (ordenados por edge desc; somente com edge >= 5% foram filtrados a montante)\n"
+          user << "# Candidatos (ordenados por edge desc; somente com edge >= 20% foram filtrados a montante)\n"
           user << "#{format_candidates(candidates)}\n\n"
 
           user << "# Contexto\n"

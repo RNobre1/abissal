@@ -51,7 +51,7 @@ module AdamStats::Scraper
       end
     end
 
-    describe 'when no candidate has edge >= 5%' do
+    describe 'when no candidate has edge >= 20%' do
       it 'salva verdict=skip e NAO chama a IA' do
         sim_row = {
           'fixture_id' => '123',
@@ -190,9 +190,11 @@ module AdamStats::Scraper
 
       it 'CHAMA a IA quando top candidate edge<=50 em liga nao-calibrada' do
         moderate_row = high_edge_sim_row.merge(
-          # Probs mais realistas: sim_btts=0.60, odd 2.0 → edge_raw=20%
+          # Threshold v2 (20%): precisa edge_blended >= 20. Pra odd_btts=2.0
+          # e prob_market_devig ~0.487, blended = 0.5*p_sim + 0.5*0.487.
+          # p_btts=0.75 → blended=0.619 → edge_blended=23.8% (entre 20 e 50).
           'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
-          'p_btts' => '0.60'
+          'p_btts' => '0.75'
         )
         conn = conn_double
         allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([moderate_row])

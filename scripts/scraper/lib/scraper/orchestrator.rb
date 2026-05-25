@@ -423,7 +423,7 @@ module AdamStats
 
         # AI Recommender — roda no FINAL (após reconciliação + baseline):
         # itera fixtures upcoming com sim ativa + odds, calcula edge,
-        # chama IA quando edge >= 5%, persiste em ai_recommendations +
+        # chama IA quando edge >= 20%, persiste em ai_recommendations +
         # llm_request_logs. Não-fatal: erro global não derruba o scrape.
         begin
           AiRecommenderRunner.new(logger: logger).run

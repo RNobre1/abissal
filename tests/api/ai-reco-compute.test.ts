@@ -10,7 +10,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  *   4. Load bankroll (defensive query → env → 1000 fallback)
  *   5. Load active isotonic curves via getActiveCurves
  *   6. buildEdgeTable(sim, odds, bankroll, isotonicLookup)
- *   7. Filter candidates with edge_pct >= 5
+ *   7. Filter candidates with edge_pct >= 20 (v2 — 2026-05-25 tarde)
  *   8. Detect league_calibrated via league_parameters
  *   9. buildPrompt → runRecommender
  *   10. Persist llm_request_logs + ai_recommendations
@@ -428,7 +428,7 @@ describe("POST /api/ai-reco/compute — preconditions", () => {
 
   it("returns 400 when odds are missing from detail_json", async () => {
     mockState.fixtureRow = makeFixtureRow({ detail_json: { referee: { name: "X" } } });
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     const res = await callRoute({ fixtureId: 42 });
     expect(res.status).toBe(400);
     const body = (await res.json()) as { error: string };
@@ -437,7 +437,7 @@ describe("POST /api/ai-reco/compute — preconditions", () => {
 
   it("returns 400 when detail_json is null", async () => {
     mockState.fixtureRow = makeFixtureRow({ detail_json: null });
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     const res = await callRoute({ fixtureId: 42 });
     expect(res.status).toBe(400);
   });
@@ -446,7 +446,11 @@ describe("POST /api/ai-reco/compute — preconditions", () => {
 describe("POST /api/ai-reco/compute — happy path", () => {
   it("returns 200 with decision, reco_id, costUsd, latencyMs when OpenRouter succeeds", async () => {
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    // p_home=0.75 (raw edge 57.5% × odd 2.10) → blended α=0.5 com mercado
+    // devigado (~0.487) = 0.619 → edge_blended ~30% (passa threshold v2=20%,
+    // abaixo do sanity 50%). Default p_home=0.60 daria edge_blended ~12%
+    // (skip no v2). Override mantém o caminho "bet" exercitado.
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = [{ league: "Premier League" }];
 
     const mockFetch = vi.fn().mockResolvedValue({
@@ -485,8 +489,9 @@ describe("POST /api/ai-reco/compute — happy path", () => {
     expect(mockState.insertedReco!.verdict).toBe("bet");
   });
 
-  it("returns skip path when no candidates have edge >= 5%", async () => {
-    // Probs tuned so EVERY market sits under the 5% edge threshold.
+  it("returns skip path when no candidates have edge >= 20%", async () => {
+    // Probs tuned so EVERY market (após blending α=0.5) sits under the
+    // 20% edge threshold (v2 — backtest D20 ROI +14.4%). Edges raw:
     // home: 0.45*2.10-1 = -5.5% | draw: 0.28*3.50-1 = -2% | away: 0.27*3.80-1 = 2.6%
     // over: 0.50*1.85-1 = -7.5% | under: 0.50*2.00-1 = 0%
     // btts_sim: 0.55*1.80-1 = -1% | btts_nao: 0.45*2.10-1 = -5.5%
@@ -521,7 +526,7 @@ describe("POST /api/ai-reco/compute — model selection", () => {
     process.env.AI_RECO_MODEL_ONDEMAND = "deepseek/deepseek-r1";
 
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = [{ league: "Premier League" }];
 
     const mockFetch = vi.fn().mockResolvedValue({
@@ -555,7 +560,7 @@ describe("POST /api/ai-reco/compute — model selection", () => {
     process.env.AI_RECO_MODEL_ONDEMAND = "anthropic/claude-sonnet-4.5";
 
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = [{ league: "Premier League" }];
 
     const mockFetch = vi.fn().mockResolvedValue({
@@ -580,7 +585,7 @@ describe("POST /api/ai-reco/compute — model selection", () => {
 describe("POST /api/ai-reco/compute — error paths", () => {
   it("returns 502 when OpenRouter responds with non-200", async () => {
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: false,
@@ -597,7 +602,7 @@ describe("POST /api/ai-reco/compute — error paths", () => {
 
   it("returns 502 when OpenRouter returns non-parseable content", async () => {
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
 
     const mockFetch = vi.fn().mockResolvedValue({
       ok: true,
@@ -615,7 +620,7 @@ describe("POST /api/ai-reco/compute — error paths", () => {
   it("returns 503 when OPENROUTER_API_KEY is missing and IA is needed", async () => {
     delete process.env.OPENROUTER_API_KEY;
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     const res = await callRoute({ fixtureId: 42 });
     expect(res.status).toBe(503);
   });
@@ -624,7 +629,7 @@ describe("POST /api/ai-reco/compute — error paths", () => {
 describe("POST /api/ai-reco/compute — cap enforcement", () => {
   it("enforces 0.5u cap when league is NOT calibrated", async () => {
     mockState.fixtureRow = makeFixtureRow({ league: "Obscure League" });
-    mockState.simRow = makeSimRow({ league: "Obscure League" });
+    mockState.simRow = makeSimRow({ league: "Obscure League", p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = []; // not calibrated
 
     const overUnitsDecision = { ...VALID_DECISION, units_final: 1.5 };
@@ -648,7 +653,7 @@ describe("POST /api/ai-reco/compute — cap enforcement", () => {
 
   it("enforces 2.0u cap when league IS calibrated", async () => {
     mockState.fixtureRow = makeFixtureRow();
-    mockState.simRow = makeSimRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = [{ league: "Premier League" }];
 
     const overUnitsDecision = { ...VALID_DECISION, units_final: 3.5 };

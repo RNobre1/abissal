@@ -9,11 +9,18 @@ module AdamStats
   module Scraper
     # Roda no fim do scrape diario (apos reconcilers).
     # Filtra fixtures futuras com sim ativa + odds, calcula edge, chama IA
-    # se houver candidato >= 5%, persiste em ai_recommendations + llm_request_logs.
+    # se houver candidato >= 20%, persiste em ai_recommendations + llm_request_logs.
     #
     # Spec §4.3 + Wave 2 do plan IA-2 Recomendador (2026-05-24).
     class AiRecommenderRunner
-      EDGE_THRESHOLD = 5.0
+      # Threshold mínimo de edge_pct (após blending) pra um candidato virar
+      # bet potencial. Histórico:
+      #   v1 (2026-05-25 manhã): 5.0
+      #   v2 (2026-05-25 tarde): 20.0 — backtest de 30d mostrou
+      #     `D20 (edge≥20%) ROI +14.4%` vs `A (edge≥5%) ROI +8.1%`.
+      #     Combinado com blending α=0.5 (cenário H), ROI projetado +18.66%.
+      #     Ref: docs/superpowers/specs/2026-05-25-backtest-ai-reco-relatorio.md
+      EDGE_THRESHOLD = 20.0
       # Acima desse edge_pct, em liga NAO calibrada, recusamos a bet:
       # simulador sem league_parameters produz ruido amplificado
       # (ex: Kolding IF edge 114%, 2026-05-25). Espelha SANITY_EDGE_THRESHOLD
@@ -361,7 +368,7 @@ module AdamStats
 
       def persist_skip(conn, row, candidates, league_calibrated,
                        reduction_reason: nil,
-                       summary_line: 'Nenhum candidato com edge >= 5%',
+                       summary_line: 'Nenhum candidato com edge >= 20%',
                        reasoning: 'Nenhum mercado com valor; skip.')
         if @dry_run
           @logger.call("[ai-reco] dry-run skip persist for fixture #{row['fixture_id']}")

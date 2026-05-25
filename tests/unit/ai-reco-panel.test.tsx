@@ -81,7 +81,7 @@ function skipReco(): AiRecommendationDTO {
     market: null,
     side: null,
     summary_line: null,
-    reasoning_full: "Nenhum mercado com edge >= 5% no momento.",
+    reasoning_full: "Nenhum mercado com edge >= 20% no momento.",
     red_flags: [],
     units_final: null,
     kelly_pre: null,
@@ -275,7 +275,7 @@ describe("<AiRecoPanel> - state B (verdict=skip)", () => {
     );
     expect(screen.getByText(/IA não vê valor/)).toBeInTheDocument();
     expect(
-      screen.getByText(/Nenhum mercado com edge >= 5%/),
+      screen.getByText(/Nenhum mercado com edge >= 20%/),
     ).toBeInTheDocument();
   });
 

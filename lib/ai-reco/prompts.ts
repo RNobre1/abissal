@@ -90,7 +90,7 @@ ${input.home_team} vs ${input.away_team}
 Kickoff (UTC): ${input.kickoff_utc ?? "—"}
 Árbitro: ${refereeLabel}
 
-# Candidatos (ordenados por edge desc; somente com edge >= 5% foram filtrados a montante)
+# Candidatos (ordenados por edge desc; somente com edge >= 20% foram filtrados a montante)
 ${formatCandidates(input.candidates)}
 
 # Contexto
