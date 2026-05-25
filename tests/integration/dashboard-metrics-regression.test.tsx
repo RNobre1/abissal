@@ -159,6 +159,13 @@ vi.mock("@/app/(dashboard)/_components/destaques-do-dia", () => ({
   DestaquesDoDia: () => null,
 }));
 
+// OportunidadesIa (Wave 4) também é um Server Component async renderizado
+// pela OverviewPage; stubamos pelo mesmo motivo — escopo do teste é
+// métricas de banca, não recomendações IA.
+vi.mock("@/app/(dashboard)/_components/oportunidades-ia", () => ({
+  OportunidadesIa: () => null,
+}));
+
 // ──────────────────────────────────────────────────────────────────────────────
 // Dataset negativo — saques > depósitos (netCapital < 0) + resolvedStaked = 0
 // ──────────────────────────────────────────────────────────────────────────────

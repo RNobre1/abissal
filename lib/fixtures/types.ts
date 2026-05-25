@@ -25,6 +25,14 @@ export interface FixtureDTO {
    */
   high_signal?: boolean;
   /**
+   * Wave 4: true sse existe um row em `ai_recommendations` com
+   * `verdict='bet'` e `kickoff_utc > now()` apontando para esta fixture
+   * (via choistats id parseado do source_url — mesmo id-space que o
+   * recommender/reconciler escreve). Renderizado como chip ⚡ inline no
+   * FixtureCard.
+   */
+  ai_has_bet?: boolean;
+  /**
    * Full badge objects — only populated by the dashboard query
    * (`fixturesWithBadgesForDashboard`), never by the /fixtures list.
    */

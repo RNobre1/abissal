@@ -10,6 +10,7 @@ import {
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
 import { DestaquesDoDia } from "./_components/destaques-do-dia";
+import { OportunidadesIa } from "./_components/oportunidades-ia";
 
 export default async function OverviewPage() {
   const supabase = await createClient();
@@ -86,6 +87,8 @@ export default async function OverviewPage() {
         <span className="label">visão geral</span>
         <span className="label">{fmt.date(new Date())}</span>
       </header>
+
+      <OportunidadesIa />
 
       <DestaquesDoDia />
 

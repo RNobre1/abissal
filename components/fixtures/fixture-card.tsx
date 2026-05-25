@@ -6,6 +6,14 @@ import { formatUtcAsBrt } from "@/lib/fixtures/time";
 interface FixtureCardProps {
   fixture: FixtureDTO;
   highSignal?: boolean;
+  /**
+   * Wave 4: render the ⚡ IA chip when an active `verdict='bet'`
+   * recommendation exists for this fixture. The caller resolves the flag
+   * from `fixture.ai_has_bet` (computed in `lib/fixtures/repository.ts`)
+   * and forwards it explicitly so the card surface stays decoupled from
+   * the DTO shape.
+   */
+  aiHasBet?: boolean;
 }
 
 const TONE_DESCRIPTION: Record<BadgeTone, string> = {
@@ -15,7 +23,11 @@ const TONE_DESCRIPTION: Record<BadgeTone, string> = {
   "first-half": "Os dois lados vêm de sequência forte de gols no 1º tempo.",
 };
 
-export function FixtureCard({ fixture, highSignal }: FixtureCardProps) {
+export function FixtureCard({
+  fixture,
+  highSignal,
+  aiHasBet,
+}: FixtureCardProps) {
   const ko = formatUtcAsBrt(fixture.kickoff_utc) ?? fixture.ko_time ?? "TBD";
   const badges = fixture.badges ?? [];
 
@@ -49,6 +61,16 @@ export function FixtureCard({ fixture, highSignal }: FixtureCardProps) {
             {fixture.away_team}
           </span>
         </span>
+        {aiHasBet ? (
+          <span
+            data-ai-bet="true"
+            title="IA recomenda aposta nesta fixture"
+            className="label shrink-0 inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[10px] text-[var(--color-vermelho)] lg:text-[11px]"
+            aria-label="IA recomenda aposta nesta fixture"
+          >
+            ⚡ IA
+          </span>
+        ) : null}
         {!fixture.has_detail ? (
           <span
             className="label shrink-0 rounded-[var(--radius-sm)] border px-2 py-0.5"

@@ -148,14 +148,21 @@ describe("fixturesForBrtDay — DTO contract preserved", () => {
 });
 
 /**
- * Mock that serves TWO tables/relations: `fixtures` (scalar list) and
- * `fixture_badges_view` (computed scalars). It captures the `.select()`
- * string PER relation so the tests can assert no heavy detail_json crosses
- * the wire on either path. `.in()` is supported for the view join.
+ * Mock that serves N tables/relations: `fixtures` (scalar list),
+ * `fixture_badges_view` (computed scalars), `ai_recommendations`
+ * (scalar list keyed by choistats id). It captures the `.select()`
+ * string PER relation so tests can assert no heavy detail_json crosses
+ * the wire on any path. `.in()`, `.eq()`, `.gt()` are supported.
  */
 function buildMultiMock(rowsByTable: Record<string, unknown[]>) {
   const captured: Record<string, string> = {};
+  const eqs: Record<string, Array<{ column: string; value: unknown }>> = {};
+  const gts: Record<string, Array<{ column: string; value: unknown }>> = {};
+  const ins: Record<string, Array<{ column: string; value: unknown }>> = {};
   function chainFor(table: string) {
+    eqs[table] = eqs[table] ?? [];
+    gts[table] = gts[table] ?? [];
+    ins[table] = ins[table] ?? [];
     const chain = {
       select(arg: string) {
         captured[table] = arg;
@@ -164,7 +171,16 @@ function buildMultiMock(rowsByTable: Record<string, unknown[]>) {
       or() {
         return this;
       },
-      in() {
+      in(column: string, value: unknown) {
+        ins[table].push({ column, value });
+        return this;
+      },
+      eq(column: string, value: unknown) {
+        eqs[table].push({ column, value });
+        return this;
+      },
+      gt(column: string, value: unknown) {
+        gts[table].push({ column, value });
         return this;
       },
       order() {
@@ -181,7 +197,7 @@ function buildMultiMock(rowsByTable: Record<string, unknown[]>) {
       return chainFor(table);
     },
   };
-  return { client, captured };
+  return { client, captured, eqs, gts, ins };
 }
 
 describe("fixturesWithBadgesForDashboard — badges via Postgres view (B12 follow-up #1)", () => {
@@ -272,5 +288,103 @@ describe("fixturesForBrtDay — high_signal exposed for /fixtures realce", () =>
     expect(f2.high_signal).toBe(false);
     // Still no badges array on the list DTO (payload minimal).
     expect(f1).not.toHaveProperty("badges");
+  });
+});
+
+describe("fixturesForBrtDay — ai_has_bet from ai_recommendations (Wave 4)", () => {
+  it("queries ai_recommendations with scalar select, filtered by verdict='bet' + kickoff>now + choistats IN", async () => {
+    const { client, captured, eqs, gts, ins } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/19427226/eng-prem-a-vs-b",
+        }),
+        compactRow({
+          id: 2,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/19427227/eng-prem-c-vs-d",
+        }),
+      ],
+      ai_recommendations: [{ fixture_id: 19427226 }],
+    });
+
+    const out = await fixturesForBrtDay("2026-05-12", client);
+
+    // ai_recommendations select: scalar only, NO detail_json.
+    expect(captured.ai_recommendations).toBeDefined();
+    expect(captured.ai_recommendations).not.toContain("detail_json");
+    expect(captured.ai_recommendations).toContain("fixture_id");
+
+    // Filters applied: verdict='bet', kickoff_utc>now, fixture_id IN [...]
+    expect(
+      eqs.ai_recommendations.some(
+        (e) => e.column === "verdict" && e.value === "bet",
+      ),
+    ).toBe(true);
+    expect(
+      gts.ai_recommendations.some((g) => g.column === "kickoff_utc"),
+    ).toBe(true);
+    expect(
+      ins.ai_recommendations.some(
+        (i) =>
+          i.column === "fixture_id" &&
+          Array.isArray(i.value) &&
+          (i.value as unknown[]).includes(19427226),
+      ),
+    ).toBe(true);
+
+    const f1 = out.find((f) => f.id === 1)!;
+    const f2 = out.find((f) => f.id === 2)!;
+    expect(f1.ai_has_bet).toBe(true);
+    expect(f2.ai_has_bet).toBe(false);
+  });
+
+  it("fixture without source_url -> ai_has_bet = false (graceful)", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [compactRow({ id: 1, hd_probe: "Home", source_url: null })],
+      ai_recommendations: [],
+    });
+    const out = await fixturesForBrtDay("2026-05-12", client);
+    expect(out[0].ai_has_bet).toBe(false);
+  });
+
+  it("does NOT call ai_recommendations when no fixture has a parseable choistats id", async () => {
+    const { client, captured } = buildMultiMock({
+      fixtures: [compactRow({ id: 1, hd_probe: "Home", source_url: null })],
+      ai_recommendations: [{ fixture_id: 999 }], // would be returned IF queried
+    });
+    const out = await fixturesForBrtDay("2026-05-12", client);
+    expect(out[0].ai_has_bet).toBe(false);
+    // Defensive: when there are zero ids to look up, the query is skipped
+    // entirely (no need to round-trip an empty IN clause).
+    expect(captured.ai_recommendations).toBeUndefined();
+  });
+});
+
+describe("fixturesWithBadgesForDashboard — ai_has_bet from ai_recommendations (Wave 4)", () => {
+  it("attaches ai_has_bet alongside badges", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/100/x-vs-y",
+        }),
+        compactRow({
+          id: 2,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/200/m-vs-n",
+        }),
+      ],
+      fixture_badges_view: [
+        { fixture_id: 1, badges: ["over-alto"], high_signal: false },
+        { fixture_id: 2, badges: [], high_signal: false },
+      ],
+      ai_recommendations: [{ fixture_id: 200 }],
+    });
+    const out = await fixturesWithBadgesForDashboard("2026-05-12", client);
+    expect(out.find((f) => f.id === 1)!.ai_has_bet).toBe(false);
+    expect(out.find((f) => f.id === 2)!.ai_has_bet).toBe(true);
   });
 });

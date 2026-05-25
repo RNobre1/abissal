@@ -100,6 +100,53 @@ async function fetchBadgeView(
 }
 
 /**
+ * Parses the choistats numeric id from a `fixtures.source_url`. Mirrors the
+ * Ruby producer / TS reco-repository / simulation-repository convention:
+ * `/fixture/(\d+)` anywhere in the URL, trailing slug ignored. Returns null
+ * when absent so the caller can degrade gracefully (no ai_has_bet for that
+ * fixture).
+ */
+function parseChoistatsId(sourceUrl: string | null): number | null {
+  if (!sourceUrl) return null;
+  const m = sourceUrl.match(/\/fixture\/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Wave 4: returns a Set of choistats ids that have an active `verdict='bet'`
+ * recommendation in `ai_recommendations` with kickoff still in the future.
+ * Scalar-only select (just `fixture_id`). Degrades to an empty Set on
+ * missing table / transient error so the list never crashes when the
+ * Wave 1+2+3 producers haven't been deployed yet.
+ *
+ * Skips the round-trip entirely when there are zero parseable choistats ids
+ * to look up (avoids an empty `IN ()` clause).
+ */
+async function fetchAiBetIds(
+  supabase: AnySupabase,
+  choistatsIds: number[],
+): Promise<Set<number>> {
+  const out = new Set<number>();
+  if (choistatsIds.length === 0) return out;
+  try {
+    const nowIso = new Date().toISOString();
+    const { data, error } = await supabase
+      .from("ai_recommendations")
+      .select("fixture_id")
+      .eq("verdict", "bet")
+      .gt("kickoff_utc", nowIso)
+      .in("fixture_id", choistatsIds);
+    if (error) return out;
+    for (const r of (data ?? []) as Array<{ fixture_id: number | null }>) {
+      if (r.fixture_id != null) out.add(Number(r.fixture_id));
+    }
+  } catch {
+    // Table missing / transient error → no IA chip. Never crash the list.
+  }
+  return out;
+}
+
+/**
  * Returns the fixtures whose kickoff falls inside the BRT calendar day `date`,
  * matching the port of the Ruby `AdamStats::API::DBRepository.fixtures_for`.
  *
@@ -140,9 +187,16 @@ export async function fixturesForBrtDay(
     BADGE_VIEW_SCALAR,
   );
 
+  const choistatsIds = sorted
+    .map((r) => parseChoistatsId(r.source_url))
+    .filter((v): v is number => v !== null);
+  const aiBetIds = await fetchAiBetIds(supabase, choistatsIds);
+
   return sorted.map((row) => {
     const dto = toDto(row);
     dto.high_signal = signalMap.get(row.id)?.high_signal === true;
+    const choistatsId = parseChoistatsId(row.source_url);
+    dto.ai_has_bet = choistatsId !== null && aiBetIds.has(choistatsId);
     return dto;
   });
 }
@@ -204,11 +258,18 @@ export async function fixturesWithBadgesForDashboard(
     BADGE_VIEW_FULL,
   );
 
+  const choistatsIds = sorted
+    .map((r) => parseChoistatsId(r.source_url))
+    .filter((v): v is number => v !== null);
+  const aiBetIds = await fetchAiBetIds(supabase, choistatsIds);
+
   return sorted.map((row) => {
     const dto = toDto(row);
     const view = badgeMap.get(row.id);
     dto.badges = badgesFromSlugs(view?.badges ?? []);
     dto.high_signal = view?.high_signal === true;
+    const choistatsId = parseChoistatsId(row.source_url);
+    dto.ai_has_bet = choistatsId !== null && aiBetIds.has(choistatsId);
     return dto;
   });
 }

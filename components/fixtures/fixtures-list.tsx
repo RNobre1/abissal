@@ -57,6 +57,7 @@ export function FixturesList({ fixtures }: FixturesListProps) {
                   <FixtureCard
                     fixture={fixture}
                     highSignal={fixture.high_signal === true}
+                    aiHasBet={fixture.ai_has_bet === true}
                   />
                 </li>
               ))}
