@@ -20,7 +20,11 @@ require_relative 'uk_time_helper'
 
 module AdamStats
   module Scraper
-    RunStats = Data.define(:fetched, :persisted_inserted, :persisted_updated, :deleted)
+    # `recommendations_created` (A4): contagem de linhas que o AiRecommenderRunner
+    # inseriu em ai_recommendations nesta rodada. Usado pelo silent-death
+    # detector + log final JSON para observabilidade.
+    RunStats = Data.define(:fetched, :persisted_inserted, :persisted_updated,
+                           :deleted, :recommendations_created)
 
     module DefaultRepo
       module_function
@@ -37,6 +41,28 @@ module AdamStats
             [days]
           ).cmd_tuples
         end
+      end
+
+      # A4 — silent-death detector: conta fixtures que SERIAM elegíveis pro
+      # AiRecommenderRunner (espelha o FIXTURES_QUERY do runner). Usado como
+      # divisor: se #recs criadas == 0 mas há > 10 fixtures pendentes, algo
+      # quebrou silenciosamente no runner.
+      def count_fixtures_eligible_for_reco
+        AdamStats::Scraper::DB.with_connection do |conn|
+          row = conn.exec_params(
+            "SELECT COUNT(*) AS n FROM fixture_simulations " \
+            "WHERE kickoff_utc > now() " \
+            "  AND kickoff_utc < now() + INTERVAL '48 hours' " \
+            "  AND status = 'pending' " \
+            "  AND fixture_id IS NOT NULL"
+          ).first
+          row ? row['n'].to_i : 0
+        end
+      rescue StandardError => e
+        # Defensivo: se o COUNT falhar, devolve 0 — silent-death não dispara
+        # falso positivo. O log do scrape geral já captura erros de DB.
+        warn "[ai-reco] count_fixtures_eligible_for_reco failed: #{e.class}: #{e.message}"
+        0
       end
     end
 
@@ -425,18 +451,57 @@ module AdamStats
         # itera fixtures upcoming com sim ativa + odds, calcula edge,
         # chama IA quando edge >= 20%, persiste em ai_recommendations +
         # llm_request_logs. Não-fatal: erro global não derruba o scrape.
+        #
+        # A4 — silent-death detector: o runner agora retorna
+        # `{ inserted_recos:, errors: }`. Se levantar exceção global (ENV vazia,
+        # OpenRouter 401, panic), capturamos aqui — `reco_stats` fica como
+        # zeros, e o branch de alerta abaixo dispara.
+        reco_stats = { inserted_recos: 0, errors: 0 }
         begin
-          AiRecommenderRunner.new(logger: logger).run
+          result = AiRecommenderRunner.new(logger: logger).run
+          reco_stats = result if result.is_a?(Hash)
         rescue StandardError => e
           logger.call("[scrape] ai-recommender failed (non-fatal): #{e.class}: #{e.message}")
+        end
+
+        # A4 — silent-death detector. Se ZERO recos foram criadas mas há > 10
+        # fixtures que CABERIAM no runner, algo quebrou silenciosamente
+        # (Lição B18 — ENV vazia, OpenRouter 401, etc.). Ping healthchecks /fail
+        # num check SEPARADO (HEALTHCHECKS_AI_RECO_URL) — o check geral do
+        # scrape continua verde pois persistência/reconciler rodaram OK.
+        ai_reco_silent_death = false
+        fixtures_pending_for_reco = 0
+        if reco_stats[:inserted_recos].to_i.zero?
+          fixtures_pending_for_reco = repo.respond_to?(:count_fixtures_eligible_for_reco) ?
+                                        repo.count_fixtures_eligible_for_reco : 0
+          if fixtures_pending_for_reco > 10
+            ai_reco_silent_death = true
+            warn_msg = "[ai-reco] SILENT DEATH: 0 recos criadas em dia com " \
+                       "#{fixtures_pending_for_reco} fixtures pending sim. " \
+                       'Pingando healthchecks /fail.'
+            logger.call(warn_msg)
+            ai_reco_hc_url = ENV['HEALTHCHECKS_AI_RECO_URL'].to_s.strip
+            healthcheck.ping_failure(ai_reco_hc_url) unless ai_reco_hc_url.empty?
+          end
         end
 
         run_stats = RunStats.new(
           fetched: parsed.size,
           persisted_inserted: stats.inserted,
           persisted_updated: stats.updated,
-          deleted: deleted
+          deleted: deleted,
+          recommendations_created: reco_stats[:inserted_recos].to_i
         )
+
+        # A4 — log JSON-line final pra observabilidade (grep em CI logs).
+        final_log = {
+          scrape_at: Time.now.utc.iso8601,
+          fixtures_listed: run_stats.fetched,
+          recommendations_created: run_stats.recommendations_created,
+          fixtures_pending_for_reco: fixtures_pending_for_reco,
+          ai_reco_silent_death: ai_reco_silent_death
+        }
+        logger.call("[scrape] FINAL: #{final_log.to_json}")
 
         logger.call("[scrape] OK #{run_stats.to_h.inspect}")
         healthcheck.ping_success(success_url) if success_url

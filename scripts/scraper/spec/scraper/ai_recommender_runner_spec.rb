@@ -270,6 +270,47 @@ module AdamStats::Scraper
       end
     end
 
+    describe '#run return contract (A4)' do
+      it 'retorna { inserted_recos:, errors: } com zeros quando não há fixtures' do
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([])
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        result = runner.run
+        expect(result).to be_a(Hash)
+        expect(result[:inserted_recos]).to eq(0)
+        expect(result[:errors]).to eq(0)
+      end
+
+      it 'loga "[ai-reco] DONE: created=N errors=M" no fim' do
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([])
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        runner.run
+        expect(logger_msgs.any? { |m| m.start_with?('[ai-reco] DONE:') }).to be(true)
+      end
+
+      it 'inserted_recos é 0 em dry_run mode (não persiste)' do
+        sim_row = {
+          'fixture_id' => '1', 'home_team' => 'A', 'away_team' => 'B',
+          'league' => 'L', 'kickoff_utc' => '2026-05-30T15:00:00Z',
+          'p_home' => '0.60', 'p_draw' => '0.20', 'p_away' => '0.20',
+          'p_over_25' => '0.60', 'p_btts' => '0.50',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => { 'A' => { 'decimal_odds' => 2.0 }, 'Draw' => { 'decimal_odds' => 3.5 }, 'B' => { 'decimal_odds' => 3.8 } }
+            }
+          )
+        }
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([sim_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        runner = described_class.new(conn: conn, logger: logger, client: client, dry_run: true)
+        result = runner.run
+        expect(result[:inserted_recos]).to eq(0)
+      end
+    end
+
     describe 'failure isolation' do
       it 'uma fixture com erro nao derruba o batch' do
         sims = [

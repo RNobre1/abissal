@@ -16,7 +16,9 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
     safe_pred = double('pred_reconciler_default', run: { resolved: 0, pending: 0, unresolvable: 0 })
     safe_sim  = double('sim_reconciler_default',  run: { resolved: 0, pending: 0, unresolvable: 0 })
     safe_ai_recon = double('ai_reco_reconciler_default', run: { resolved: 0, pending: 0, unresolvable: 0 })
-    safe_ai_run   = double('ai_recommender_default',     run: nil)
+    # A4 — runner agora retorna { inserted_recos:, errors: }. Default usa 1 não-zero
+    # pra silenciar o silent-death detector nos specs do pipeline central.
+    safe_ai_run   = double('ai_recommender_default',     run: { inserted_recos: 1, errors: 0 })
     allow(AdamStats::Scraper::PredictionReconciler).to receive(:new).and_return(safe_pred)
     allow(AdamStats::Scraper::SimulationReconciler).to receive(:new).and_return(safe_sim)
     allow(AdamStats::Scraper::AiRecommendationReconciler).to receive(:new).and_return(safe_ai_recon)
@@ -1114,7 +1116,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
     it 'invokes AiRecommenderRunner#run exatamente uma vez por scrape' do
       deps = build_deps
       fake_runner = double('ai_recommender')
-      expect(fake_runner).to receive(:run).once.and_return(nil)
+      expect(fake_runner).to receive(:run).once.and_return({ inserted_recos: 1, errors: 0 })
       expect(AdamStats::Scraper::AiRecommenderRunner).to receive(:new)
         .with(logger: kind_of(Proc))
         .and_return(fake_runner)
@@ -1136,7 +1138,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       fake_runner = double('ai_recommender')
       allow(fake_runner).to receive(:run) do
         ordered << :ai_recommender
-        nil
+        { inserted_recos: 1, errors: 0 }
       end
       allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
 
@@ -1157,6 +1159,181 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       expect { described_class.run(**deps) }.not_to raise_error
 
       expect(logged.any? { |m| m.match?(/ai-recommender/i) && m.include?('non-fatal') }).to be(true)
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # A4 — Silent-death detector pro AI Recommender.
+  # Quando o runner volta {inserted_recos: 0} (ou raise) MAS o DB ainda tem
+  # > 10 fixtures que CABERIAM no FIXTURES_QUERY, algo quebrou silenciosamente.
+  # Dispara healthchecks /fail num check SEPARADO (HEALTHCHECKS_AI_RECO_URL)
+  # — o check geral do scrape continua verde pois persist/reconciler rodaram OK.
+  # ────────────────────────────────────────────────────────────────────────────
+  describe '.run (AI Recommender — silent-death detector)' do
+    around(:each) do |ex|
+      prev = ENV['HEALTHCHECKS_AI_RECO_URL']
+      ex.run
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = prev
+    end
+
+    def repo_with_count(purge:, pending:)
+      double('repo', purge_older_than: purge, count_fixtures_eligible_for_reco: pending)
+    end
+
+    it 'dispara alerta (log SILENT DEATH + ping /fail) quando created=0 e pending>10' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = 'https://hc-ping.com/ai-reco-uuid'
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 15)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_return({ inserted_recos: 0, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      # ping_failure deve ser chamado com a URL do check separado.
+      expect(deps[:healthcheck]).to receive(:ping_failure).with('https://hc-ping.com/ai-reco-uuid')
+      expect(deps[:healthcheck]).to receive(:ping_success) # scrape geral OK
+
+      described_class.run(**deps)
+
+      expect(logged.any? { |m| m.include?('SILENT DEATH') }).to be(true)
+      expect(logged.any? { |m| m.include?('15 fixtures pending') }).to be(true)
+    end
+
+    it 'NÃO dispara alerta quando created>=1 (mesmo com pending>10)' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = 'https://hc-ping.com/ai-reco-uuid'
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 15)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_return({ inserted_recos: 5, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      # ping_failure (do alerta) NUNCA chamado nesse caso.
+      expect(deps[:healthcheck]).not_to receive(:ping_failure)
+      expect(deps[:healthcheck]).to receive(:ping_success)
+
+      described_class.run(**deps)
+      expect(logged.none? { |m| m.include?('SILENT DEATH') }).to be(true)
+    end
+
+    it 'NÃO dispara alerta quando pending==0 (não tem nada pra recomendar)' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = 'https://hc-ping.com/ai-reco-uuid'
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 0)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_return({ inserted_recos: 0, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      expect(deps[:healthcheck]).not_to receive(:ping_failure)
+      expect(deps[:healthcheck]).to receive(:ping_success)
+
+      described_class.run(**deps)
+      expect(logged.none? { |m| m.include?('SILENT DEATH') }).to be(true)
+    end
+
+    it 'NÃO dispara alerta quando pending<=10 (boundary: 10 não dispara, só >10)' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = 'https://hc-ping.com/ai-reco-uuid'
+      deps = build_deps
+      deps[:repo] = repo_with_count(purge: 0, pending: 10)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_return({ inserted_recos: 0, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      expect(deps[:healthcheck]).not_to receive(:ping_failure)
+      described_class.run(**deps)
+    end
+
+    it 'quando HEALTHCHECKS_AI_RECO_URL vazio: loga SILENT DEATH mas NÃO tenta HTTP (degradação graciosa)' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = ''
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 25)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_return({ inserted_recos: 0, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      # ping_failure do alerta NUNCA chamado (URL vazia ⇒ skip silencioso).
+      expect(deps[:healthcheck]).not_to receive(:ping_failure)
+      expect(deps[:healthcheck]).to receive(:ping_success)
+
+      described_class.run(**deps)
+      # O log ainda dispara — Pilot vê em CI logs mesmo sem o check externo.
+      expect(logged.any? { |m| m.include?('SILENT DEATH') }).to be(true)
+    end
+
+    it 'quando ENV não setada (nil): comportamento idêntico a vazia (degradação graciosa)' do
+      ENV.delete('HEALTHCHECKS_AI_RECO_URL')
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 25)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_return({ inserted_recos: 0, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      expect(deps[:healthcheck]).not_to receive(:ping_failure)
+      expect { described_class.run(**deps) }.not_to raise_error
+      expect(logged.any? { |m| m.include?('SILENT DEATH') }).to be(true)
+    end
+
+    it 'dispara alerta quando runner LEVANTA exceção (rescue captura → reco_stats=zeros → branch acende)' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = 'https://hc-ping.com/ai-reco-uuid'
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 20)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_raise(StandardError, 'OpenRouter 401')
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      expect(deps[:healthcheck]).to receive(:ping_failure).with('https://hc-ping.com/ai-reco-uuid')
+      expect(deps[:healthcheck]).to receive(:ping_success)
+
+      described_class.run(**deps)
+      expect(logged.any? { |m| m.include?('non-fatal') && m.include?('ai-recommender') }).to be(true)
+      expect(logged.any? { |m| m.include?('SILENT DEATH') }).to be(true)
+    end
+
+    it 'RunStats expõe recommendations_created (campo novo)' do
+      deps = build_deps
+      fake_runner = double('ai_recommender', run: { inserted_recos: 7, errors: 1 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      stats = described_class.run(**deps)
+      expect(stats.recommendations_created).to eq(7)
+    end
+
+    it 'emite log JSON-line [scrape] FINAL no fim (grep-friendly em CI)' do
+      ENV['HEALTHCHECKS_AI_RECO_URL'] = 'https://hc-ping.com/ai-reco-uuid'
+      logged = []
+      deps = build_deps
+      deps[:logger] = ->(m) { logged << m }
+      deps[:repo] = repo_with_count(purge: 0, pending: 5)
+
+      fake_runner = double('ai_recommender', run: { inserted_recos: 3, errors: 0 })
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      described_class.run(**deps)
+
+      final = logged.find { |m| m.start_with?('[scrape] FINAL:') }
+      expect(final).not_to be_nil
+      payload = JSON.parse(final.sub('[scrape] FINAL: ', ''))
+      expect(payload['recommendations_created']).to eq(3)
+      expect(payload['ai_reco_silent_death']).to eq(false)
+      expect(payload).to have_key('scrape_at')
+      expect(payload).to have_key('fixtures_listed')
     end
   end
 end

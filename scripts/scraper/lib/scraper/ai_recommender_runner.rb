@@ -122,7 +122,22 @@ module AdamStats
         @blend_alpha = blend_alpha || (env_alpha.empty? ? DEFAULT_BLEND_ALPHA : env_alpha.to_f)
       end
 
+      # Retorna { inserted_recos:, errors: }.
+      # - inserted_recos: número de linhas inseridas em ai_recommendations
+      #   nesta rodada (inclui skip persistido — o que importa pro silent-death
+      #   detector é que o pipeline "escreveu algo"). Em dry_run sempre 0.
+      # - errors: número de fixtures que levantaram exceção dentro do loop
+      #   (cada uma isolada via rescue — nunca aborta o batch).
+      #
+      # NÃO levanta: erros por fixture são isolados aqui; falha global é
+      # capturada pelo orchestrator (`rescue StandardError`). Mesmo nesse
+      # último caso, o contador parcial PERMANECE preservado em @run_stats —
+      # útil pro silent-death detector inferir que algo escreveu antes do
+      # estouro (mas como o caller pega a exception, ele só vê o que retornar
+      # pré-raise; o orchestrator usa o rescue e zera).
       def run
+        @run_stats = { inserted_recos: 0, errors: 0 }
+
         with_connection do |conn|
           fixtures = conn.query(FIXTURES_QUERY).to_a
           @logger.call("[ai-reco] processando #{fixtures.length} fixtures upcoming")
@@ -133,10 +148,14 @@ module AdamStats
             begin
               process_fixture(conn, row, calibrated_leagues)
             rescue StandardError => e
+              @run_stats[:errors] += 1
               @logger.call("[ai-reco] fixture #{row['fixture_id']} falhou: #{e.class}: #{e.message}")
             end
           end
         end
+
+        @logger.call("[ai-reco] DONE: created=#{@run_stats[:inserted_recos]} errors=#{@run_stats[:errors]}")
+        @run_stats
       end
 
       private
@@ -387,6 +406,7 @@ module AdamStats
             summary_line, reasoning, '[]', 0.0
           ]
         )
+        increment_inserted!
         @logger.call("[ai-reco] skip persisted fixture #{row['fixture_id']}#{reduction_reason ? " (#{reduction_reason})" : ''}")
       end
 
@@ -433,7 +453,17 @@ module AdamStats
             d[:summary_line], d[:reasoning], JSON.generate(d[:red_flags] || []), cost
           ]
         )
+        increment_inserted!
         @logger.call("[ai-reco] persisted #{d[:verdict]} for fixture #{row['fixture_id']} (cost $#{format('%.5f', cost)})")
+      end
+
+      # Incrementa o contador de linhas persistidas. Defensivo: se `@run_stats`
+      # ainda não foi inicializado (caller chamando insert_reco/persist_skip
+      # fora do #run, ex.: testes legados), opera num placeholder local —
+      # nunca raise por NoMethodError em nil.
+      def increment_inserted!
+        @run_stats ||= { inserted_recos: 0, errors: 0 }
+        @run_stats[:inserted_recos] += 1
       end
 
       def parse_json(s)
