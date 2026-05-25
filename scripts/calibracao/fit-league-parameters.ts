@@ -31,6 +31,33 @@ if (!URL || !SR) {
 
 const FIT_VERSION = "fit-mom-v1";
 
+/**
+ * Ligas que rodam calibração com threshold relaxado (20 amostras em vez
+ * de 30). Lista alinhada com `SCRAPER_LEAGUE_SLUGS` do scraper (ligas
+ * principais que o Pilot prioriza). Calibrações com n < 30 ainda são
+ * úteis (melhores que NEUTRAL_BASELINE), mas marcadas com
+ * `low_confidence: true` na lib → UI sinaliza badge.
+ *
+ * Nomes devem bater EXATAMENTE com `fixture_simulations.league` (que vem
+ * da listagem do choistats). Lista validada via query SQL antes do commit.
+ */
+const PRIORITY_LEAGUES: ReadonlyMap<string, number> = new Map([
+  // Nomes EXATOS conforme aparecem em fixture_simulations.league (vindo
+  // do choistats listing). Nomes não-existentes no DB são no-ops.
+  ["Major League Soccer", 20],
+  ["Premier League", 20],
+  ["La Liga", 20],
+  ["Serie A", 20],
+  ["Tipico Bundesliga", 20],
+  ["Ligue 1", 20],
+  // Brasileirão (Série A/B/C) — adicionar quando aparecerem no DB
+  ["Brasileiro", 20],
+  ["Brasileiro Serie B", 20],
+  // Portugal — adicionar quando aparecerem
+  ["Liga Portugal", 20],
+  ["Primeira Liga", 20],
+]);
+
 const supabase = createClient(URL, SR, { auth: { persistSession: false } });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sb = supabase as unknown as { from: (t: string) => any };
@@ -67,16 +94,21 @@ async function main() {
     process.exit(0);
   }
 
-  const fits = fitLeagueParams(samples);
+  const fits = fitLeagueParams(samples, 30, {
+    priorityLeagues: PRIORITY_LEAGUES,
+  });
   if (fits.length === 0) {
-    console.log("no leagues with ≥30 resolved samples; nothing to fit");
+    console.log(
+      "no leagues passing thresholds (default 30, prioritárias 20); nothing to fit",
+    );
     return;
   }
 
   for (const f of fits) {
     await upsertLeague(f);
+    const flag = f.low_confidence ? "  ⚠ low_confidence" : "";
     console.log(
-      `[ok] ${f.league}: n=${f.n}, home=${f.avg_goals_home.toFixed(3)}, away=${f.avg_goals_away.toFixed(3)}, rho=${f.rho.toFixed(4)}`,
+      `[ok] ${f.league}: n=${f.n}, home=${f.avg_goals_home.toFixed(3)}, away=${f.avg_goals_away.toFixed(3)}, rho=${f.rho.toFixed(4)}${flag}`,
     );
   }
 }

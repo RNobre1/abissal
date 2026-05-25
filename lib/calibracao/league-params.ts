@@ -13,6 +13,9 @@
  * real, não MoM).
  *
  * Liga com n < minSamples (30 por padrão) é pulada silenciosamente.
+ * `priorityLeagues` permite override por liga (threshold mais brando) — ligas
+ * que passam pelo override mas estão abaixo de STRICT_THRESHOLD recebem
+ * `low_confidence = true` para a UI sinalizar.
  */
 
 export interface ResolvedSample {
@@ -29,16 +32,33 @@ export interface LeagueParams {
   avg_goals_home: number;
   avg_goals_away: number;
   rho: number;
+  /**
+   * `true` quando n < STRICT_THRESHOLD (30) — calibração rodou só porque a
+   * liga estava no `priorityLeagues` override. UI usa pra mostrar badge
+   * "baixa confiança".
+   */
+  low_confidence: boolean;
+}
+
+export interface FitOptions {
+  /**
+   * Map liga → minSamples customizado (mais brando que o default global).
+   * Liga não-mapeada usa o `minSamples` global do call.
+   */
+  priorityLeagues?: ReadonlyMap<string, number>;
 }
 
 const RHO_MIN = -0.3;
 const RHO_MAX = 0.05;
 const DEFAULT_RHO = -0.1;
+const STRICT_THRESHOLD = 30;
 
 export function fitLeagueParams(
   samples: ResolvedSample[],
   minSamples = 30,
+  options: FitOptions = {},
 ): LeagueParams[] {
+  const priority = options.priorityLeagues;
   const byLeague = new Map<string, ResolvedSample[]>();
   for (const s of samples) {
     if (!s.league) continue;
@@ -51,7 +71,8 @@ export function fitLeagueParams(
 
   const out: LeagueParams[] = [];
   for (const [league, list] of byLeague.entries()) {
-    if (list.length < minSamples) continue;
+    const effectiveMin = priority?.get(league) ?? minSamples;
+    if (list.length < effectiveMin) continue;
     const n = list.length;
     const sumH = list.reduce((a, s) => a + s.home_goals, 0);
     const sumA = list.reduce((a, s) => a + s.away_goals, 0);
@@ -88,6 +109,7 @@ export function fitLeagueParams(
       avg_goals_home: meanH,
       avg_goals_away: meanA,
       rho,
+      low_confidence: n < STRICT_THRESHOLD,
     });
   }
   return out.sort((a, b) => b.n - a.n);

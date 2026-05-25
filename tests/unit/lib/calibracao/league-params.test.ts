@@ -118,4 +118,85 @@ describe("fitLeagueParams", () => {
     const [p] = fitLeagueParams(samples);
     expect(p.n).toBe(30);
   });
+
+  describe("priorityLeagues override", () => {
+    it("liga prioritária com 26 amostras passa quando override é 20", () => {
+      const samples = Array.from({ length: 26 }, (_, i) => ({
+        league: "Major League Soccer",
+        home_goals: i % 3,
+        away_goals: i % 2,
+      }));
+      const out = fitLeagueParams(samples, 30, {
+        priorityLeagues: new Map([["Major League Soccer", 20]]),
+      });
+      expect(out).toHaveLength(1);
+      expect(out[0].league).toBe("Major League Soccer");
+      expect(out[0].n).toBe(26);
+    });
+
+    it("liga prioritária ainda abaixo do override é pulada", () => {
+      const samples = Array.from({ length: 18 }, () => ({
+        league: "Major League Soccer",
+        home_goals: 1,
+        away_goals: 1,
+      }));
+      const out = fitLeagueParams(samples, 30, {
+        priorityLeagues: new Map([["Major League Soccer", 20]]),
+      });
+      expect(out).toEqual([]);
+    });
+
+    it("liga não-prioritária continua sob o default mesmo com override de outra", () => {
+      const samples = [
+        ...Array.from({ length: 22 }, () => ({
+          league: "Premier League",
+          home_goals: 1,
+          away_goals: 1,
+        })),
+        ...Array.from({ length: 22 }, () => ({
+          league: "Some Random League",
+          home_goals: 1,
+          away_goals: 1,
+        })),
+      ];
+      const out = fitLeagueParams(samples, 30, {
+        priorityLeagues: new Map([["Premier League", 20]]),
+      });
+      expect(out.map((x) => x.league)).toEqual(["Premier League"]);
+    });
+
+    it("low_confidence=true quando n < STRICT_THRESHOLD (30)", () => {
+      const samples = Array.from({ length: 26 }, () => ({
+        league: "Major League Soccer",
+        home_goals: 1,
+        away_goals: 1,
+      }));
+      const [p] = fitLeagueParams(samples, 30, {
+        priorityLeagues: new Map([["Major League Soccer", 20]]),
+      });
+      expect(p.low_confidence).toBe(true);
+    });
+
+    it("low_confidence=false quando n >= 30, mesmo se prioritária", () => {
+      const samples = Array.from({ length: 33 }, () => ({
+        league: "Premier League",
+        home_goals: 1,
+        away_goals: 1,
+      }));
+      const [p] = fitLeagueParams(samples, 30, {
+        priorityLeagues: new Map([["Premier League", 20]]),
+      });
+      expect(p.low_confidence).toBe(false);
+    });
+
+    it("sem priorityLeagues, low_confidence=false (path antigo, n sempre >= 30)", () => {
+      const samples = Array.from({ length: 40 }, () => ({
+        league: "PL",
+        home_goals: 1,
+        away_goals: 1,
+      }));
+      const [p] = fitLeagueParams(samples);
+      expect(p.low_confidence).toBe(false);
+    });
+  });
 });
