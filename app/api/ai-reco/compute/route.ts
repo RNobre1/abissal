@@ -241,7 +241,11 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  const model = env.AI_RECO_MODEL;
+  // On-demand path uses the fast model (AI_RECO_MODEL_ONDEMAND, default
+  // anthropic/claude-sonnet-4.5). The batch Ruby runner continues to use
+  // AI_RECO_MODEL (default deepseek/deepseek-r1) — R1's reasoning quality
+  // is preserved overnight, but p95 ~195s makes it unfit for synchronous UX.
+  const model = env.AI_RECO_MODEL_ONDEMAND;
 
   const promptCandidates: PromptCandidate[] = betCandidates.map((c) => ({
     market: c.market,

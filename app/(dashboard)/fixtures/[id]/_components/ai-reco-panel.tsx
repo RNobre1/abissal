@@ -138,8 +138,12 @@ export function AiRecoPanel({
       ) : null}
 
       <footer className="label text-[var(--color-ink-faint)]">
-        Modelo: {reco.llm_model ?? "—"} · prompt {reco.prompt_version ?? "—"} ·{" "}
-        {fmtCost(reco.cost_usd)} · {calibrationLabel}
+        Modelo:{" "}
+        <span data-ai-reco-model={reco.llm_model ?? ""}>
+          {reco.llm_model ?? "—"}
+        </span>{" "}
+        · prompt {reco.prompt_version ?? "—"} · {fmtCost(reco.cost_usd)} ·{" "}
+        {calibrationLabel}
       </footer>
     </section>
   );

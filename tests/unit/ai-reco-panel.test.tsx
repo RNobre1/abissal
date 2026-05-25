@@ -198,6 +198,38 @@ describe("<AiRecoPanel> - state A (verdict=bet)", () => {
     expect(screen.getByText(/liga calibrada/)).toBeInTheDocument();
   });
 
+  it("exposes the llm_model on a [data-ai-reco-model] element (R1 batch)", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ llm_model: "deepseek/deepseek-r1" })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+      />,
+    );
+    const modelEl = container.querySelector("[data-ai-reco-model]");
+    expect(modelEl).not.toBeNull();
+    expect(modelEl!.getAttribute("data-ai-reco-model")).toBe(
+      "deepseek/deepseek-r1",
+    );
+  });
+
+  it("exposes the llm_model on a [data-ai-reco-model] element (sonnet on-demand)", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ llm_model: "anthropic/claude-sonnet-4.5" })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+      />,
+    );
+    const modelEl = container.querySelector("[data-ai-reco-model]");
+    expect(modelEl).not.toBeNull();
+    expect(modelEl!.getAttribute("data-ai-reco-model")).toBe(
+      "anthropic/claude-sonnet-4.5",
+    );
+  });
+
   it("shows 'liga não-calibrada' when league_calibrated is false", () => {
     render(
       <AiRecoPanel

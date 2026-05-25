@@ -14,11 +14,20 @@ const envSchema = z.object({
    */
   OPENROUTER_MODEL: z.string().default("deepseek/deepseek-v3.2"),
   /**
-   * Modelo do IA-2 Recomendador (`/api/ai-reco/compute` + Ruby runner).
+   * Modelo do IA-2 Recomendador batch (Ruby runner / cron noturno).
    * Default: deepseek/deepseek-r1 (reasoning model). Reasoner=true em
-   * tracking. Pode ser sobrescrito via env var.
+   * tracking. p95 ~195s — ok pra batch, ruim pra UX on-demand.
+   * Pode ser sobrescrito via env var.
    */
   AI_RECO_MODEL: z.string().default("deepseek/deepseek-r1"),
+  /**
+   * Modelo do IA-2 Recomendador on-demand (`/api/ai-reco/compute` quando
+   * o usuário aperta "[ pedir análise IA ]" na /fixtures/[id]).
+   * Default: anthropic/claude-sonnet-4.5 — fast, sem thinking, latência
+   * ~3-5s p50. Trade-off vs R1: ~5× mais caro por token, mas UX
+   * sincrona não tolera 3min de espera.
+   */
+  AI_RECO_MODEL_ONDEMAND: z.string().default("anthropic/claude-sonnet-4.5"),
   ADAMCHOI_API_TOKEN: z.string().min(1).optional(),
 });
 
@@ -31,6 +40,7 @@ export const env = envSchema.parse({
   OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY,
   OPENROUTER_MODEL: process.env.OPENROUTER_MODEL,
   AI_RECO_MODEL: process.env.AI_RECO_MODEL,
+  AI_RECO_MODEL_ONDEMAND: process.env.AI_RECO_MODEL_ONDEMAND,
   ADAMCHOI_API_TOKEN: process.env.ADAMCHOI_API_TOKEN,
 });
 
