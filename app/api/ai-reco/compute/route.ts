@@ -241,10 +241,11 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
-  // On-demand path uses the fast model (AI_RECO_MODEL_ONDEMAND, default
-  // anthropic/claude-sonnet-4.5). The batch Ruby runner continues to use
-  // AI_RECO_MODEL (default deepseek/deepseek-r1) — R1's reasoning quality
-  // is preserved overnight, but p95 ~195s makes it unfit for synchronous UX.
+  // On-demand path uses AI_RECO_MODEL_ONDEMAND. 2026-05-25 (decisão de
+  // produto): revertido pra `deepseek/deepseek-r1` (mesmo modelo do batch
+  // noturno) por consistência. Trade-off conhecido: latência síncrona ~40s
+  // p50 (R1 reasoning). UI mostra spinner "analisando — pode levar até 1
+  // min" pra setar expectativa.
   const model = env.AI_RECO_MODEL_ONDEMAND;
 
   const promptCandidates: PromptCandidate[] = betCandidates.map((c) => ({

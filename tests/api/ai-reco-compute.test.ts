@@ -247,7 +247,7 @@ beforeEach(() => {
     OPENROUTER_API_KEY: "sk-or-test-1",
     OPENROUTER_MODEL: "deepseek/deepseek-r1",
     AI_RECO_MODEL: "deepseek/deepseek-r1",
-    AI_RECO_MODEL_ONDEMAND: "anthropic/claude-sonnet-4.5",
+    AI_RECO_MODEL_ONDEMAND: "deepseek/deepseek-r1",
   };
   // Reset module cache so each test re-imports the route with fresh env.
   vi.resetModules();
@@ -513,10 +513,44 @@ describe("POST /api/ai-reco/compute — happy path", () => {
 });
 
 describe("POST /api/ai-reco/compute — model selection", () => {
-  it("sends AI_RECO_MODEL_ONDEMAND (fast model) to OpenRouter, not AI_RECO_MODEL (batch R1)", async () => {
-    // The on-demand route is hit synchronously by the user clicking the
-    // "[ pedir análise IA ]" button. R1 has p95 ~195s which makes UX
-    // unacceptable; the on-demand path must use the fast model env var.
+  it("sends AI_RECO_MODEL_ONDEMAND (deepseek/deepseek-r1) to OpenRouter", async () => {
+    // 2026-05-25 (decisão de produto): on-demand revertido pra deepseek-r1
+    // (mesmo modelo do batch noturno) por consistência. Latência ~40s p50,
+    // aceitável pra uso pessoal de 1 usuário.
+    process.env.AI_RECO_MODEL = "deepseek/deepseek-r1";
+    process.env.AI_RECO_MODEL_ONDEMAND = "deepseek/deepseek-r1";
+
+    mockState.fixtureRow = makeFixtureRow();
+    mockState.simRow = makeSimRow();
+    mockState.calibratedLeagueRows = [{ league: "Premier League" }];
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    // Inspect the JSON payload sent to OpenRouter
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const sentBody = JSON.parse(init.body as string) as { model: string };
+    expect(sentBody.model).toBe("deepseek/deepseek-r1");
+
+    // ai_recommendations.llm_model must reflect what was actually used
+    expect(mockState.insertedReco).not.toBeNull();
+    expect(mockState.insertedReco!.llm_model).toBe("deepseek/deepseek-r1");
+  });
+
+  it("respects AI_RECO_MODEL_ONDEMAND override (separate from AI_RECO_MODEL)", async () => {
+    // O env é separado do batch — se alguém quiser experimentar outro modelo
+    // só no on-demand, o override é honrado.
     process.env.AI_RECO_MODEL = "deepseek/deepseek-r1";
     process.env.AI_RECO_MODEL_ONDEMAND = "anthropic/claude-sonnet-4.5";
 
@@ -537,16 +571,9 @@ describe("POST /api/ai-reco/compute — model selection", () => {
     const res = await callRoute({ fixtureId: 42 });
     expect(res.status).toBe(200);
 
-    // Inspect the JSON payload sent to OpenRouter
-    expect(mockFetch).toHaveBeenCalledTimes(1);
     const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
     const sentBody = JSON.parse(init.body as string) as { model: string };
     expect(sentBody.model).toBe("anthropic/claude-sonnet-4.5");
-    expect(sentBody.model).not.toBe("deepseek/deepseek-r1");
-
-    // ai_recommendations.llm_model must reflect what was actually used
-    expect(mockState.insertedReco).not.toBeNull();
-    expect(mockState.insertedReco!.llm_model).toBe("anthropic/claude-sonnet-4.5");
   });
 });
 

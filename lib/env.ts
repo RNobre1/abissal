@@ -23,11 +23,14 @@ const envSchema = z.object({
   /**
    * Modelo do IA-2 Recomendador on-demand (`/api/ai-reco/compute` quando
    * o usuário aperta "[ pedir análise IA ]" na /fixtures/[id]).
-   * Default: anthropic/claude-sonnet-4.5 — fast, sem thinking, latência
-   * ~3-5s p50. Trade-off vs R1: ~5× mais caro por token, mas UX
-   * sincrona não tolera 3min de espera.
+   *
+   * 2026-05-25 (decisão de produto): default revertido pra
+   * `deepseek/deepseek-r1` para consistência com o batch noturno. Trade-off
+   * conhecido: latência síncrona ~40s (R1 reasoning), aceitável para
+   * uso pessoal de 1 usuário. UI mostra spinner "analisando — pode levar
+   * até 1 min". v1 (2026-05-24): `anthropic/claude-sonnet-4.5`.
    */
-  AI_RECO_MODEL_ONDEMAND: z.string().default("anthropic/claude-sonnet-4.5"),
+  AI_RECO_MODEL_ONDEMAND: z.string().default("deepseek/deepseek-r1"),
   ADAMCHOI_API_TOKEN: z.string().min(1).optional(),
 });
 

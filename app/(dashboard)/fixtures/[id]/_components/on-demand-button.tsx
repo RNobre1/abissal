@@ -76,8 +76,29 @@ export function OnDemandButton({
         className="label inline-flex w-fit items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-2 text-[var(--color-ink)] transition-colors hover:text-[var(--color-vermelho)] focus-visible:outline-2 focus-visible:outline-[var(--color-vermelho)] disabled:cursor-not-allowed disabled:opacity-60"
         aria-busy={busy}
       >
-        {busy ? "analisando..." : "[ pedir análise IA ]"}
+        {busy ? (
+          <span
+            className="inline-flex items-center gap-2"
+            data-ai-reco-loading
+          >
+            <span
+              aria-hidden="true"
+              className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-current border-r-transparent"
+            />
+            <span>analisando — pode levar até 1 min</span>
+          </span>
+        ) : (
+          "[ pedir análise IA ]"
+        )}
       </button>
+      {busy ? (
+        <span
+          className="label text-[var(--color-ink-faint)]"
+          data-ai-reco-hint
+        >
+          modelo deepseek-r1 (reasoning); latência típica ~40s
+        </span>
+      ) : null}
       {error ? (
         <span
           role="alert"
