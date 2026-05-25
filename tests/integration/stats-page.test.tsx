@@ -74,21 +74,26 @@ function buildQueryBuilder() {
 
 /**
  * The page also reads the pre-game simulation from `fixture_simulations`
- * (Wave 2b / Task 3). These tests focus on the fixtures/hero/panels
- * contract, so the simulation table resolves to `null` (the SIM panel
- * degrades gracefully) and we DON'T let it clobber `lastTable`/`lastEq`.
+ * (Wave 2b / Task 3) and the AI recommendation from `ai_recommendations`
+ * (Wave 4 / Task 4.2). These tests focus on the fixtures/hero/panels
+ * contract, so both side tables resolve to `null` (the SIM and AI_RECO
+ * panels degrade gracefully) and we DON'T let them clobber
+ * `lastTable`/`lastEq`.
  */
-function buildNullSimBuilder() {
+function buildNullSideBuilder() {
   const builder: Record<string, unknown> = {};
   builder.select = () => builder;
   builder.eq = () => builder;
+  builder.order = () => builder;
+  builder.limit = () => builder;
   builder.maybeSingle = () => Promise.resolve({ data: null, error: null });
   return builder;
 }
 
 const mockClient = {
   from: (table: string) => {
-    if (table === "fixture_simulations") return buildNullSimBuilder();
+    if (table === "fixture_simulations") return buildNullSideBuilder();
+    if (table === "ai_recommendations") return buildNullSideBuilder();
     mockState.lastTable = table;
     return buildQueryBuilder();
   },

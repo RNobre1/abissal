@@ -57,6 +57,8 @@ function buildNullBuilder() {
   const builder: Record<string, unknown> = {};
   builder.select = () => builder;
   builder.eq = () => builder;
+  builder.order = () => builder;
+  builder.limit = () => builder;
   builder.maybeSingle = () => Promise.resolve({ data: null, error: null });
   return builder;
 }
@@ -64,7 +66,7 @@ function buildNullBuilder() {
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({
     from: (table: string) =>
-      table === "fixture_simulations"
+      table === "fixture_simulations" || table === "ai_recommendations"
         ? buildNullBuilder()
         : buildQueryBuilder(),
   }),

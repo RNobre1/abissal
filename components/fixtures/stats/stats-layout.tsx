@@ -37,7 +37,7 @@ export const MOBILE_TABS: ReadonlyArray<{
   {
     id: "visao",
     label: "visão",
-    panels: ["B", "A-home", "A-away", "D", "E", "M", "K", "L", "N"],
+    panels: ["AI_RECO", "B", "A-home", "A-away", "D", "E", "M", "K", "L", "N"],
   },
   {
     id: "simulacao",

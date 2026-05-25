@@ -121,6 +121,21 @@ function buildSimBuilder() {
   return builder;
 }
 
+/**
+ * Wave 4 added a read of `ai_recommendations` to the same page. These tests
+ * focus on the simulation surface, so the AI table resolves to null (panel
+ * renders the "pedir análise IA" on-demand button — non-disruptive).
+ */
+function buildNullAiRecoBuilder() {
+  const b: Record<string, unknown> = {};
+  b.select = () => b;
+  b.eq = () => b;
+  b.order = () => b;
+  b.limit = () => b;
+  b.maybeSingle = () => Promise.resolve({ data: null, error: null });
+  return b;
+}
+
 const mockClient = {
   from: (table: string) => {
     if (table === "fixtures") return buildFixturesBuilder();
@@ -130,6 +145,7 @@ const mockClient = {
       }
       return buildSimBuilder();
     }
+    if (table === "ai_recommendations") return buildNullAiRecoBuilder();
     throw new Error(`unexpected table: ${table}`);
   },
 };

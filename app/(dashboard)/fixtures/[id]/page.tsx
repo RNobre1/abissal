@@ -47,8 +47,10 @@ import { Players } from "@/components/fixtures/stats/panels/players";
 import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-browser";
 import { FixtureCopilotDrawer } from "@/components/fixtures/fixture-copilot-drawer";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
+import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
 import { SimulationPanel } from "./_components/simulation-panel";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
+import { AiRecoPanel } from "./_components/ai-reco-panel";
 
 export const dynamic = "force-dynamic";
 
@@ -235,12 +237,21 @@ export default async function StatsPage({ params }: StatsPageProps) {
     untyped,
   );
 
+  // AI recommendation (ai_recommendations table, migration 0022). Keyed by
+  // the choistats numeric id parsed from source_url — SAME id space as the
+  // recommender / reconciler write paths (mirror of sim id-space fix).
+  // Degrades to null on missing table / no row / error → AiRecoPanel renders
+  // the "pedir análise IA" on-demand call-to-action.
+  const aiReco = await fetchAiReco(row.source_url, untyped);
+
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
   const panels = buildPanels(
     detail,
     row.home_team,
     row.away_team,
     sim,
+    aiReco,
+    row.id,
   );
 
   return (
@@ -298,11 +309,39 @@ function readAvgsSampleSize(
   };
 }
 
+/**
+ * Parses the choistats numeric id from a fixture `source_url`. Same regex
+ * as Ruby `fixture_api_id` / TS sim repository — `/fixture/(\d+)` matches
+ * anywhere in the URL and ignores any trailing slug.
+ */
+function parseChoistatsId(sourceUrl: string | null): number | null {
+  if (!sourceUrl) return null;
+  const m = sourceUrl.match(/\/fixture\/(\d+)/);
+  return m ? Number(m[1]) : null;
+}
+
+/**
+ * Fetches the AI recommendation for the fixture by choistats id. Returns
+ * null (never throws) when source_url has no id, the table is missing, or
+ * the query errors — the panel renders the on-demand call-to-action.
+ */
+async function fetchAiReco(
+  sourceUrl: string | null,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+) {
+  const choistatsId = parseChoistatsId(sourceUrl);
+  if (choistatsId === null) return null;
+  return await getRecommendationForFixture(choistatsId, supabase);
+}
+
 function buildPanels(
   detail: DetailJson | null,
   homeTeam: string,
   awayTeam: string,
   sim: Awaited<ReturnType<typeof getFixtureSimulation>>,
+  aiReco: Awaited<ReturnType<typeof getRecommendationForFixture>>,
+  fixtureId: number,
 ): PanelSlot[] {
   const simDegraded = !sim || sim.status === "unsimulable";
   const simSlot: PanelSlot = {
@@ -322,7 +361,21 @@ function buildPanels(
     ),
   };
 
-  if (!detail) return [simSlot];
+  const aiRecoSlot: PanelSlot = {
+    id: "AI_RECO",
+    colSpan: "span 12 / span 12",
+    label: "recomendação IA",
+    node: (
+      <AiRecoPanel
+        reco={aiReco}
+        fixtureId={fixtureId}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+      />
+    ),
+  };
+
+  if (!detail) return [aiRecoSlot, simSlot];
 
   const homeRecord = deriveTeamRecord(detail.team_record?.home);
   const awayRecord = deriveTeamRecord(detail.team_record?.away);
@@ -372,6 +425,7 @@ function buildPanels(
   const insights = rankInsights(allInsights);
 
   return [
+    aiRecoSlot,
     {
       id: "B",
       colSpan: "span 12 / span 12",
