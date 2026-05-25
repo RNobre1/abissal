@@ -194,6 +194,14 @@ function SimulationBody({
 
   return (
     <>
+      {/* F3-prod: badge inline quando probs foram pós-processadas pela curva
+          isotônica. Renderizado no início do body (não no eyebrow) porque
+          o panel é chamado com chrome="bare" e o eyebrow vive no
+          SimulationDisclosure, que não recebe sim como prop. */}
+      {sim.calibrated_via_isotonic ? (
+        <CalibrationBadge n={sim.calibration_n} />
+      ) : null}
+
       {/* ── Placar provável + barras de probabilidade ── */}
       <section className="flex flex-col gap-4">
         <div className="flex flex-wrap items-baseline gap-3">
@@ -392,9 +400,6 @@ export function SimulationPanel({
               do modelo.
             </p>
           </InfoPopover>
-          {sim.calibrated_via_isotonic ? (
-            <CalibrationBadge n={sim.calibration_n} />
-          ) : null}
         </span>
       }
     >
