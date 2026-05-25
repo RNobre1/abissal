@@ -40,10 +40,19 @@ export interface RunOptions {
 
 /**
  * Threshold acima do qual edge_pct é "suspeito" em liga não-calibrada.
- * 30% é gigantesco em mercados líquidos; sem calibração isotônica
- * representa quase sempre ruído amplificado do simulador.
+ *
+ * Histórico:
+ *   - v1 (2026-05-25): 30. Hipótese inicial — edge>30 em mercados líquidos
+ *     "quase sempre" ruído amplificado.
+ *   - v2 (2026-05-25): 50. Backtest histórico (720 bets, 30d) provou que o
+ *     range 30-50% contém winners — `B (edge>30)` produziu ROI +2.95%
+ *     enquanto `A (sem guard)` produziu +8.10%. Delta -44.6u PL = winners
+ *     removidos. Subir threshold pra 50 preserva o sinal e ainda bloqueia
+ *     os casos verdadeiramente patológicos (edge>100%, simulador sem
+ *     parâmetros de liga). Sincronizar com SANITY_EDGE_THRESHOLD em
+ *     scripts/scraper/lib/scraper/ai_recommender_runner.rb.
  */
-export const SANITY_EDGE_THRESHOLD = 30;
+export const SANITY_EDGE_THRESHOLD = 50;
 
 export interface RunResult {
   ok: boolean;

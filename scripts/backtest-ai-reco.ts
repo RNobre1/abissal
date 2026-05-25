@@ -136,7 +136,12 @@ export interface ChosenBet {
   units: number;
 }
 
-const SANITY_GUARD_MAX_EDGE_PCT = 30;
+/**
+ * Threshold do sanity guard no backtest — mirror de
+ * `SANITY_EDGE_THRESHOLD` em lib/ai-reco/recommender.ts. v2 = 50 desde
+ * 2026-05-25 (backtest histórico mostrou que 30-50% contém winners).
+ */
+const SANITY_GUARD_MAX_EDGE_PCT = 50;
 
 /**
  * Implementa as 5 regras substitutas da IA — pure function.
@@ -435,7 +440,7 @@ const SCENARIOS: Array<{ opts: ScenarioOpts; description: string }> = [
   },
   {
     description:
-      "B — sanity guard: A ∧ skip se edge > 30% em liga não calibrada",
+      "B — sanity guard: A ∧ skip se edge > 50% em liga não calibrada (v2, era 30)",
     opts: {
       name: "B",
       edgeMinPct: 5,
@@ -1130,7 +1135,7 @@ function buildMarkdownReport(args: {
   if (cenA && cenB) {
     const delta = cenB.pl_units_total - cenA.pl_units_total;
     lines.push(
-      `- **Sanity guard (edge > 30% em liga não calibrada):** delta PL = ${delta.toFixed(2)}u (${delta > 0 ? "✅ guard ajuda" : "❌ guard remove apostas vencedoras"}).`,
+      `- **Sanity guard (edge > ${SANITY_GUARD_MAX_EDGE_PCT}% em liga não calibrada):** delta PL = ${delta.toFixed(2)}u (${delta > 0 ? "✅ guard ajuda" : "❌ guard remove apostas vencedoras"}).`,
     );
   }
   if (cenA && cenC) {

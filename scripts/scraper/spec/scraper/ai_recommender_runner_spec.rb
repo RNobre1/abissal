@@ -131,7 +131,7 @@ module AdamStats::Scraper
         }
       end
 
-      it 'NAO chama a IA quando top candidate edge>30 em liga nao-calibrada (persiste skip direto)' do
+      it 'NAO chama a IA quando top candidate edge>50 em liga nao-calibrada (persiste skip direto)' do
         conn = conn_double
         allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([high_edge_sim_row])
         allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
@@ -151,7 +151,7 @@ module AdamStats::Scraper
         expect(params).to include('edge_suspect_pre_filtered')
       end
 
-      it 'CHAMA a IA normalmente quando top candidate edge>30 mas liga CALIBRADA' do
+      it 'CHAMA a IA normalmente quando top candidate edge>50 mas liga CALIBRADA' do
         calibrated_row = high_edge_sim_row.merge('league' => 'Premier League')
         conn = conn_double
         allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([calibrated_row])
@@ -164,7 +164,23 @@ module AdamStats::Scraper
         expect(client).to have_received(:call)
       end
 
-      it 'CHAMA a IA quando top candidate edge<=30 em liga nao-calibrada' do
+      it 'CHAMA a IA quando top candidate edge=40 em liga nao-calibrada (entre old 30 e new 50)' do
+        # Backtest mostrou que edges 30-50% em ligas nao-calibradas contem
+        # winners — threshold v2 (50) deixa passar pra IA decidir.
+        # Probs: p_btts=0.70 * 2.0 = 40% edge
+        passthru_row = high_edge_sim_row.merge('p_btts' => '0.70')
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([passthru_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        allow(conn).to receive(:exec_params).and_return([{ 'id' => 1 }])
+
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        runner.run
+
+        expect(client).to have_received(:call)
+      end
+
+      it 'CHAMA a IA quando top candidate edge<=50 em liga nao-calibrada' do
         moderate_row = high_edge_sim_row.merge(
           # Probs mais realistas: p_btts=0.60 * 2.0 = 20% edge (moderado)
           'p_btts' => '0.60'
@@ -182,18 +198,18 @@ module AdamStats::Scraper
     end
 
     describe 'sanity guard pos-IA (defesa secundária)' do
-      # NOTA: o pre-filtro já bloqueia o caso onde TOP candidate tem edge>30.
+      # NOTA: o pre-filtro já bloqueia o caso onde TOP candidate tem edge>50.
       # Como o IA escolhe entre os candidatos (edge<=top por definição), na prática
       # sanity pos-IA é redundante com pre-filtro EM RUBY. Mantido como camada extra
       # de segurança caso algum caminho futuro pule o pre-filtro (ex: passa
       # `bet_candidates` manualmente). Aqui testamos a unidade `apply_sanity_guard!`
       # diretamente sobre decisão+candidato.
-      it 'sobrescreve verdict pra skip quando candidato escolhido edge>30 + !calibrated' do
+      it 'sobrescreve verdict pra skip quando candidato escolhido edge>50 + !calibrated' do
         runner = described_class.new(conn: conn_double, logger: logger, client: client)
         decision = { verdict: 'bet', market: 'btts', side: 'sim',
                      units_final: 0.5, prob_estimated: 0.7,
                      reduction_reason: nil, confidence: 'alto' }
-        chosen = { market: 'btts', side: 'sim', edge_pct: 50.0 }
+        chosen = { market: 'btts', side: 'sim', edge_pct: 60.0 }
         result = runner.send(:apply_sanity_guard, decision, chosen, false)
         expect(result[:verdict]).to eq('skip')
         expect(result[:reduction_reason]).to eq('edge_suspect_high_in_uncalibrated_league')
@@ -203,13 +219,21 @@ module AdamStats::Scraper
       it 'NAO sobrescreve quando liga CALIBRADA' do
         runner = described_class.new(conn: conn_double, logger: logger, client: client)
         decision = { verdict: 'bet', market: 'btts', side: 'sim', units_final: 1.5 }
-        chosen = { market: 'btts', side: 'sim', edge_pct: 50.0 }
+        chosen = { market: 'btts', side: 'sim', edge_pct: 60.0 }
         result = runner.send(:apply_sanity_guard, decision, chosen, true)
         expect(result[:verdict]).to eq('bet')
         expect(result[:units_final]).to eq(1.5)
       end
 
-      it 'NAO sobrescreve quando edge_pct <= 30' do
+      it 'NAO sobrescreve quando edge_pct = 40 (entre old 30 e new 50)' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client)
+        decision = { verdict: 'bet', market: 'btts', side: 'sim', units_final: 0.5 }
+        chosen = { market: 'btts', side: 'sim', edge_pct: 40.0 }
+        result = runner.send(:apply_sanity_guard, decision, chosen, false)
+        expect(result[:verdict]).to eq('bet')
+      end
+
+      it 'NAO sobrescreve quando edge_pct <= 50' do
         runner = described_class.new(conn: conn_double, logger: logger, client: client)
         decision = { verdict: 'bet', market: 'btts', side: 'sim', units_final: 0.5 }
         chosen = { market: 'btts', side: 'sim', edge_pct: 25.0 }

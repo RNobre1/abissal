@@ -82,7 +82,7 @@ describe("enforceCaps", () => {
 });
 
 describe("applySanityGuard", () => {
-  it("força skip quando edge>30 + bet + liga NÃO calibrada", () => {
+  it("força skip quando edge>50 + bet + liga NÃO calibrada", () => {
     const d: AiDecision = {
       verdict: "bet",
       market: "btts",
@@ -91,13 +91,13 @@ describe("applySanityGuard", () => {
       prob_estimated: 0.7,
       confidence: "alto",
     };
-    const guarded = applySanityGuard(d, { edgePct: 50, leagueCalibrated: false });
+    const guarded = applySanityGuard(d, { edgePct: 60, leagueCalibrated: false });
     expect(guarded.verdict).toBe("skip");
     expect(guarded.reduction_reason).toBe("edge_suspect_high_in_uncalibrated_league");
     expect(guarded.units_final).toBe(0);
   });
 
-  it("preserva bet quando edge>30 mas liga CALIBRADA", () => {
+  it("preserva bet quando edge>50 mas liga CALIBRADA", () => {
     const d: AiDecision = {
       verdict: "bet",
       market: "btts",
@@ -106,13 +106,27 @@ describe("applySanityGuard", () => {
       prob_estimated: 0.7,
       confidence: "alto",
     };
-    const guarded = applySanityGuard(d, { edgePct: 50, leagueCalibrated: true });
+    const guarded = applySanityGuard(d, { edgePct: 60, leagueCalibrated: true });
     expect(guarded.verdict).toBe("bet");
     expect(guarded.units_final).toBe(1.5);
     expect(guarded.reduction_reason).not.toBe("edge_suspect_high_in_uncalibrated_league");
   });
 
-  it("preserva bet quando edge<=30 em liga não-calibrada (sob threshold)", () => {
+  it("preserva bet quando edge=40 em liga não-calibrada (backtest mostrou que 30-50 contém winners)", () => {
+    const d: AiDecision = {
+      verdict: "bet",
+      market: "btts",
+      side: "sim",
+      units_final: 0.4,
+      prob_estimated: 0.55,
+      confidence: "medio",
+    };
+    const guarded = applySanityGuard(d, { edgePct: 40, leagueCalibrated: false });
+    expect(guarded.verdict).toBe("bet");
+    expect(guarded.units_final).toBe(0.4);
+  });
+
+  it("preserva bet quando edge<=50 em liga não-calibrada (sob threshold)", () => {
     const d: AiDecision = {
       verdict: "bet",
       market: "btts",
@@ -133,7 +147,7 @@ describe("applySanityGuard", () => {
     expect(guarded.reduction_reason).toBeUndefined();
   });
 
-  it("threshold é > 30 (exato 30 ainda passa)", () => {
+  it("threshold é > 50 (exato 50 ainda passa)", () => {
     const d: AiDecision = {
       verdict: "bet",
       market: "btts",
@@ -142,11 +156,11 @@ describe("applySanityGuard", () => {
       prob_estimated: 0.6,
       confidence: "alto",
     };
-    const guarded = applySanityGuard(d, { edgePct: 30, leagueCalibrated: false });
+    const guarded = applySanityGuard(d, { edgePct: 50, leagueCalibrated: false });
     expect(guarded.verdict).toBe("bet");
   });
 
-  it("aplica em edge=30.01 (logo acima)", () => {
+  it("aplica em edge=50.01 (logo acima)", () => {
     const d: AiDecision = {
       verdict: "bet",
       market: "btts",
@@ -155,7 +169,7 @@ describe("applySanityGuard", () => {
       prob_estimated: 0.6,
       confidence: "alto",
     };
-    const guarded = applySanityGuard(d, { edgePct: 30.01, leagueCalibrated: false });
+    const guarded = applySanityGuard(d, { edgePct: 50.01, leagueCalibrated: false });
     expect(guarded.verdict).toBe("skip");
   });
 
@@ -175,7 +189,7 @@ describe("applySanityGuard", () => {
 });
 
 describe("runRecommender + sanity guard", () => {
-  it("força skip quando IA retorna bet com edge>30 em liga não-calibrada", async () => {
+  it("força skip quando IA retorna bet com edge>50 em liga não-calibrada", async () => {
     const betJson = JSON.stringify({
       verdict: "bet",
       market: "btts",

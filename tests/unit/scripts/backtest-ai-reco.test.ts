@@ -412,31 +412,50 @@ describe("chooseBetForScenario", () => {
     expect(pick!.units).toBe(2.0);
   });
 
-  it("Cenário B — sanity guard pula apostas com edge > 30 em liga não calibrada", () => {
+  it("Cenário B — sanity guard pula apostas com edge > 50 em liga não calibrada", () => {
+    // Threshold v2 (2026-05-25): subido de 30 → 50 após backtest provar que
+    // o range 30-50% contém winners. Edge 35% (over25) agora PASSA pelo guard.
+    const candsHighEdge: EdgeCandidate[] = [
+      baseCandidate({ market: "1x2", side: "home", edge_pct: 8.0, odd: 2.0, prob_calibrated: 0.54 }),
+      baseCandidate({ market: "btts", side: "sim", edge_pct: 18.0, odd: 1.9, prob_calibrated: 0.62 }),
+      baseCandidate({ market: "over25", side: "over", edge_pct: 35.0, odd: 1.85, prob_calibrated: 0.73 }),
+      baseCandidate({ market: "1x2", side: "away", edge_pct: 60.0, odd: 3.5, prob_calibrated: 0.30 }),
+    ];
     const opts: ScenarioOpts = {
       name: "B",
       edgeMinPct: 5,
       requireCalibrated: false,
       sanityGuard: true,
     };
-    const pick = chooseBetForScenario(cands, opts, { leagueCalibrated: false });
-    // over25/over tem 35% edge → bloqueado pelo sanity guard
-    // próximo melhor é btts/sim (18%)
+    const pick = chooseBetForScenario(candsHighEdge, opts, {
+      leagueCalibrated: false,
+    });
+    // 1x2/away tem 60% edge → bloqueado pelo sanity guard (> 50)
+    // próximo melhor é over25/over (35%) — agora passa (era bloqueado em v1)
     expect(pick).not.toBeNull();
-    expect(pick!.candidate.market).toBe("btts");
-    expect(pick!.candidate.edge_pct).toBe(18.0);
+    expect(pick!.candidate.market).toBe("over25");
+    expect(pick!.candidate.edge_pct).toBe(35.0);
   });
 
   it("Cenário B — sanity guard NÃO bloqueia se liga calibrada", () => {
+    const candsHighEdge: EdgeCandidate[] = [
+      baseCandidate({ market: "1x2", side: "home", edge_pct: 8.0, odd: 2.0, prob_calibrated: 0.54 }),
+      baseCandidate({ market: "btts", side: "sim", edge_pct: 18.0, odd: 1.9, prob_calibrated: 0.62 }),
+      baseCandidate({ market: "over25", side: "over", edge_pct: 35.0, odd: 1.85, prob_calibrated: 0.73 }),
+      baseCandidate({ market: "1x2", side: "away", edge_pct: 60.0, odd: 3.5, prob_calibrated: 0.30 }),
+    ];
     const opts: ScenarioOpts = {
       name: "B",
       edgeMinPct: 5,
       requireCalibrated: false,
       sanityGuard: true,
     };
-    const pick = chooseBetForScenario(cands, opts, { leagueCalibrated: true });
-    // sanity bypass: over25 com 35% passa
-    expect(pick!.candidate.market).toBe("over25");
+    const pick = chooseBetForScenario(candsHighEdge, opts, {
+      leagueCalibrated: true,
+    });
+    // sanity bypass: 1x2/away com 60% passa
+    expect(pick!.candidate.market).toBe("1x2");
+    expect(pick!.candidate.edge_pct).toBe(60.0);
   });
 
   it("Cenário C — requireCalibrated, liga NÃO calibrada → null (skip)", () => {

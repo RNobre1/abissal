@@ -18,7 +18,14 @@ module AdamStats
       # simulador sem league_parameters produz ruido amplificado
       # (ex: Kolding IF edge 114%, 2026-05-25). Espelha SANITY_EDGE_THRESHOLD
       # em lib/ai-reco/recommender.ts.
-      SANITY_EDGE_THRESHOLD = 30.0
+      #
+      # Histórico:
+      #   v1 (2026-05-25): 30. Hipótese inicial.
+      #   v2 (2026-05-25): 50. Backtest histórico (720 bets, 30d) provou que
+      #     `B (edge>30)` produziu ROI +2.95% vs `A (sem guard)` +8.10% —
+      #     delta -44.6u PL mostra que o range 30-50% contém winners.
+      #     Pre-filter pré-IA permanece (poupa tokens em edges > 50%).
+      SANITY_EDGE_THRESHOLD = 50.0
       RECO_VERSION = 'reco-v1'.freeze
       DEFAULT_MODEL = 'deepseek/deepseek-r1'.freeze
       DEFAULT_BANKROLL = 1000.0
