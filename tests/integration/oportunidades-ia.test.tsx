@@ -29,10 +29,11 @@ vi.mock("@/lib/ai-reco/reco-repository", () => ({
 import { OportunidadesIa } from "@/app/(dashboard)/_components/oportunidades-ia";
 
 function reco(over: Partial<AiRecommendationDTO> & { id: number }): AiRecommendationDTO {
+  const { id, ...rest } = over;
   return {
-    id: over.id,
+    id,
     created_at: "2026-05-24T10:00:00Z",
-    fixture_id: 19427226 + over.id,
+    fixture_id: 19427226 + id,
     home_team: "Liverpool",
     away_team: "Tottenham",
     league: "Premier League",
@@ -56,7 +57,7 @@ function reco(over: Partial<AiRecommendationDTO> & { id: number }): AiRecommenda
     red_flags: [],
     cost_usd: 0.018,
     league_calibrated: true,
-    ...over,
+    ...rest,
   };
 }
 

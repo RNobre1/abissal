@@ -74,7 +74,7 @@ describe("buildPrompt", () => {
 
   it("inclui descrição do schema JSON esperado", () => {
     const { system } = buildPrompt(baseInput);
-    expect(system).toMatch(/verdict.*bet.*skip/is);
+    expect(system).toMatch(/verdict[\s\S]*bet[\s\S]*skip/i);
     expect(system).toContain("market");
     expect(system).toContain("units_final");
   });
