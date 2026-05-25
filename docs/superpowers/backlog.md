@@ -40,10 +40,31 @@
 
 ---
 
-## WAVE A — Disciplina (ATIVA, sessão 2026-05-25)
+## WAVE A — Disciplina (SHIPPED 2026-05-25)
 
 > **Critério de sucesso:** medir CLV real, fechar loop de ROI realizado, validar backtest sem leakage, e ter alerta operacional.
 > **Após Wave A:** congelar features por 14-21 dias pra coletar dados.
+
+### Status final
+
+- [x] **A1 CLV tracking** — `ce865ab` · 21 closing odds capturados em prod
+- [x] **A2 "Apostei" cria bet** — `f5c77d7` · migration 0025 + modal + endpoint + UI
+- [x] **A3 Walk-forward backtest** — `d5491eb` · relatório bomba: ROI NEGATIVO em todos 10 cenários
+- [x] **A4 Silent death detector** — `808a711` · orchestrator ping `HEALTHCHECKS_AI_RECO_URL/fail`
+
+## WAVE R — Reversões (SHIPPED 2026-05-25 noite, resposta ao A3)
+
+- [x] **R1** EDGE_THRESHOLD 20 → 10 — `a069037`
+- [x] **R2** Kelly fracionado ¼ → ⅛ — `a069037`
+- [x] **R3** Cap calibrada 2.0u → 1.0u, não-cal 0.5u → 0.1u — `a069037`
+- [ ] **R4** PAUSAR bets reais até CLV ≥ +1.5% em ≥100 bets — **gate operacional do Pilot, não código**
+- [x] **R5** IC95% bootstrap obrigatório em backtest — já implementado em A3
+- [x] **R6** Blending α 0.5 → 0.3 — `a069037`
+
+## QUICK WINS UX (SHIPPED 2026-05-25 noite)
+
+- [x] **a11y**: contrast `--color-ink-faint` 1.7:1 → 3.5:1, skip link, ▲/▼ Metric — `a069037`
+- [x] **Bookkeeper form**: sport/market/league selects + filtros `/bets` + migration 0027 — `28a2fec`
 
 ### A1 — CLV tracking
 
