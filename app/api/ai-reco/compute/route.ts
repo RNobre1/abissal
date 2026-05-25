@@ -96,6 +96,11 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
   const { fixtureId } = parsed;
+  // Choistats id (derivado de source_url) é o identificador usado em
+  // ai_recommendations.fixture_id e fixture_simulations.fixture_id (id-space
+  // do scraper). `fixtureId` do body é a PK da tabela fixtures (rota Next.js).
+  // Vamos derivar choistatsId depois do lookup pra usar nos INSERTs.
+  let choistatsId: number | null = null;
 
   // ---------------------------------------------------------------------------
   // 2. Admin client + fixture lookup
@@ -125,6 +130,12 @@ export async function POST(request: Request): Promise<Response> {
 
   if (!fixture) {
     return NextResponse.json({ error: "fixture not found" }, { status: 404 });
+  }
+
+  // Derivar choistats id do source_url. Pattern: /fixture/<digits>
+  if (fixture.source_url) {
+    const m = fixture.source_url.match(/\/fixture\/(\d+)/);
+    if (m) choistatsId = Number(m[1]);
   }
 
   // ---------------------------------------------------------------------------
@@ -195,6 +206,7 @@ export async function POST(request: Request): Promise<Response> {
     const recoId = await persistSkip({
       supabase,
       fixture,
+      choistatsId,
       allCandidates,
       leagueCalibrated,
     });
@@ -305,7 +317,7 @@ export async function POST(request: Request): Promise<Response> {
   const logId = await insertLlmLog({
     supabase,
     route: ROUTE_LABEL,
-    fixtureId,
+    fixtureId: choistatsId ?? fixtureId,
     model,
     latencyMs: result.latencyMs ?? null,
     usage: result.usage,
@@ -318,6 +330,7 @@ export async function POST(request: Request): Promise<Response> {
   const recoId = await insertReco({
     supabase,
     fixture,
+    choistatsId,
     allCandidates,
     leagueCalibrated,
     decision,
@@ -621,6 +634,7 @@ async function insertLlmLog(args: {
 async function persistSkip(args: {
   supabase: AnySupabase;
   fixture: FixtureLookupRow;
+  choistatsId: number | null;
   allCandidates: EdgeCandidate[];
   leagueCalibrated: boolean;
 }): Promise<number | null> {
@@ -628,7 +642,7 @@ async function persistSkip(args: {
     const { data, error } = await args.supabase
       .from("ai_recommendations")
       .insert({
-        fixture_id: args.fixture.id,
+        fixture_id: args.choistatsId ?? args.fixture.id,
         home_team: args.fixture.home_team,
         away_team: args.fixture.away_team,
         league: args.fixture.league,
@@ -668,6 +682,7 @@ async function persistSkip(args: {
 async function insertReco(args: {
   supabase: AnySupabase;
   fixture: FixtureLookupRow;
+  choistatsId: number | null;
   allCandidates: EdgeCandidate[];
   leagueCalibrated: boolean;
   decision: AiDecision;
@@ -687,7 +702,7 @@ async function insertReco(args: {
     const { data, error } = await args.supabase
       .from("ai_recommendations")
       .insert({
-        fixture_id: args.fixture.id,
+        fixture_id: args.choistatsId ?? args.fixture.id,
         home_team: args.fixture.home_team,
         away_team: args.fixture.away_team,
         league: args.fixture.league,
