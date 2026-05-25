@@ -33,6 +33,7 @@ const NAV_GROUPS: Array<{
     items: [
       { href: "/audit", label: "auditoria" },
       { href: "/logs", label: "logs IA" },
+      { href: "/llm-observability", label: "observability IA" },
     ],
   },
 ];
