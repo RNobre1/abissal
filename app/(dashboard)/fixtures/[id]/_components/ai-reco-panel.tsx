@@ -4,7 +4,11 @@ import type {
   UserDecision,
 } from "@/lib/ai-reco/feedback-repository";
 import { OnDemandButton } from "./on-demand-button";
-import { FeedbackButtons } from "./feedback-buttons";
+import {
+  AiRecoActions,
+  type LinkedBetSummary,
+} from "./ai-reco-actions";
+import type { ApostaiHouseOption } from "./apostei-modal";
 
 /**
  * AiRecoPanel — inline IA recommendation surface on /fixtures/[id] (spec §7.1).
@@ -35,6 +39,24 @@ interface AiRecoPanelProps {
    * não houve feedback ou se a leitura degradou (tabela ausente, etc.).
    */
   feedback?: AiRecoFeedbackDTO[];
+  /**
+   * A2 — Casas disponíveis para o dropdown do modal "Apostei". Quando
+   * vazio/ausente, o modal mostra "(nenhuma casa cadastrada)" e o Pilot
+   * precisa criar uma em /houses/new antes.
+   */
+  houses?: ApostaiHouseOption[];
+  /**
+   * A2 — Bet já vinculada a esta reco (via bets.ai_recommendation_id,
+   * migration 0025). Quando preenchida, substitui os 4 botões de feedback
+   * por um summary "✓ Apostou …". Null em todos os outros casos.
+   */
+  linkedBet?: LinkedBetSummary | null;
+  /**
+   * A2 — Valor de 1 unit em BRL (stake = units_final × unitValue). Default
+   * 1.0 (placeholder até bankroll_settings entrar). Pilot ajusta direto
+   * no campo do modal se quiser stake diferente.
+   */
+  unitValue?: number;
 }
 
 function fmtNumber(v: number | null, digits = 1): string | null {
@@ -100,6 +122,9 @@ export function AiRecoPanel({
   homeTeam,
   awayTeam,
   feedback,
+  houses = [],
+  linkedBet = null,
+  unitValue = 1.0,
 }: AiRecoPanelProps) {
   if (reco === null) {
     return (
@@ -144,9 +169,19 @@ export function AiRecoPanel({
           {reco.reasoning_full ?? "Nenhum mercado com edge >= 5%."}
         </p>
         {feedbackFooter(feedback)}
-        <FeedbackButtons
+        <AiRecoActions
           aiRecommendationId={reco.id}
           existingDecisions={existingDecisions(feedback)}
+          houses={houses}
+          defaultOdd={reco.odd_captured ?? null}
+          defaultStake={
+            reco.units_final != null && reco.units_final > 0
+              ? reco.units_final * unitValue
+              : 0
+          }
+          market={reco.market}
+          side={reco.side}
+          linkedBet={linkedBet}
         />
       </section>
     );
@@ -212,9 +247,19 @@ export function AiRecoPanel({
       </footer>
 
       {feedbackFooter(feedback)}
-      <FeedbackButtons
+      <AiRecoActions
         aiRecommendationId={reco.id}
         existingDecisions={existingDecisions(feedback)}
+        houses={houses}
+        defaultOdd={reco.odd_captured ?? null}
+        defaultStake={
+          reco.units_final != null && reco.units_final > 0
+            ? reco.units_final * unitValue
+            : 0
+        }
+        market={reco.market}
+        side={reco.side}
+        linkedBet={linkedBet}
       />
     </section>
   );

@@ -250,6 +250,14 @@ export default async function StatsPage({ params }: StatsPageProps) {
   const aiFeedback =
     aiReco !== null ? await getFeedbackForReco(aiReco.id, untyped) : [];
 
+  // A2 — Casas pro dropdown do modal "Apostei" e bet já vinculada (se
+  // existir). Ambas degradam gracioso para [] / null em qualquer falha
+  // (tabela faltando, RLS, etc.) — o painel ainda renderiza os 4 botões
+  // legados sem o modal de bet.
+  const aposteiHouses = await fetchAposteiHouses();
+  const linkedBet =
+    aiReco !== null ? await fetchLinkedBet(aiReco.id, untyped) : null;
+
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
   const panels = buildPanels(
     detail,
@@ -259,6 +267,8 @@ export default async function StatsPage({ params }: StatsPageProps) {
     aiReco,
     aiFeedback,
     row.id,
+    aposteiHouses,
+    linkedBet,
   );
 
   return (
@@ -335,6 +345,85 @@ async function fetchAiReco(
   return await getRecommendationForFixture(choistatsId, supabase);
 }
 
+/**
+ * A2 — Lista casas não-arquivadas pro dropdown do modal "Apostei essa reco".
+ * Usa o **server client** (RLS bound ao user) pra respeitar o user_id correto;
+ * cair pra `[]` em qualquer falha (não logado, RLS nega, tabela faltando) é
+ * gracioso — o modal mostra "(nenhuma casa cadastrada)".
+ */
+async function fetchAposteiHouses(): Promise<Array<{ id: string; name: string }>> {
+  try {
+    const { createClient } = await import("@/lib/supabase/server");
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("houses")
+      .select("id, name")
+      .is("archived_at", null)
+      .order("name");
+    if (error || !data) return [];
+    return (data as Array<Record<string, unknown>>)
+      .map((r) => ({ id: String(r.id), name: String(r.name) }))
+      .filter((h) => h.id && h.name);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * A2 — Busca a bet já vinculada a esta reco (migration 0025). Retorna a
+ * mais recente pelo `placed_at desc` (caso a bet anterior tenha sido
+ * resolvida e o Pilot tenha re-apostado). Degrada pra null em qualquer
+ * erro — o painel mostra os 4 botões normais.
+ */
+async function fetchLinkedBet(
+  aiRecommendationId: number,
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<{
+  id: string;
+  total_stake: number | string;
+  total_odds: number | string;
+  house_name: string | null;
+  status: string;
+} | null> {
+  try {
+    const { data, error } = await supabase
+      .from("bets")
+      .select(
+        "id, total_stake, total_odds, status, house_id, placed_at",
+      )
+      .eq("ai_recommendation_id", aiRecommendationId)
+      .order("placed_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    const row = data as Record<string, unknown>;
+    // Resolve house name (single extra escalar query — cheap; degrade to null)
+    let houseName: string | null = null;
+    try {
+      const hr = await supabase
+        .from("houses")
+        .select("name")
+        .eq("id", row.house_id)
+        .maybeSingle();
+      if (hr.data && typeof (hr.data as Record<string, unknown>).name === "string") {
+        houseName = String((hr.data as Record<string, unknown>).name);
+      }
+    } catch {
+      houseName = null;
+    }
+    return {
+      id: String(row.id),
+      total_stake: row.total_stake as number | string,
+      total_odds: row.total_odds as number | string,
+      house_name: houseName,
+      status: String(row.status ?? "pending"),
+    };
+  } catch {
+    return null;
+  }
+}
+
 function buildPanels(
   detail: DetailJson | null,
   homeTeam: string,
@@ -343,6 +432,14 @@ function buildPanels(
   aiReco: Awaited<ReturnType<typeof getRecommendationForFixture>>,
   aiFeedback: Awaited<ReturnType<typeof getFeedbackForReco>>,
   fixtureId: number,
+  aposteiHouses: Array<{ id: string; name: string }>,
+  linkedBet: {
+    id: string;
+    total_stake: number | string;
+    total_odds: number | string;
+    house_name: string | null;
+    status: string;
+  } | null,
 ): PanelSlot[] {
   const simDegraded = !sim || sim.status === "unsimulable";
   const simSlot: PanelSlot = {
@@ -373,6 +470,8 @@ function buildPanels(
         homeTeam={homeTeam}
         awayTeam={awayTeam}
         feedback={aiFeedback}
+        houses={aposteiHouses}
+        linkedBet={linkedBet}
       />
     ),
   };

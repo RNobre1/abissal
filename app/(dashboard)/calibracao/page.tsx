@@ -17,7 +17,11 @@ import {
   brierAiReco,
   groupAiRecoByLeague,
   groupAiRecoByConfidence,
+  summarizeRealizedRoi,
+  groupRealizedRoiByLeague,
+  groupRealizedRoiByConfidence,
   type AiRecoRow,
+  type RealizedBetRow,
 } from "@/lib/calibracao/ai-reco-metrics";
 import { ClvPanel } from "./_components/clv-panel";
 import type { ClvSample, ClvMarket } from "@/lib/calibracao/clv-metrics";
@@ -299,6 +303,65 @@ export default async function CalibracaoPage() {
   const aiRecoBrier = brierAiReco(aiRecoRows);
   const aiRecoByLeague = groupAiRecoByLeague(aiRecoRows).slice(0, 5);
   const aiRecoByConfidence = groupAiRecoByConfidence(aiRecoRows);
+
+  // ── A2: ROI realizado = bets manuais vinculadas a uma reco IA via
+  // `bets.ai_recommendation_id` (migration 0025). Lê via admin client +
+  // JOIN PostgREST com `ai_recommendations(league, confidence)` pra
+  // herdar metadados da reco no agrupamento. Bets sem reco (ledger
+  // legado) ficam fora — métricas só fazem sentido pra recos.
+  let realizedBetRows: RealizedBetRow[] = [];
+  let realizedQueryError: string | null = null;
+  try {
+    const { data, error } = await admin
+      .from("bets")
+      .select(
+        "id, ai_recommendation_id, house_id, total_stake, total_odds, status, actual_return, ai_recommendations(league, confidence)",
+      )
+      .not("ai_recommendation_id", "is", null)
+      .order("placed_at", { ascending: false })
+      .limit(2000);
+    if (error)
+      throw new Error(error.message ?? "failed to fetch realized bets");
+    // PostgREST embeds the joined row as `ai_recommendations: { league, confidence }`
+    // (single object since the FK is many-to-one). Map to flat RealizedBetRow.
+    realizedBetRows = ((data ?? []) as Array<Record<string, unknown>>).map(
+      (r) => {
+        const join = r.ai_recommendations as
+          | { league?: unknown; confidence?: unknown }
+          | null
+          | undefined;
+        const conf = join?.confidence;
+        return {
+          id: String(r.id),
+          ai_recommendation_id:
+            r.ai_recommendation_id == null
+              ? null
+              : Number(r.ai_recommendation_id),
+          house_id: String(r.house_id ?? ""),
+          total_stake: r.total_stake as number | string,
+          total_odds: r.total_odds as number | string,
+          status: r.status as RealizedBetRow["status"],
+          actual_return: (r.actual_return ?? null) as number | string | null,
+          league:
+            join && typeof join.league === "string" ? join.league : null,
+          confidence:
+            conf === "alto" || conf === "medio" || conf === "baixo"
+              ? conf
+              : null,
+        };
+      },
+    );
+  } catch (err) {
+    realizedQueryError = err instanceof Error ? err.message : "erro desconhecido";
+  }
+  const realizedRoi = summarizeRealizedRoi(realizedBetRows);
+  const realizedByLeague = groupRealizedRoiByLeague(realizedBetRows).slice(0, 5);
+  const realizedByConfidence = groupRealizedRoiByConfidence(realizedBetRows);
+  // Penetração: quantas das recos resolvidas tiveram bet de fato.
+  const realizedPenetration: number | null =
+    aiRecoRoi.betCount > 0
+      ? realizedRoi.betCount / aiRecoRoi.betCount
+      : null;
 
   // ── CLV tracking (tarefa A1): JOIN ai_recommendations × closing_odds.
   // Lê só escalares — odd_captured (taken), league, e o JOIN traz odd_close.
@@ -599,6 +662,57 @@ export default async function CalibracaoPage() {
             por confidence (sanity: alto deve ter WR &gt; medio &gt; baixo)
           </h3>
           <AiRecoByConfidenceTable rows={aiRecoByConfidence} />
+        </div>
+
+        {/* A2 — ROI realizado (bets vinculadas a recos via 0025).
+            Distingue P/L "no papel" (todas as recos resolvidas) do P/L
+            real (só bets que o Pilot apostou de fato). Penetração mostra
+            quantas das recos resolvidas viraram bet. */}
+        <div className="mt-12 border-t border-[var(--color-line-subtle)] pt-10">
+          <header className="mb-6">
+            <span className="label">A2 · ROI realizado</span>
+            <h3 className="mt-2 text-base font-semibold">
+              bets vinculadas a recos IA (apostas reais)
+            </h3>
+            <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+              só conta bets criadas via &ldquo;✅ Apostei&rdquo; no AiRecoPanel
+              (`bets.ai_recommendation_id IS NOT NULL`). Compare com o ROI
+              hipotético acima — o gap mostra quanto da estratégia ficou
+              no papel.
+            </p>
+          </header>
+
+          {realizedQueryError && (
+            <p
+              className="card mb-6 p-4 text-sm"
+              style={{ color: "var(--color-vermelho)" }}
+              role="alert"
+            >
+              falha ao ler bets realizadas: {realizedQueryError}
+            </p>
+          )}
+
+          <div data-section="realized-roi">
+            <RealizedRoiCards
+              summary={realizedRoi}
+              penetration={realizedPenetration}
+              totalRecoBets={aiRecoRoi.betCount}
+            />
+          </div>
+
+          <div className="mt-10" data-section="realized-roi-by-league">
+            <h3 className="mb-4 text-base font-semibold">
+              por liga (top 5 por volume)
+            </h3>
+            <RealizedRoiByLeagueTable rows={realizedByLeague} />
+          </div>
+
+          <div className="mt-10" data-section="realized-roi-by-confidence">
+            <h3 className="mb-4 text-base font-semibold">
+              por confidence (do reco IA)
+            </h3>
+            <RealizedRoiByConfidenceTable rows={realizedByConfidence} />
+          </div>
         </div>
       </section>
 
@@ -1287,6 +1401,168 @@ function AiRecoByConfidenceTable({
               <Td>{r.confidence}</Td>
               <Td className="num text-right tabular-nums">{r.total}</Td>
               <Td className="num text-right tabular-nums">{r.bets}</Td>
+              <Td className="num text-right tabular-nums">
+                {`${r.totalPl >= 0 ? "+" : ""}${r.totalPl.toFixed(2)}`}
+              </Td>
+              <Td className="num text-right tabular-nums">
+                {r.winRate == null ? "—" : `${Math.round(r.winRate * 100)}%`}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── A2: Realized ROI components ──────────────────────────────────────────────
+
+function RealizedRoiCards({
+  summary,
+  penetration,
+  totalRecoBets,
+}: {
+  summary: ReturnType<typeof summarizeRealizedRoi>;
+  penetration: number | null;
+  totalRecoBets: number;
+}) {
+  if (summary.betCount === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        nenhuma bet vinculada ainda — clique &ldquo;✅ Apostei&rdquo; em alguma
+        reco IA pra começar.
+      </p>
+    );
+  }
+  const sign = summary.totalPl >= 0 ? "+" : "";
+  const items: Array<{ label: string; value: string }> = [
+    {
+      label: "n bets (vinculadas)",
+      value: `${summary.betCount} de ${totalRecoBets}${
+        penetration == null ? "" : ` (${Math.round(penetration * 100)}%)`
+      }`,
+    },
+    {
+      label: "resolvidas",
+      value: `${summary.resolvedCount}`,
+    },
+    {
+      label: "won / lost / void",
+      value: `${summary.won} / ${summary.lost} / ${summary.void}`,
+    },
+    {
+      label: "win rate",
+      value:
+        summary.winRate == null
+          ? "—"
+          : `${Math.round(summary.winRate * 100)}%`,
+    },
+    {
+      label: "P/L total (R$)",
+      value: `${sign}${summary.totalPl.toFixed(2)}`,
+    },
+    {
+      label: "ROI",
+      value:
+        summary.roi == null
+          ? "—"
+          : `${(summary.roi * 100).toFixed(1)}%`,
+    },
+  ];
+  return (
+    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      {items.map((it) => (
+        <div key={it.label} className="card flex flex-col gap-1 px-4 py-3">
+          <dt className="label text-[var(--color-ink-faint)]">{it.label}</dt>
+          <dd className="num text-base tabular-nums text-[var(--color-ink)]">
+            {it.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function RealizedRoiByLeagueTable({
+  rows,
+}: {
+  rows: ReturnType<typeof groupRealizedRoiByLeague>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem bets resolvidas por liga ainda.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--color-line-subtle)]">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-line-subtle)] text-[var(--color-ink-faint)]">
+            <Th>liga</Th>
+            <Th className="num text-right">bets</Th>
+            <Th className="num text-right">won</Th>
+            <Th className="num text-right">P/L (R$)</Th>
+            <Th className="num text-right">win rate</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.league}
+              className="border-b border-[var(--color-line-subtle)] last:border-0"
+            >
+              <Td>{r.league}</Td>
+              <Td className="num text-right tabular-nums">{r.bets}</Td>
+              <Td className="num text-right tabular-nums">{r.won}</Td>
+              <Td className="num text-right tabular-nums">
+                {`${r.totalPl >= 0 ? "+" : ""}${r.totalPl.toFixed(2)}`}
+              </Td>
+              <Td className="num text-right tabular-nums">
+                {r.winRate == null ? "—" : `${Math.round(r.winRate * 100)}%`}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function RealizedRoiByConfidenceTable({
+  rows,
+}: {
+  rows: ReturnType<typeof groupRealizedRoiByConfidence>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem bets resolvidas por confidence ainda.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--color-line-subtle)]">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-line-subtle)] text-[var(--color-ink-faint)]">
+            <Th>confidence</Th>
+            <Th className="num text-right">bets</Th>
+            <Th className="num text-right">won</Th>
+            <Th className="num text-right">P/L (R$)</Th>
+            <Th className="num text-right">win rate</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.confidence}
+              className="border-b border-[var(--color-line-subtle)] last:border-0"
+            >
+              <Td>{r.confidence}</Td>
+              <Td className="num text-right tabular-nums">{r.bets}</Td>
+              <Td className="num text-right tabular-nums">{r.won}</Td>
               <Td className="num text-right tabular-nums">
                 {`${r.totalPl >= 0 ? "+" : ""}${r.totalPl.toFixed(2)}`}
               </Td>

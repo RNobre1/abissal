@@ -188,6 +188,184 @@ export function groupAiRecoByConfidence(rows: AiRecoRow[]): ConfidenceRow[] {
   return CONFIDENCE_ORDER.map((c) => map.get(c)!).filter((r) => r.total > 0);
 }
 
+// ── ROI realizado (bets reais vinculadas via ai_recommendation_id, 0025) ─────
+
+/**
+ * Linha mínima da tabela `bets` JOIN `ai_recommendations` consumida pelas
+ * agregações de ROI realizado. Tudo escalar. PL é derivado de
+ * `status` + `total_stake` + `total_odds` (won: stake*(odd-1), lost: -stake,
+ * void: 0) — não do `actual_return` (que pode ter half_won etc).
+ *
+ * `league` e `confidence` vêm via JOIN com `ai_recommendations` (do lado
+ * da query SQL). Quando o JOIN não retorna a reco (purgada/SET NULL), ambos
+ * caem pra null e o fallback '(sem liga)' / ignore aplica.
+ */
+export interface RealizedBetRow {
+  id: string;
+  ai_recommendation_id: number | null;
+  house_id: string;
+  total_stake: number | string;
+  total_odds: number | string;
+  status:
+    | "pending"
+    | "won"
+    | "lost"
+    | "void"
+    | "cashed_out"
+    | "half_won"
+    | "half_lost"
+    | "partially_void";
+  actual_return: number | string | null;
+  league: string | null;
+  confidence: "alto" | "medio" | "baixo" | null;
+}
+
+export interface RealizedRoiSummary {
+  betCount: number;
+  resolvedCount: number;
+  won: number;
+  lost: number;
+  void: number;
+  totalStake: number;
+  totalPl: number;
+  winRate: number | null;
+  roi: number | null;
+}
+
+/**
+ * P/L para uma bet resolvida.
+ *   - won  → stake * (odd - 1)
+ *   - lost → -stake
+ *   - void → 0
+ * Status partial (half_won, cashed_out…) ficam fora do MVP — caem em 0 (PL
+ * neutro) pra não distorcer a métrica até termos UI/lógica pra cashout.
+ */
+function realizedPl(row: RealizedBetRow): number {
+  const stake = toNum(row.total_stake);
+  const odd = toNum(row.total_odds);
+  switch (row.status) {
+    case "won":
+      return stake * (odd - 1);
+    case "lost":
+      return -stake;
+    case "void":
+      return 0;
+    default:
+      return 0;
+  }
+}
+
+const RESOLVED_REALIZED_STATUSES: Set<RealizedBetRow["status"]> = new Set([
+  "won",
+  "lost",
+  "void",
+]);
+
+/**
+ * Agrega ROI realizado sobre bets que foram criadas via /api/ai-reco/apostei
+ * (têm ai_recommendation_id != null). Ignora bets pending no cálculo de
+ * resolvedCount/winRate/roi, mas conta no betCount pra mostrar penetração
+ * (quantas bets vinculadas existem no total).
+ */
+export function summarizeRealizedRoi(rows: RealizedBetRow[]): RealizedRoiSummary {
+  let betCount = 0;
+  let resolvedCount = 0;
+  let won = 0;
+  let lost = 0;
+  let voidCount = 0;
+  let totalStake = 0;
+  let totalPl = 0;
+  for (const r of rows) {
+    if (r.ai_recommendation_id == null) continue;
+    betCount += 1;
+    if (!RESOLVED_REALIZED_STATUSES.has(r.status)) continue;
+    resolvedCount += 1;
+    totalStake += toNum(r.total_stake);
+    totalPl += realizedPl(r);
+    if (r.status === "won") won += 1;
+    else if (r.status === "lost") lost += 1;
+    else if (r.status === "void") voidCount += 1;
+  }
+  const wlDenom = won + lost;
+  return {
+    betCount,
+    resolvedCount,
+    won,
+    lost,
+    void: voidCount,
+    totalStake,
+    totalPl,
+    winRate: wlDenom > 0 ? won / wlDenom : null,
+    roi: totalStake > 0 ? totalPl / totalStake : null,
+  };
+}
+
+export interface RealizedLeagueRow {
+  league: string;
+  bets: number;
+  won: number;
+  totalPl: number;
+  winRate: number | null;
+}
+
+export function groupRealizedRoiByLeague(
+  rows: RealizedBetRow[],
+): RealizedLeagueRow[] {
+  const map = new Map<string, RealizedLeagueRow>();
+  for (const r of rows) {
+    if (r.ai_recommendation_id == null) continue;
+    if (!RESOLVED_REALIZED_STATUSES.has(r.status)) continue;
+    const key = (r.league ?? "(sem liga)").trim() || "(sem liga)";
+    const entry =
+      map.get(key) ?? {
+        league: key,
+        bets: 0,
+        won: 0,
+        totalPl: 0,
+        winRate: null,
+      };
+    entry.bets += 1;
+    if (r.status === "won") entry.won += 1;
+    entry.totalPl += realizedPl(r);
+    map.set(key, entry);
+  }
+  for (const entry of map.values()) {
+    entry.winRate = entry.bets > 0 ? entry.won / entry.bets : null;
+  }
+  return Array.from(map.values()).sort((a, b) => b.bets - a.bets);
+}
+
+export interface RealizedConfidenceRow {
+  confidence: "alto" | "medio" | "baixo";
+  bets: number;
+  won: number;
+  totalPl: number;
+  winRate: number | null;
+}
+
+export function groupRealizedRoiByConfidence(
+  rows: RealizedBetRow[],
+): RealizedConfidenceRow[] {
+  const map = new Map<RealizedConfidenceRow["confidence"], RealizedConfidenceRow>();
+  for (const c of CONFIDENCE_ORDER) {
+    map.set(c, { confidence: c, bets: 0, won: 0, totalPl: 0, winRate: null });
+  }
+  for (const r of rows) {
+    if (r.ai_recommendation_id == null) continue;
+    if (!RESOLVED_REALIZED_STATUSES.has(r.status)) continue;
+    const c = r.confidence;
+    if (c !== "alto" && c !== "medio" && c !== "baixo") continue;
+    const entry = map.get(c)!;
+    entry.bets += 1;
+    if (r.status === "won") entry.won += 1;
+    entry.totalPl += realizedPl(r);
+  }
+  for (const entry of map.values()) {
+    entry.winRate = entry.bets > 0 ? entry.won / entry.bets : null;
+  }
+  return CONFIDENCE_ORDER.map((c) => map.get(c)!).filter((r) => r.bets > 0);
+}
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 function toNum(v: number | string | null | undefined): number {

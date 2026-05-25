@@ -4,7 +4,11 @@ import {
   brierAiReco,
   groupAiRecoByLeague,
   groupAiRecoByConfidence,
+  summarizeRealizedRoi,
+  groupRealizedRoiByLeague,
+  groupRealizedRoiByConfidence,
   type AiRecoRow,
+  type RealizedBetRow,
 } from "./ai-reco-metrics";
 
 function row(over: Partial<AiRecoRow> = {}): AiRecoRow {
@@ -200,5 +204,146 @@ describe("groupAiRecoByConfidence", () => {
     const medio = out.find((r) => r.confidence === "medio")!;
     expect(medio.winRate).toBe(0);
     expect(medio.totalPl).toBe(-1);
+  });
+});
+
+// ── ROI realizado (bets reais vinculadas a recos via 0025) ────────────────────
+
+function betRow(over: Partial<RealizedBetRow> = {}): RealizedBetRow {
+  return {
+    id: "bet-1",
+    ai_recommendation_id: 1,
+    house_id: "house-1",
+    total_stake: 21,
+    total_odds: 2.0,
+    status: "won",
+    actual_return: 42,
+    league: "Premier League",
+    confidence: "alto",
+    ...over,
+  };
+}
+
+describe("summarizeRealizedRoi", () => {
+  it("retorna zeros sem bets", () => {
+    const s = summarizeRealizedRoi([]);
+    expect(s).toEqual({
+      betCount: 0,
+      resolvedCount: 0,
+      won: 0,
+      lost: 0,
+      void: 0,
+      totalStake: 0,
+      totalPl: 0,
+      winRate: null,
+      roi: null,
+    });
+  });
+
+  it("ignora bets sem ai_recommendation_id", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ id: "a", ai_recommendation_id: null, status: "won" }),
+      betRow({ id: "b", ai_recommendation_id: 7, status: "won" }),
+    ]);
+    expect(s.betCount).toBe(1);
+  });
+
+  it("ignora bets ainda pending no resolvedCount mas conta no betCount", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ id: "a", status: "pending", actual_return: null }),
+      betRow({ id: "b", status: "won", actual_return: 42 }),
+    ]);
+    expect(s.betCount).toBe(2);
+    expect(s.resolvedCount).toBe(1);
+    expect(s.won).toBe(1);
+  });
+
+  it("calcula PL corretamente: won = stake * (odd - 1)", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ status: "won", total_stake: 21, total_odds: 2.0 }),
+    ]);
+    expect(s.totalPl).toBe(21);
+  });
+
+  it("calcula PL corretamente: lost = -stake", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ status: "lost", total_stake: 21, total_odds: 2.0 }),
+    ]);
+    expect(s.totalPl).toBe(-21);
+  });
+
+  it("calcula PL corretamente: void = 0", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ status: "void", total_stake: 21, total_odds: 2.0 }),
+    ]);
+    expect(s.totalPl).toBe(0);
+    expect(s.void).toBe(1);
+  });
+
+  it("calcula winRate sobre bets resolvidas (sem void no denominador)", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ id: "a", status: "won", total_stake: 21, total_odds: 2.0 }),
+      betRow({ id: "b", status: "lost", total_stake: 21, total_odds: 2.0 }),
+      betRow({ id: "c", status: "void", total_stake: 21, total_odds: 2.0 }),
+    ]);
+    expect(s.won).toBe(1);
+    expect(s.lost).toBe(1);
+    expect(s.void).toBe(1);
+    expect(s.winRate).toBe(0.5);
+  });
+
+  it("calcula ROI = totalPl / totalStake", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ id: "a", status: "won", total_stake: 21, total_odds: 2.0 }),
+      betRow({ id: "b", status: "lost", total_stake: 21, total_odds: 2.0 }),
+    ]);
+    expect(s.totalStake).toBe(42);
+    expect(s.roi).toBe(0);
+  });
+
+  it("coerce numeric vindo como string (PostgREST)", () => {
+    const s = summarizeRealizedRoi([
+      betRow({ status: "won", total_stake: "21.00", total_odds: "2.10" }),
+    ]);
+    expect(s.totalPl).toBeCloseTo(23.1, 5);
+  });
+});
+
+describe("groupRealizedRoiByLeague", () => {
+  it("agrupa bets por liga (da reco) e ordena por volume", () => {
+    const out = groupRealizedRoiByLeague([
+      betRow({ id: "a", league: "Premier League", status: "won", total_stake: 21, total_odds: 2.0 }),
+      betRow({ id: "b", league: "Premier League", status: "lost", total_stake: 21, total_odds: 2.0 }),
+      betRow({ id: "c", league: "La Liga", status: "won", total_stake: 21, total_odds: 1.8 }),
+    ]);
+    expect(out[0].league).toBe("Premier League");
+    expect(out[0].bets).toBe(2);
+    expect(out[0].won).toBe(1);
+    expect(out[0].totalPl).toBe(0);
+    expect(out[1].league).toBe("La Liga");
+  });
+
+  it("fallback '(sem liga)' quando league é null", () => {
+    const out = groupRealizedRoiByLeague([
+      betRow({ league: null, status: "won" }),
+    ]);
+    expect(out[0].league).toBe("(sem liga)");
+  });
+});
+
+describe("groupRealizedRoiByConfidence", () => {
+  it("agrupa bets por confidence (alto/medio/baixo) preservando ordem", () => {
+    const out = groupRealizedRoiByConfidence([
+      betRow({ id: "a", confidence: "alto", status: "won", total_stake: 21, total_odds: 2.0 }),
+      betRow({ id: "b", confidence: "baixo", status: "lost", total_stake: 21, total_odds: 2.0 }),
+    ]);
+    expect(out.map((r) => r.confidence)).toEqual(["alto", "baixo"]);
+  });
+
+  it("ignora bets com confidence desconhecido / null", () => {
+    const out = groupRealizedRoiByConfidence([
+      betRow({ confidence: null }),
+    ]);
+    expect(out).toEqual([]);
   });
 });

@@ -410,12 +410,12 @@ describe("<AiRecoPanel> feedback loop — bet card", () => {
     expect(container.querySelector("[data-feedback-comment]")).not.toBeNull();
   });
 
-  it("clicking 'Apostei' POSTs to /api/ai-reco/feedback with the right payload", async () => {
-    const fetchMock = vi
-      .spyOn(global, "fetch")
-      .mockResolvedValue(
-        new Response(JSON.stringify({ id: 99 }), { status: 200 }),
-      );
+  it("A2: clicking 'Apostei' opens the confirmation modal (no direct POST to /feedback)", async () => {
+    // Após A2, clicar "Apostei" abre o modal "Apostei essa reco" em vez
+    // de POSTar /api/ai-reco/feedback direto. O POST agora vai pra
+    // /api/ai-reco/apostei a partir do Confirmar do modal — coberto pelos
+    // testes da seção "A2 - Apostei modal flow" abaixo.
+    const fetchMock = vi.spyOn(global, "fetch");
 
     const { container } = render(
       <AiRecoPanel
@@ -432,13 +432,8 @@ describe("<AiRecoPanel> feedback loop — bet card", () => {
     expect(betBtn).not.toBeNull();
     fireEvent.click(betBtn);
 
-    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/api/ai-reco/feedback");
-    expect(init.method).toBe("POST");
-    const body = JSON.parse(init.body as string) as Record<string, unknown>;
-    expect(body.aiRecommendationId).toBe(7);
-    expect(body.userDecision).toBe("bet");
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(container.querySelector("[data-apostei-modal]")).not.toBeNull();
   });
 
   it("after a successful POST the clicked button is marked as saved (aria-pressed)", async () => {
@@ -519,5 +514,156 @@ describe("<AiRecoPanel> feedback loop — skip card", () => {
     expect(
       container.querySelector("[data-feedback-button='no_bet']"),
     ).not.toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A2 — "Apostei" abre modal de confirmação (não POST direto)
+// Migration 0025: bets.ai_recommendation_id ligado.
+// ---------------------------------------------------------------------------
+
+describe('<AiRecoPanel> "Apostei" modal flow (A2)', () => {
+  const houses = [
+    { id: "house-bet365", name: "Bet365" },
+    { id: "house-novibet", name: "Novibet" },
+  ];
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('clicar "Apostei" não POSTa direto — abre modal de confirmação', async () => {
+    const fetchMock = vi.spyOn(global, "fetch");
+
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7, odd_captured: 2.1, units_final: 1.5 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+        houses={houses}
+      />,
+    );
+    const betBtn = container.querySelector(
+      "[data-feedback-button='bet']",
+    ) as HTMLButtonElement;
+    fireEvent.click(betBtn);
+
+    const modal = container.querySelector("[data-apostei-modal]");
+    expect(modal).not.toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("modal tem dropdown de casas + campos editáveis de odd e stake", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7, odd_captured: 2.1, units_final: 1.5 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+        houses={houses}
+      />,
+    );
+    fireEvent.click(
+      container.querySelector("[data-feedback-button='bet']") as HTMLButtonElement,
+    );
+    expect(container.querySelector("[data-apostei-house]")).not.toBeNull();
+    expect(container.querySelector("[data-apostei-odd]")).not.toBeNull();
+    expect(container.querySelector("[data-apostei-stake]")).not.toBeNull();
+  });
+
+  it("Confirmar POSTa pra /api/ai-reco/apostei com payload correto", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify({ betId: "bet-uuid-1", aiRecommendationId: 7 }),
+          { status: 200 },
+        ),
+      );
+
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7, odd_captured: 2.1, units_final: 1.5 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+        houses={houses}
+      />,
+    );
+    fireEvent.click(
+      container.querySelector("[data-feedback-button='bet']") as HTMLButtonElement,
+    );
+    const confirmBtn = container.querySelector(
+      "[data-apostei-confirm]",
+    ) as HTMLButtonElement;
+    fireEvent.click(confirmBtn);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/ai-reco/apostei");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.aiRecommendationId).toBe(7);
+    expect(body.houseId).toBe("house-bet365");
+    expect(body.odd).toBe(2.1);
+    expect(typeof body.stake).toBe("number");
+    expect(body.stake as number).toBeGreaterThan(0);
+  });
+
+  it("Cancelar fecha o modal sem POST", () => {
+    const fetchMock = vi.spyOn(global, "fetch");
+
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+        houses={houses}
+      />,
+    );
+    fireEvent.click(
+      container.querySelector("[data-feedback-button='bet']") as HTMLButtonElement,
+    );
+    const cancelBtn = container.querySelector(
+      "[data-apostei-cancel]",
+    ) as HTMLButtonElement;
+    fireEvent.click(cancelBtn);
+    expect(container.querySelector("[data-apostei-modal]")).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("renderiza estado linked quando reco tem bet vinculada (linkedBet prop)", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+        houses={houses}
+        linkedBet={{
+          id: "bet-uuid-existing",
+          total_stake: 21,
+          total_odds: 2.1,
+          house_name: "Bet365",
+          status: "pending",
+        }}
+      />,
+    );
+    const linked = container.querySelector("[data-apostei-linked]");
+    expect(linked).not.toBeNull();
+    const text = linked!.textContent ?? "";
+    expect(text).toMatch(/Bet365/);
+    expect(text).toMatch(/2\.10|2,10/);
+    expect(text).toMatch(/21\.00|21,00/);
+    expect(
+      container.querySelector("[data-feedback-button='bet']"),
+    ).toBeNull();
   });
 });

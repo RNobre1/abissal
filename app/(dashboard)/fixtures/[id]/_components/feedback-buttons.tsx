@@ -35,6 +35,13 @@ interface FeedbackButtonsProps {
   aiRecommendationId: number;
   /** Decisions já registradas — usadas pra realçar botões ativos. */
   existingDecisions?: Decision[];
+  /**
+   * A2: callback invocado quando o usuário clica "✅ Apostei". Em vez de
+   * POSTar diretamente em /api/ai-reco/feedback, abre o modal de
+   * confirmação (casa + stake + odd). Se não fornecido, o botão "bet"
+   * mantém o comportamento legado de feedback simples.
+   */
+  onOpenApostei?: () => void;
 }
 
 interface ButtonConfig {
@@ -54,6 +61,7 @@ const BUTTONS: ButtonConfig[] = [
 export function FeedbackButtons({
   aiRecommendationId,
   existingDecisions = [],
+  onOpenApostei,
 }: FeedbackButtonsProps) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -67,6 +75,13 @@ export function FeedbackButtons({
   );
 
   async function send(decision: Decision) {
+    // A2: intercepta "bet" — abre o modal de confirmação em vez de POSTar
+    // direto. O modal cria a bet no ledger e marca o feedback como 'bet'
+    // server-side, então NÃO chamamos /feedback aqui pra evitar duplicar.
+    if (decision === "bet" && onOpenApostei) {
+      onOpenApostei();
+      return;
+    }
     setError(null);
     setSubmittingDecision(decision);
     try {

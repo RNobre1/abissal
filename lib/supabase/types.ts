@@ -239,6 +239,7 @@ export type Database = {
       bets: {
         Row: {
           actual_return: number | null
+          ai_recommendation_id: number | null
           created_at: string | null
           expected_return: number
           house_id: string
@@ -256,6 +257,7 @@ export type Database = {
         }
         Insert: {
           actual_return?: number | null
+          ai_recommendation_id?: number | null
           created_at?: string | null
           expected_return: number
           house_id: string
@@ -273,6 +275,7 @@ export type Database = {
         }
         Update: {
           actual_return?: number | null
+          ai_recommendation_id?: number | null
           created_at?: string | null
           expected_return?: number
           house_id?: string
