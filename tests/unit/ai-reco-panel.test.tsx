@@ -10,9 +10,10 @@
  * we just assert the button is present and accessible in the "none" state.
  */
 import "@testing-library/jest-dom/vitest";
-import { describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import type { AiRecommendationDTO } from "@/lib/ai-reco/reco-repository";
+import type { AiRecoFeedbackDTO } from "@/lib/ai-reco/feedback-repository";
 
 // Stub the client OnDemandButton so the test stays a unit render and does
 // not pull next/navigation's router hooks during SSR-style render.
@@ -26,6 +27,11 @@ vi.mock(
     ),
   }),
 );
+
+// next/navigation router stub for FeedbackButtons (which calls router.refresh()).
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: () => {} }),
+}));
 
 import { AiRecoPanel } from "@/app/(dashboard)/fixtures/[id]/_components/ai-reco-panel";
 
@@ -329,5 +335,189 @@ describe("<AiRecoPanel> - state C (no reco)", () => {
     );
     expect(screen.getByTestId("on-demand-stub")).toBeInTheDocument();
     expect(screen.getByText(/pedir analise IA \(#19427226\)/)).toBeInTheDocument();
+  });
+
+  it("does NOT render feedback buttons in state C (no reco yet)", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={null}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+      />,
+    );
+    expect(
+      container.querySelector("[data-feedback-button='agree']"),
+    ).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Feedback loop (states A + B): 4 buttons + textarea
+// ---------------------------------------------------------------------------
+
+function feedbackRow(over: Partial<AiRecoFeedbackDTO> = {}): AiRecoFeedbackDTO {
+  return {
+    id: 1,
+    ai_recommendation_id: 7,
+    user_decision: "agree",
+    comment: null,
+    created_at: "2026-05-25T10:00:00Z",
+    updated_at: "2026-05-25T10:00:00Z",
+    ...over,
+  };
+}
+
+describe("<AiRecoPanel> feedback loop — bet card", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("renders all 4 feedback buttons when reco is a bet and no feedback yet", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco()}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+      />,
+    );
+    expect(
+      container.querySelector("[data-feedback-button='agree']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-feedback-button='disagree']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-feedback-button='bet']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-feedback-button='no_bet']"),
+    ).not.toBeNull();
+  });
+
+  it("renders the optional comment textarea", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco()}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+      />,
+    );
+    expect(container.querySelector("[data-feedback-comment]")).not.toBeNull();
+  });
+
+  it("clicking 'Apostei' POSTs to /api/ai-reco/feedback with the right payload", async () => {
+    const fetchMock = vi
+      .spyOn(global, "fetch")
+      .mockResolvedValue(
+        new Response(JSON.stringify({ id: 99 }), { status: 200 }),
+      );
+
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+      />,
+    );
+    const betBtn = container.querySelector(
+      "[data-feedback-button='bet']",
+    ) as HTMLButtonElement;
+    expect(betBtn).not.toBeNull();
+    fireEvent.click(betBtn);
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/ai-reco/feedback");
+    expect(init.method).toBe("POST");
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.aiRecommendationId).toBe(7);
+    expect(body.userDecision).toBe("bet");
+  });
+
+  it("after a successful POST the clicked button is marked as saved (aria-pressed)", async () => {
+    vi.spyOn(global, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ id: 99 }), { status: 200 }),
+    );
+
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+      />,
+    );
+    const agreeBtn = container.querySelector(
+      "[data-feedback-button='agree']",
+    ) as HTMLButtonElement;
+    fireEvent.click(agreeBtn);
+
+    await waitFor(() => {
+      expect(agreeBtn.getAttribute("data-feedback-saved")).toBe("true");
+    });
+    expect(agreeBtn.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("renders an active state for pre-existing feedback (passed via SSR prop)", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[feedbackRow({ user_decision: "bet" })]}
+      />,
+    );
+    const betBtn = container.querySelector(
+      "[data-feedback-button='bet']",
+    ) as HTMLButtonElement;
+    expect(betBtn.getAttribute("data-feedback-saved")).toBe("true");
+  });
+
+  it("renders the feedback summary block when feedback exists", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={betReco({ id: 7 })}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[feedbackRow({ user_decision: "bet", comment: "valeu" })]}
+      />,
+    );
+    expect(screen.getByText(/Feedback humano registrado/)).toBeInTheDocument();
+    const summaryRow = container.querySelector(
+      "[data-feedback-saved-row='bet']",
+    );
+    expect(summaryRow).not.toBeNull();
+    expect(summaryRow!.textContent).toMatch(/Apostei/);
+    expect(summaryRow!.textContent).toMatch(/valeu/);
+  });
+});
+
+describe("<AiRecoPanel> feedback loop — skip card", () => {
+  it("renders feedback buttons in the skip state too", () => {
+    const { container } = render(
+      <AiRecoPanel
+        reco={skipReco()}
+        fixtureId={19427226}
+        homeTeam="Liverpool"
+        awayTeam="Tottenham"
+        feedback={[]}
+      />,
+    );
+    expect(
+      container.querySelector("[data-feedback-button='agree']"),
+    ).not.toBeNull();
+    expect(
+      container.querySelector("[data-feedback-button='no_bet']"),
+    ).not.toBeNull();
   });
 });

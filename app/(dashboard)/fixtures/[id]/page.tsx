@@ -47,6 +47,7 @@ import { Players } from "@/components/fixtures/stats/panels/players";
 import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-browser";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
+import { getFeedbackForReco } from "@/lib/ai-reco/feedback-repository";
 import { SimulationPanel } from "./_components/simulation-panel";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
 import { AiRecoPanel } from "./_components/ai-reco-panel";
@@ -243,6 +244,12 @@ export default async function StatsPage({ params }: StatsPageProps) {
   // the "pedir análise IA" on-demand call-to-action.
   const aiReco = await fetchAiReco(row.source_url, untyped);
 
+  // Feedback humano associado a esta reco (migration 0024_ai_reco_feedback).
+  // Vazio quando `aiReco === null` (nada pra dar feedback), quando a tabela
+  // não existe ainda em prod, ou quando o usuário ainda não interagiu.
+  const aiFeedback =
+    aiReco !== null ? await getFeedbackForReco(aiReco.id, untyped) : [];
+
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
   const panels = buildPanels(
     detail,
@@ -250,6 +257,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
     row.away_team,
     sim,
     aiReco,
+    aiFeedback,
     row.id,
   );
 
@@ -333,6 +341,7 @@ function buildPanels(
   awayTeam: string,
   sim: Awaited<ReturnType<typeof getFixtureSimulation>>,
   aiReco: Awaited<ReturnType<typeof getRecommendationForFixture>>,
+  aiFeedback: Awaited<ReturnType<typeof getFeedbackForReco>>,
   fixtureId: number,
 ): PanelSlot[] {
   const simDegraded = !sim || sim.status === "unsimulable";
@@ -363,6 +372,7 @@ function buildPanels(
         fixtureId={fixtureId}
         homeTeam={homeTeam}
         awayTeam={awayTeam}
+        feedback={aiFeedback}
       />
     ),
   };

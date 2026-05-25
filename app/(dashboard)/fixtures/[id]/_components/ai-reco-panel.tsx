@@ -1,5 +1,10 @@
 import type { AiRecommendationDTO } from "@/lib/ai-reco/reco-repository";
+import type {
+  AiRecoFeedbackDTO,
+  UserDecision,
+} from "@/lib/ai-reco/feedback-repository";
 import { OnDemandButton } from "./on-demand-button";
+import { FeedbackButtons } from "./feedback-buttons";
 
 /**
  * AiRecoPanel — inline IA recommendation surface on /fixtures/[id] (spec §7.1).
@@ -8,8 +13,10 @@ import { OnDemandButton } from "./on-demand-button";
  * `getRecommendationForFixture` server-side and renders one of three states:
  *
  *  A. verdict='bet'  — full card with summary line, edge/kelly/units math,
- *                      reasoning, red flags and a model+cost footer.
- *  B. verdict='skip' — minimal card with "IA não vê valor" + reasoning.
+ *                      reasoning, red flags, model+cost footer e os 4 botões
+ *                      de feedback humano (loop concordo/discordo/apostei/não).
+ *  B. verdict='skip' — minimal card with "IA não vê valor" + reasoning + idem
+ *                      4 botões de feedback humano.
  *  C. reco === null  — call-to-action that mounts the client OnDemandButton.
  *
  * B17 NOTE: this panel renders its own `<section>` with the `card` chrome
@@ -23,6 +30,11 @@ interface AiRecoPanelProps {
   fixtureId: number;
   homeTeam: string;
   awayTeam: string;
+  /**
+   * Linhas existentes em `ai_reco_feedback` para este reco. Vazio se ainda
+   * não houve feedback ou se a leitura degradou (tabela ausente, etc.).
+   */
+  feedback?: AiRecoFeedbackDTO[];
 }
 
 function fmtNumber(v: number | null, digits = 1): string | null {
@@ -35,11 +47,59 @@ function fmtCost(v: number | null): string {
   return `$${v.toFixed(4)}`;
 }
 
+function existingDecisions(
+  feedback: AiRecoFeedbackDTO[] | undefined,
+): UserDecision[] {
+  if (!feedback || feedback.length === 0) return [];
+  return feedback.map((f) => f.user_decision);
+}
+
+function feedbackFooter(feedback: AiRecoFeedbackDTO[] | undefined) {
+  if (!feedback || feedback.length === 0) return null;
+  const latestComment = feedback.find(
+    (f) => typeof f.comment === "string" && f.comment.trim().length > 0,
+  )?.comment;
+  return (
+    <div
+      data-feedback-summary
+      className="label flex flex-col gap-1 text-[var(--color-ink-muted)]"
+    >
+      <div className="font-semibold text-[var(--color-ink)]">
+        Feedback humano registrado:
+      </div>
+      <ul className="flex flex-col gap-0.5">
+        {feedback.map((f) => (
+          <li key={f.id} data-feedback-saved-row={f.user_decision}>
+            • {decisionLabel(f.user_decision)}
+            {f.comment ? ` — "${f.comment}"` : ""}
+          </li>
+        ))}
+      </ul>
+      {/* surface most recent comment outside the list as well for screen-readers */}
+      <span className="sr-only">{latestComment ?? ""}</span>
+    </div>
+  );
+}
+
+function decisionLabel(d: UserDecision): string {
+  switch (d) {
+    case "agree":
+      return "Concordo";
+    case "disagree":
+      return "Discordo";
+    case "bet":
+      return "Apostei";
+    case "no_bet":
+      return "Não apostei";
+  }
+}
+
 export function AiRecoPanel({
   reco,
   fixtureId,
   homeTeam,
   awayTeam,
+  feedback,
 }: AiRecoPanelProps) {
   if (reco === null) {
     return (
@@ -83,6 +143,11 @@ export function AiRecoPanel({
         <p className="text-sm text-[var(--color-ink-muted)]">
           {reco.reasoning_full ?? "Nenhum mercado com edge >= 5%."}
         </p>
+        {feedbackFooter(feedback)}
+        <FeedbackButtons
+          aiRecommendationId={reco.id}
+          existingDecisions={existingDecisions(feedback)}
+        />
       </section>
     );
   }
@@ -145,6 +210,12 @@ export function AiRecoPanel({
         · prompt {reco.prompt_version ?? "—"} · {fmtCost(reco.cost_usd)} ·{" "}
         {calibrationLabel}
       </footer>
+
+      {feedbackFooter(feedback)}
+      <FeedbackButtons
+        aiRecommendationId={reco.id}
+        existingDecisions={existingDecisions(feedback)}
+      />
     </section>
   );
 }
