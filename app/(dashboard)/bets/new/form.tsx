@@ -10,11 +10,17 @@ import { placeBetAction, type PlaceBetState } from "../actions";
 
 const initial: PlaceBetState = {};
 
+type Sport = { id: string; name: string };
+type Market = { id: string; name: string; sport_id?: string | null };
+
 type Leg = {
   event_label: string;
   selection_label: string;
   odds: string;
   event_date: string;
+  sport_id: string;
+  market_id: string;
+  league: string;
 };
 
 const emptyLeg = (): Leg => ({
@@ -22,6 +28,9 @@ const emptyLeg = (): Leg => ({
   selection_label: "",
   odds: "",
   event_date: "",
+  sport_id: "",
+  market_id: "",
+  league: "",
 });
 
 function parseBR(v: string): number {
@@ -33,9 +42,15 @@ function parseBR(v: string): number {
 export function PlaceBetForm({
   houses,
   defaultPlacedAt,
+  sports = [],
+  markets = [],
+  leagues = [],
 }: {
   houses: { id: string; name: string }[];
   defaultPlacedAt: string;
+  sports?: Sport[];
+  markets?: Market[];
+  leagues?: string[];
 }) {
   const [state, action, pending] = useActionState(placeBetAction, initial);
   const [kind, setKind] = useState<"single" | "multiple">(
@@ -83,6 +98,9 @@ export function PlaceBetForm({
     Number.isFinite(stakeNum) && stakeNum > 0 && totalOdds > 0
       ? stakeNum * totalOdds
       : 0;
+
+  // leagues datalist id
+  const leaguesListId = "leagues-datalist";
 
   return (
     <form action={action} className="card flex flex-col gap-6 p-6">
@@ -140,6 +158,15 @@ export function PlaceBetForm({
           defaultValue={state.values?.placed_at ?? defaultPlacedAt}
         />
       </Field>
+
+      {/* Leagues datalist for autocomplete */}
+      {leagues.length > 0 && (
+        <datalist id={leaguesListId}>
+          {leagues.map((lg) => (
+            <option key={lg} value={lg} />
+          ))}
+        </datalist>
+      )}
 
       <section className="flex flex-col gap-4">
         <header className="flex items-baseline justify-between">
@@ -211,6 +238,62 @@ export function PlaceBetForm({
                   value={leg.event_date}
                   onChange={(e) => updateLeg(i, { event_date: e.target.value })}
                 />
+              </div>
+
+              {/* Sport / Market / League row */}
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {sports.length > 0 && (
+                  <Field label="esporte" htmlFor={`sport_id_${i}`}>
+                    <Select
+                      id={`sport_id_${i}`}
+                      name="sport_id"
+                      value={leg.sport_id}
+                      onChange={(e) => {
+                        updateLeg(i, { sport_id: e.target.value, market_id: "" });
+                      }}
+                    >
+                      <option value="">— esporte —</option>
+                      {sports.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </Select>
+                  </Field>
+                )}
+
+                {markets.length > 0 && (
+                  <Field label="mercado" htmlFor={`market_id_${i}`}>
+                    <Select
+                      id={`market_id_${i}`}
+                      name="market_id"
+                      value={leg.market_id}
+                      onChange={(e) => updateLeg(i, { market_id: e.target.value })}
+                    >
+                      <option value="">— mercado —</option>
+                      {markets
+                        .filter(
+                          (m) => !leg.sport_id || !m.sport_id || m.sport_id === leg.sport_id,
+                        )
+                        .map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.name}
+                          </option>
+                        ))}
+                    </Select>
+                  </Field>
+                )}
+
+                <Field label="liga" htmlFor={`league_${i}`}>
+                  <Input
+                    id={`league_${i}`}
+                    name="league"
+                    placeholder="ex.: Premier League"
+                    list={leagues.length > 0 ? leaguesListId : undefined}
+                    value={leg.league}
+                    onChange={(e) => updateLeg(i, { league: e.target.value })}
+                  />
+                </Field>
               </div>
             </li>
           ))}

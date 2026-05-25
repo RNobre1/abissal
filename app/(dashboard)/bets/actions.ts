@@ -37,6 +37,9 @@ const selectionSchema = z.object({
   selection_label: z.string().trim().min(1, "seleção obrigatória").max(200),
   odds: numFromBR.pipe(z.number().min(1.01, "odd mínima 1.01").max(10000)),
   event_date: z.string().optional(),
+  sport_id: z.string().optional(),
+  market_id: z.string().optional(),
+  league: z.string().max(200).optional(),
 });
 
 const placeSchema = z.object({
@@ -63,12 +66,18 @@ export async function placeBetAction(
   const selectionLabels = formData.getAll("selection_label").map(String);
   const oddsRaw = formData.getAll("odds").map(String);
   const eventDates = formData.getAll("event_date").map(String);
+  const sportIds = formData.getAll("sport_id").map(String);
+  const marketIds = formData.getAll("market_id").map(String);
+  const leagues = formData.getAll("league").map(String);
 
   const legs = eventLabels.map((event_label, i) => ({
     event_label,
     selection_label: selectionLabels[i] ?? "",
     odds: oddsRaw[i] ?? "",
     event_date: eventDates[i] ?? "",
+    sport_id: sportIds[i] ?? "",
+    market_id: marketIds[i] ?? "",
+    league: leagues[i] ?? "",
   }));
 
   const raw = {
@@ -122,6 +131,9 @@ export async function placeBetAction(
       selection_label: s.selection_label,
       odds: s.odds,
       event_date: s.event_date ? new Date(s.event_date).toISOString() : null,
+      sport_id: s.sport_id || null,
+      market_id: s.market_id || null,
+      league: s.league || null,
     })),
   };
 

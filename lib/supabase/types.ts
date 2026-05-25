@@ -176,6 +176,7 @@ export type Database = {
           event_date: string | null
           event_label: string
           id: string
+          league: string | null
           market_id: string | null
           odds: number
           position_index: number
@@ -190,6 +191,7 @@ export type Database = {
           event_date?: string | null
           event_label: string
           id?: string
+          league?: string | null
           market_id?: string | null
           odds: number
           position_index?: number
@@ -204,6 +206,7 @@ export type Database = {
           event_date?: string | null
           event_label?: string
           id?: string
+          league?: string | null
           market_id?: string | null
           odds?: number
           position_index?: number
