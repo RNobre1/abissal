@@ -41,3 +41,18 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/fit-isotonic.ts
+
+      # Healthchecks.io ping opcional — silencioso se o secret não estiver
+      # configurado. Step roda fora do shell normal pra evitar `-e {0}` cortar
+      # o `if:` (env só populado quando o secret existe).
+      - name: Ping healthchecks (success)
+        if: success() && env.HEALTHCHECKS_CALIBRATE_URL != ''
+        env:
+          HEALTHCHECKS_CALIBRATE_URL: ${{ secrets.HEALTHCHECKS_CALIBRATE_URL }}
+        run: curl -fsS --retry 3 "$HEALTHCHECKS_CALIBRATE_URL" || true
+
+      - name: Ping healthchecks (fail)
+        if: failure() && env.HEALTHCHECKS_CALIBRATE_URL != ''
+        env:
+          HEALTHCHECKS_CALIBRATE_URL: ${{ secrets.HEALTHCHECKS_CALIBRATE_URL }}
+        run: curl -fsS --retry 3 "${HEALTHCHECKS_CALIBRATE_URL}/fail" || true

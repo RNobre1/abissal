@@ -71,6 +71,7 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 **Hospedagem:**
 - Cloudflare Worker `abissal` (custom domain `abissal.rnobre.dev`) built from Next.js via OpenNext (`@opennextjs/cloudflare`).
 - Daily scraper: GitHub Actions cron (`.github/workflows/scrape-daily.yml`), runs at 07:00 BRT (10:00 UTC), populates Supabase via the pooler URL.
+- Monthly calibration: GitHub Actions cron (`.github/workflows/calibracao-monthly.yml`), runs day 5 at 08:00 UTC. Refita parâmetros por liga (`scripts/calibracao/fit-league-parameters.ts`, todas as ligas com `n≥20` resolvidas) e a calibração isotônica IA (`scripts/calibracao/fit-isotonic.ts`). Trigger manual: `gh workflow run calibracao-monthly.yml -R RNobre1/abissal` (ou via web UI). Localmente: `pnpm exec tsx scripts/calibracao/fit-league-parameters.ts`. Secrets exigidos: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (server-only, bypassa RLS); `HEALTHCHECKS_CALIBRATE_URL` é opcional (steps `if: env != ''` ficam idle se ausente).
 - Backup: Supabase free tier already keeps a 7-day rolling backup. Additional `pg_dump` would require Pro.
 
 ## Environment variables
@@ -145,7 +146,8 @@ abissal/
 └── .github/workflows/
     ├── ci.yml                           # lint + typecheck + tests + next build
     ├── deploy.yml                       # opennextjs-cloudflare build + wrangler deploy
-    └── scrape-daily.yml                 # cron 10:00 UTC (07:00 BRT) + workflow_dispatch
+    ├── scrape-daily.yml                 # cron 10:00 UTC (07:00 BRT) + workflow_dispatch
+    └── calibracao-monthly.yml           # cron 08:00 UTC dia 5 — fit-league-parameters + fit-isotonic
 ```
 
 **Naming conventions:**
