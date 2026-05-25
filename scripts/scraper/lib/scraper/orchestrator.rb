@@ -12,6 +12,8 @@ require_relative 'league_baseline'
 require_relative 'playwright_session'
 require_relative 'prediction_reconciler'
 require_relative 'simulation_reconciler'
+require_relative 'ai_recommendation_reconciler'
+require_relative 'ai_recommender_runner'
 require_relative 'simulation/runner'
 require_relative 'simulation/league_calibration'
 require_relative 'uk_time_helper'
@@ -398,6 +400,18 @@ module AdamStats
           logger.call("[scrape] sim-reconciler failed (non-fatal): #{e.class}: #{e.message}")
         end
 
+        # Reconcilia recomendações IA (ai_recommendations) pendentes pré-purga:
+        # busca placar final via choistats e calcula bet_won + pl_units por
+        # mercado/lado. Idêntico em ergonomia ao SimulationReconciler — Lição #18
+        # reconciler é OBRIGATÓRIO no pipeline, senão histórico fica permanente
+        # pending e métricas de ROI quebram.
+        begin
+          ai_reco_recon_stats = AiRecommendationReconciler.new(logger: logger).run
+          logger.call("[scrape] ai-reco-reconciler: #{ai_reco_recon_stats.inspect}")
+        rescue StandardError => e
+          logger.call("[scrape] ai-reco-reconciler failed (non-fatal): #{e.class}: #{e.message}")
+        end
+
         deleted = repo.purge_older_than(retention_days)
         # Recompute league baselines após o batch — agrega trends de todas as
         # fixtures atualmente armazenadas. Não trava o pipeline se falhar.
@@ -406,6 +420,17 @@ module AdamStats
         rescue StandardError => e
           logger.call("[scrape] baseline recompute failed: #{e.class}: #{e.message}")
         end
+
+        # AI Recommender — roda no FINAL (após reconciliação + baseline):
+        # itera fixtures upcoming com sim ativa + odds, calcula edge,
+        # chama IA quando edge >= 5%, persiste em ai_recommendations +
+        # llm_request_logs. Não-fatal: erro global não derruba o scrape.
+        begin
+          AiRecommenderRunner.new(logger: logger).run
+        rescue StandardError => e
+          logger.call("[scrape] ai-recommender failed (non-fatal): #{e.class}: #{e.message}")
+        end
+
         run_stats = RunStats.new(
           fetched: parsed.size,
           persisted_inserted: stats.inserted,

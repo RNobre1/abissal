@@ -15,8 +15,12 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
   before(:each) do
     safe_pred = double('pred_reconciler_default', run: { resolved: 0, pending: 0, unresolvable: 0 })
     safe_sim  = double('sim_reconciler_default',  run: { resolved: 0, pending: 0, unresolvable: 0 })
+    safe_ai_recon = double('ai_reco_reconciler_default', run: { resolved: 0, pending: 0, unresolvable: 0 })
+    safe_ai_run   = double('ai_recommender_default',     run: nil)
     allow(AdamStats::Scraper::PredictionReconciler).to receive(:new).and_return(safe_pred)
     allow(AdamStats::Scraper::SimulationReconciler).to receive(:new).and_return(safe_sim)
+    allow(AdamStats::Scraper::AiRecommendationReconciler).to receive(:new).and_return(safe_ai_recon)
+    allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(safe_ai_run)
   end
 
   let(:list_html) { '<html>list</html>' }
@@ -1045,6 +1049,114 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
 
       # Logger registers a non-fatal message mentioning the reconciler.
       expect(logged.any? { |m| m.match?(/sim-reconciler/i) && m.include?('non-fatal') }).to be(true)
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # AiRecommendationReconciler — Wave 2 do IA-2 Recomendador.
+  # Espelha o teste do SimulationReconciler — wire + ordering + rescue isolado.
+  # ────────────────────────────────────────────────────────────────────────────
+  describe '.run (AiRecommendationReconciler — wired no pipeline diário)' do
+    it 'invokes AiRecommendationReconciler#run exatamente uma vez no scrape diário' do
+      deps = build_deps
+      fake_recon = double('ai_reco_reconciler')
+      expect(fake_recon).to receive(:run).once.and_return(resolved: 0, pending: 0, unresolvable: 0)
+      expect(AdamStats::Scraper::AiRecommendationReconciler).to receive(:new)
+        .with(logger: kind_of(Proc))
+        .and_return(fake_recon)
+
+      described_class.run(**deps)
+    end
+
+    it 'invokes AiRecommendationReconciler DEPOIS de SimulationReconciler (ordering matters)' do
+      deps = build_deps
+      ordered = []
+
+      fake_sim_recon = double('sim_reconciler')
+      allow(fake_sim_recon).to receive(:run) do
+        ordered << :simulation_reconciler
+        { resolved: 0, pending: 0, unresolvable: 0 }
+      end
+      allow(AdamStats::Scraper::SimulationReconciler).to receive(:new).and_return(fake_sim_recon)
+
+      fake_ai_recon = double('ai_reco_reconciler')
+      allow(fake_ai_recon).to receive(:run) do
+        ordered << :ai_recommendation_reconciler
+        { resolved: 0, pending: 0, unresolvable: 0 }
+      end
+      allow(AdamStats::Scraper::AiRecommendationReconciler).to receive(:new).and_return(fake_ai_recon)
+
+      described_class.run(**deps)
+      expect(ordered).to eq(%i[simulation_reconciler ai_recommendation_reconciler])
+    end
+
+    it 'uma falha do AiRecommendationReconciler é non-fatal (pipeline continua)' do
+      deps = build_deps
+      logged = []
+      deps[:logger] = ->(m) { logged << m }
+
+      fake_recon = double('ai_reco_reconciler')
+      allow(fake_recon).to receive(:run).and_raise(StandardError, 'ai-reco recon boom')
+      allow(AdamStats::Scraper::AiRecommendationReconciler).to receive(:new).and_return(fake_recon)
+
+      expect(deps[:healthcheck]).to receive(:ping_success)
+      expect { described_class.run(**deps) }.not_to raise_error
+
+      expect(logged.any? { |m| m.match?(/ai-reco-reconciler/i) && m.include?('non-fatal') }).to be(true)
+    end
+  end
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # AiRecommenderRunner — Wave 2 do IA-2 Recomendador.
+  # Roda no FIM do pipeline (após baseline.recompute!).
+  # ────────────────────────────────────────────────────────────────────────────
+  describe '.run (AiRecommenderRunner — wired no pipeline diário)' do
+    it 'invokes AiRecommenderRunner#run exatamente uma vez por scrape' do
+      deps = build_deps
+      fake_runner = double('ai_recommender')
+      expect(fake_runner).to receive(:run).once.and_return(nil)
+      expect(AdamStats::Scraper::AiRecommenderRunner).to receive(:new)
+        .with(logger: kind_of(Proc))
+        .and_return(fake_runner)
+
+      described_class.run(**deps)
+    end
+
+    it 'AiRecommenderRunner roda DEPOIS de AiRecommendationReconciler' do
+      deps = build_deps
+      ordered = []
+
+      fake_recon = double('ai_reco_reconciler')
+      allow(fake_recon).to receive(:run) do
+        ordered << :ai_reco_reconciler
+        { resolved: 0, pending: 0, unresolvable: 0 }
+      end
+      allow(AdamStats::Scraper::AiRecommendationReconciler).to receive(:new).and_return(fake_recon)
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run) do
+        ordered << :ai_recommender
+        nil
+      end
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      described_class.run(**deps)
+      expect(ordered).to eq(%i[ai_reco_reconciler ai_recommender])
+    end
+
+    it 'uma falha do AiRecommenderRunner é non-fatal (pipeline continua)' do
+      deps = build_deps
+      logged = []
+      deps[:logger] = ->(m) { logged << m }
+
+      fake_runner = double('ai_recommender')
+      allow(fake_runner).to receive(:run).and_raise(StandardError, 'ai-rec boom')
+      allow(AdamStats::Scraper::AiRecommenderRunner).to receive(:new).and_return(fake_runner)
+
+      expect(deps[:healthcheck]).to receive(:ping_success)
+      expect { described_class.run(**deps) }.not_to raise_error
+
+      expect(logged.any? { |m| m.match?(/ai-recommender/i) && m.include?('non-fatal') }).to be(true)
     end
   end
 end
