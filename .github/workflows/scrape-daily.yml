@@ -47,4 +47,9 @@ jobs:
           SCRAPER_LEAGUE_SLUGS: ${{ vars.SCRAPER_LEAGUE_SLUGS }}
           SCRAPER_DETAIL_CONCURRENCY: "4"
           HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
+          # IA-2 Recomendador (Wave 2): orchestrator chama AiRecommenderRunner
+          # após reconcilers. Sem essas vars, runner aborta gracioso (não fatal).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AI_RECO_MODEL: ${{ vars.AI_RECO_MODEL }}
+          AI_RECO_BANKROLL: ${{ vars.AI_RECO_BANKROLL }}
         run: bundle exec bin/scrape
