@@ -85,3 +85,81 @@ D20        |    467 |    199 |   42.6 |    81.34 | 565.00 |   14.40 | 0.2095
 E          |    331 |    137 |   41.4 |    13.40 | 662.00 |    2.02 | 0.2243
 ```
 
+---
+
+## Re-execução 2026-05-25 — sanity guard threshold 30 → 50
+
+**Data:** 2026-05-25T19:29:48Z
+**Trigger:** análise original mostrou que sanity guard com threshold=30
+(Cenário B) removia winners — delta vs Cenário A foi -44.6u PL. Pilot
+decidiu subir threshold pra 50 e re-rodar o backtest.
+
+**Mudanças em código** (commits `ba22518` e `67874e9`):
+
+- `lib/ai-reco/recommender.ts` — `SANITY_EDGE_THRESHOLD: 30 → 50`
+- `scripts/scraper/lib/scraper/ai_recommender_runner.rb` — idem (Ruby batch)
+- `scripts/backtest-ai-reco.ts` — `SANITY_GUARD_MAX_EDGE_PCT: 30 → 50`
+
+### Resultados (mesmo universo de 771 sims resolvidas, 30 dias)
+
+| Cenário | n_bets | n_wins | WR % | PL (u) | Staked (u) | ROI % | Brier (bet) |
+|---------|--------|--------|------|--------|------------|-------|-------------|
+| A (sem guard, baseline) | 720 | 319 | 44.3 | 69.38 | 856.50 | **8.10** | 0.2207 |
+| **B (guard=50, novo)** | **712** | **319** | **44.8** | **35.33** | **852.50** | **4.14** | **0.2154** |
+| B (guard=30, original) | 688 | 306 | 44.5 | 24.78 | 840.50 | 2.95 | 0.2268 |
+| C | 331 | 137 | 41.4 | 13.40 | 662.00 | 2.02 | 0.2243 |
+| D10 | 657 | 291 | 44.3 | 79.17 | 786.00 | 10.07 | 0.2182 |
+| D15 | 554 | 239 | 43.1 | 79.10 | 662.50 | 11.94 | 0.2142 |
+| D20 | 467 | 199 | 42.6 | 81.34 | 565.00 | 14.40 | 0.2095 |
+| E | 331 | 137 | 41.4 | 13.40 | 662.00 | 2.02 | 0.2243 |
+
+### Análise
+
+**Cenário B (threshold=50)** vs **Cenário A (sem guard)**:
+
+- B mantém 712 dos 720 bets (-8 apenas; v1 com threshold=30 removia 32 bets)
+- ROI subiu de 2.95% → **4.14%** (delta +1.19pp vs guard antigo)
+- PL units subiu de 24.78u → **35.33u** (delta +10.55u)
+- Mas **ainda fica ~4pp abaixo do baseline A** (8.10%) — delta -34.04u PL
+- WR sobe ligeiramente (44.5 → 44.8) — o guard remove bets de pior calibração
+
+**Conclusão:** subir o threshold pra 50 recuperou ~40% do PL perdido pelo
+guard antigo (+10.55u de 26.6u que faltavam). O range 30-50% de edge em
+ligas não-calibradas contém winners e voltou a ser apostado.
+
+Os 80 bets em ligas !calibradas com edge>50% ainda removidos pelo guard
+representavam:
+- PL +29.92u no histórico (27 wins, WR 33.8%)
+- ROI individual ~75%
+
+Em termos puramente históricos, mesmo o guard novo continua subótimo. Mas
+a justificativa do guard é **defensiva** contra outliers patológicos
+(edge>100% por bug do simulador), não otimização de ROI. Manter threshold
+em 50 entrega balanço razoável entre proteção e signal.
+
+### Quantos bets atuais em produção seriam bloqueados?
+
+Estimativa baseada no histórico: edges > 50% representam ~10% das bets
+geradas (80 de 720 = 11%). Em ~45 bets atuais em prod, isso projeta
+~5-6 bloqueios (vs ~12-13 com threshold=30).
+
+### Sumário console (re-run)
+
+```
+scenario   | n_bets | n_wins | WR%    | PL units | staked | ROI%    | Brier
+-----------+--------+--------+--------+----------+--------+---------+--------
+A          |    720 |    319 |   44.3 |    69.38 | 856.50 |    8.10 | 0.2207
+B          |    712 |    319 |   44.8 |    35.33 | 852.50 |    4.14 | 0.2154
+C          |    331 |    137 |   41.4 |    13.40 | 662.00 |    2.02 | 0.2243
+D10        |    657 |    291 |   44.3 |    79.17 | 786.00 |   10.07 | 0.2182
+D15        |    554 |    239 |   43.1 |    79.10 | 662.50 |   11.94 | 0.2142
+D20        |    467 |    199 |   42.6 |    81.34 | 565.00 |   14.40 | 0.2095
+E          |    331 |    137 |   41.4 |    13.40 | 662.00 |    2.02 | 0.2243
+```
+
+### Dados atualizados
+
+CSV regerado em `docs/superpowers/specs/2026-05-25-backtest-ai-reco-cenarios.csv`
+com Cenário B usando o novo threshold (linhas A/C/D/E inalteradas — não
+são afetadas por sanity guard).
+

@@ -772,12 +772,12 @@ A,1162,1. HNL,0,over25,under,23.23,1.78,0.6923,0.5,true,0.39,2,0
 A,1250,Premier League,1,1x2,away,39.13,4,0.3478,2,false,-2,2,2
 B,1692,K League 2,0,1x2,draw,12.76,3.25,0.3469,0.5,false,-0.5,0,1
 B,1691,K League 2,0,over25,under,7.9,2.06,0.5238,0.5,false,-0.5,3,2
-B,1119,K League 2,0,over25,over,12.5,2.25,0.5,0.5,false,-0.5,0,1
+B,1119,K League 2,0,1x2,home,48,3.7,0.4,0.5,false,-0.5,0,1
 B,1118,K League 2,0,1x2,draw,26.2,4.4,0.2868,0.5,false,-0.5,3,2
 B,1835,Major League Soccer,1,over25,under,61.33,2.2,0.7333,2,true,2.4,1,0
 B,1682,Liga MX,0,1x2,home,26.09,2.95,0.4274,0.5,false,-0.5,1,2
 B,1672,Major League Soccer,1,btts,nao,36.46,2.3,0.5933,2,true,2.6,1,0
-B,1185,Liga MX,0,,,,,,,skip,,1,2
+B,1185,Liga MX,0,1x2,home,41.4,2.95,0.4793,0.5,false,-0.5,1,2
 B,1102,Major League Soccer,1,btts,nao,36.25,2.3,0.5924,2,true,2.6,1,0
 B,1570,Serie B,0,1x2,away,20,3.45,0.3478,0.5,false,-0.5,1,1
 B,1002,Serie B,0,1x2,away,20.48,3.45,0.3492,0.5,false,-0.5,1,1
@@ -785,8 +785,8 @@ B,1709,Primera B,0,1x2,home,11.42,2.18,0.5111,0.5,true,0.59,2,1
 B,1136,Primera B,0,,,,,,,skip,,2,1
 B,1547,Serie A,1,btts,nao,8.97,1.91,0.5705,2,true,1.82,0,3
 B,982,Serie A,1,1x2,draw,11.43,3.4,0.3277,2,false,-2,0,3
-B,1600,Liga Pro,0,btts,nao,28.27,1.65,0.7774,0.5,false,-0.5,1,2
-B,1034,Liga Pro,0,btts,nao,28.32,1.65,0.7777,0.5,false,-0.5,1,2
+B,1600,Liga Pro,0,1x2,home,34.64,3.15,0.4274,0.5,false,-0.5,1,2
+B,1034,Liga Pro,0,1x2,home,34.38,3.15,0.4266,0.5,false,-0.5,1,2
 B,1627,NWSL,0,btts,nao,7.44,2.17,0.4951,0.5,true,0.585,0,1
 B,1524,Major League Soccer,1,over25,over,11.67,1.34,0.8333,2,true,0.68,6,4
 B,959,Major League Soccer,1,1x2,draw,16.75,5.1,0.2289,2,false,-2,6,4
@@ -801,10 +801,10 @@ B,1030,Primera Division,1,1x2,home,15.04,2.4,0.4793,2,false,-2,1,2
 B,1026,Primera B Nacional,1,,,,,,,skip,,0,1
 B,1590,Primera B Nacional,1,over25,over,26.19,2.65,0.4762,2,false,-2,1,1
 B,1576,Primera Division,1,1x2,home,47.46,3.45,0.4274,2,false,-2,0,2
-B,1567,Serie B,0,1x2,draw,12.76,3.25,0.3469,0.5,false,-0.5,1,2
+B,1567,Serie B,0,1x2,away,33,3.5,0.38,0.5,true,1.25,1,2
 B,1545,Serie A,1,1x2,away,73.91,5,0.3478,2,false,-2,1,0
 B,1012,Primera Division,1,1x2,home,19.4,3.45,0.3461,2,false,-2,0,2
-B,1001,Serie B,0,over25,over,11.5,2.23,0.5,0.5,true,0.615,1,2
+B,1001,Serie B,0,1x2,away,38.54,3.5,0.3958,0.5,true,1.25,1,2
 B,981,Serie A,1,1x2,away,74.6,5,0.3492,2,false,-2,1,0
 B,1663,Premier League,1,1x2,away,122.61,6.4,0.3478,2,false,-2,3,0
 B,1660,Serie C,0,1x2,away,23.48,3.55,0.3478,0.5,false,-0.5,0,0
@@ -835,13 +835,13 @@ B,1181,Division 1,0,btts,nao,20.86,1.68,0.7194,0.5,true,0.34,2,0
 B,1180,Division 1,0,over25,over,23.49,2.23,0.5538,0.5,true,0.615,2,1
 B,1024,Primera B Nacional,1,over25,over,32.5,2.65,0.5,2,false,-2,1,1
 B,1659,Serie C,0,over25,over,20.52,2.33,0.5172,0.5,false,-0.5,1,0
-B,1658,Serie C,0,over25,over,22.59,2.37,0.5172,0.5,false,-0.5,0,0
+B,1658,Serie C,0,1x2,away,46.09,4.2,0.3478,0.5,false,-0.5,0,0
 B,1657,Serie C,0,over25,over,25.24,2.63,0.4762,0.5,true,0.815,1,2
 B,1588,Primera B Nacional,1,over25,over,33.33,2.8,0.4762,2,true,3.6,4,0
 B,1566,Serie B,0,,,,,,,skip,,4,2
-B,1090,Serie C,0,btts,sim,17.43,2.25,0.5219,0.5,false,-0.5,0,0
-B,1089,Serie C,0,,,,,,,skip,,1,2
-B,1088,Serie C,0,over25,over,29.03,2.33,0.5538,0.5,false,-0.5,1,0
+B,1090,Serie C,0,1x2,away,47.37,4.2,0.3509,0.5,false,-0.5,0,0
+B,1089,Serie C,0,over25,over,31.5,2.63,0.5,0.5,true,0.815,1,2
+B,1088,Serie C,0,1x2,home,39.24,1.84,0.7568,0.5,true,0.42,1,0
 B,1023,Primera B Nacional,1,over25,over,40,2.8,0.5,2,true,3.6,4,0
 B,999,Serie B,0,1x2,away,16.67,7,0.1667,0.5,false,-0.5,4,2
 B,1667,Primera B,0,1x2,draw,5.82,3.05,0.3469,0.5,false,-0.5,0,2
@@ -891,11 +891,11 @@ B,1093,Premier League,1,over25,under,13.55,1.68,0.6759,2,false,-2,2,1
 B,1032,Liga Pro,0,over25,over,22.5,2.45,0.5,0.5,true,0.725,2,1
 B,1011,Primera Division,1,1x2,home,14,2.85,0.4,2,false,-2,1,1
 B,1833,Brasileiro Women,0,btts,sim,11.1,2,0.5555,0.5,true,0.5,1,2
-B,1580,Super Liga,0,1x2,draw,23.16,3.55,0.3469,0.5,true,1.275,1,1
+B,1580,Super Liga,0,over25,under,30.53,1.78,0.7333,0.5,true,0.39,1,1
 B,1579,Super Liga,0,,,,,,,skip,,2,2
 B,1578,Super Liga,0,1x2,draw,13.11,5.75,0.1967,0.5,false,-0.5,1,0
 B,1577,Super Liga,0,,,,,,,skip,,2,1
-B,1016,Super Liga,0,btts,nao,7.83,1.48,0.7286,0.5,true,0.24,1,0
+B,1016,Super Liga,0,1x2,draw,31.63,5.75,0.2289,0.5,false,-0.5,1,0
 B,1015,Super Liga,0,1x2,away,22.73,7.5,0.1636,0.5,false,-0.5,2,2
 B,1014,Super Liga,0,1x2,away,14.55,7,0.1636,0.5,false,-0.5,2,1
 B,1013,Super Liga,0,over25,under,23.23,1.78,0.6923,0.5,true,0.39,1,1
@@ -903,7 +903,7 @@ B,1638,Botola Pro,0,btts,sim,27.07,2.23,0.5698,0.5,false,-0.5,1,0
 B,1620,NWSL,0,,,,,,,skip,,3,1
 B,1582,Primera B Nacional,1,1x2,home,32.5,3.1,0.4274,2,true,4.2,1,0
 B,1056,NWSL,0,1x2,home,7.41,1.83,0.587,0.5,true,0.415,3,1
-B,1665,Primera B,0,btts,nao,24.63,2.4,0.5193,0.5,false,-0.5,1,1
+B,1665,Primera B,0,1x2,home,39.62,1.65,0.8462,0.5,false,-0.5,1,1
 B,1593,Primera Division,1,1x2,away,21.6,3.2,0.38,2,false,-2,2,0
 B,1562,La Liga 2,1,1x2,home,70,5.1,0.3333,2,false,-2,0,2
 B,1561,La Liga 2,1,1x2,home,109.56,4.1,0.5111,2,true,6.2,3,1
@@ -935,13 +935,13 @@ B,987,La Liga 2,1,1x2,home,11.24,1.47,0.7568,2,false,-2,0,2
 B,986,La Liga 2,1,1x2,home,76,4.4,0.4,2,false,-2,0,1
 B,1666,Liga Pro Serie B,0,over25,over,7.41,1.82,0.5902,0.5,false,-0.5,1,0
 B,1612,Primera Division,1,over25,over,15.08,1.95,0.5902,2,true,1.9,2,1
-B,1533,Eliteserien,0,btts,nao,7.34,2.3,0.4667,0.5,false,-0.5,1,2
+B,1533,Eliteserien,0,over25,under,30.34,2.7,0.4828,0.5,false,-0.5,1,2
 B,1504,Serie A,1,1x2,away,10.2,6.75,0.1633,2,false,-2,1,0
 B,1149,Serie A,1,1x2,away,10.45,6.75,0.1636,2,false,-2,1,0
 B,1098,Liga Pro Serie B,0,,,,,,,skip,,1,0
 B,1046,Primera Division,1,btts,sim,12.96,1.93,0.5853,2,true,1.86,2,1
 B,965,Eliteserien,0,over25,under,20.48,2.7,0.4462,0.5,false,-0.5,1,2
-B,1636,Botola Pro,0,over25,under,23.2,1.68,0.7333,0.5,true,0.34,0,1
+B,1636,Botola Pro,0,1x2,draw,31.84,3.8,0.3469,0.5,false,-0.5,0,1
 B,1630,Superettan,0,1x2,draw,19.69,3.45,0.3469,0.5,false,-0.5,0,1
 B,1502,Premier League,1,1x2,home,45.32,3.4,0.4274,2,false,-2,1,1
 B,1501,Premier League,1,over25,under,49.59,3.65,0.4098,2,false,-2,1,2
@@ -966,37 +966,37 @@ B,927,Premier League,1,1x2,home,37.73,1.82,0.7568,2,false,-2,1,1
 B,926,Premier League,1,over25,under,62.88,3.65,0.4462,2,false,-2,1,2
 B,1651,1. Liga,0,btts,nao,9.83,1.84,0.5969,0.5,true,0.42,2,0
 B,1650,1. Liga,0,over25,over,17.75,1.57,0.75,0.5,true,0.285,4,1
-B,1649,1. Liga,0,btts,sim,19.7,1.64,0.7299,0.5,true,0.32,3,2
-B,1648,1. Liga,0,btts,nao,14.43,2.28,0.5019,0.5,false,-0.5,1,1
+B,1649,1. Liga,0,over25,over,36.67,1.64,0.8333,0.5,true,0.32,3,2
+B,1648,1. Liga,0,1x2,away,46.09,4.2,0.3478,0.5,false,-0.5,1,1
 B,1647,1. Liga,0,over25,over,26.67,1.52,0.8333,0.5,true,0.26,3,1
 B,1646,1. Liga,0,1x2,away,25.4,3.3,0.38,0.5,false,-0.5,3,3
 B,1645,1. Liga,0,1x2,draw,16.22,3.35,0.3469,0.5,false,-0.5,1,2
 B,1644,1. Liga,0,,,,,,,skip,,2,1
-B,1643,1. Liga,0,over25,over,16.67,1.4,0.8333,0.5,false,-0.5,0,0
+B,1643,1. Liga,0,1x2,home,31.15,1.55,0.8462,0.5,false,-0.5,0,0
 B,1534,Allsvenskan,0,over25,over,26,1.68,0.75,0.5,true,0.34,2,3
-B,1083,1. Liga,0,btts,sim,18.07,1.53,0.7717,0.5,true,0.265,3,3
-B,1082,1. Liga,0,btts,nao,8.74,1.84,0.591,0.5,true,0.42,2,0
+B,1083,1. Liga,0,1x2,away,30.62,3.3,0.3958,0.5,false,-0.5,3,3
+B,1082,1. Liga,0,1x2,away,30.91,8,0.1636,0.5,false,-0.5,2,0
 B,1081,1. Liga,0,1x2,draw,9.79,3.35,0.3277,0.5,false,-0.5,1,2
 B,1080,1. Liga,0,1x2,home,26.47,4.3,0.2941,0.5,true,1.65,3,2
 B,1079,1. Liga,0,over25,over,9.78,1.52,0.7222,0.5,true,0.26,3,1
 B,1078,1. Liga,0,,,,,,,skip,,2,1
 B,1077,1. Liga,0,1x2,home,17.3,1.55,0.7568,0.5,false,-0.5,0,0
 B,1076,1. Liga,0,over25,over,13.39,1.57,0.7222,0.5,true,0.285,4,1
-B,1075,1. Liga,0,btts,nao,13.52,2.28,0.4979,0.5,false,-0.5,1,1
+B,1075,1. Liga,0,1x2,away,46.67,4.2,0.3492,0.5,false,-0.5,1,1
 B,970,Allsvenskan,0,over25,over,21.33,1.68,0.7222,0.5,true,0.34,2,3
 B,1553,La Liga 2,1,1x2,away,18.5,3.95,0.3,2,false,-2,3,1
 B,1552,La Liga 2,1,1x2,home,24.38,1.47,0.8462,2,false,-2,0,2
 B,1177,La Liga 2,1,1x2,home,11.24,1.47,0.7568,2,false,-2,0,2
 B,1176,La Liga 2,1,,,,,,,skip,,3,1
-B,1642,Meistriliiga,0,over25,under,20.69,2.5,0.4828,0.5,false,-0.5,1,6
+B,1642,Meistriliiga,0,1x2,draw,34.45,5.25,0.2561,0.5,false,-0.5,1,6
 B,1615,First Division,0,1x2,home,23.95,2.9,0.4274,0.5,false,-0.5,0,1
-B,1530,Eliteserien,0,over25,over,5.83,1.27,0.8333,0.5,true,0.135,3,1
+B,1530,Eliteserien,0,1x2,away,30.61,8,0.1633,0.5,false,-0.5,3,1
 B,1074,Meistriliiga,0,over25,under,11.56,2.5,0.4462,0.5,false,-0.5,1,6
 B,1049,First Division,0,1x2,home,16,2.9,0.4,0.5,false,-0.5,0,1
-B,966,Eliteserien,0,,,,,,,skip,,3,1
+B,966,Eliteserien,0,1x2,away,30.91,8,0.1636,0.5,false,-0.5,3,1
 B,1629,Superettan,0,btts,nao,7.08,1.92,0.5577,0.5,true,0.46,1,0
 B,1628,Allsvenskan Women,0,1x2,home,20.13,2.12,0.5667,0.5,false,-0.5,0,2
-B,1626,Allsvenskan Women,0,over25,under,18.85,2.9,0.4098,0.5,true,0.95,2,0
+B,1626,Allsvenskan Women,0,1x2,draw,37.7,7,0.1967,0.5,false,-0.5,2,0
 B,1574,Primera Division,1,over25,under,11.47,1.52,0.7333,2,true,1.04,1,0
 B,1503,Serie A,1,over25,under,34.93,1.84,0.7333,2,true,1.68,1,0
 B,1148,Serie A,1,over25,under,27.38,1.84,0.6923,2,true,1.68,1,0
@@ -1005,13 +1005,13 @@ B,1062,Allsvenskan Women,0,1x2,home,24.43,2.12,0.587,0.5,false,-0.5,0,2
 B,1061,Allsvenskan Women,0,over25,under,29.41,2.9,0.4462,0.5,true,0.95,2,0
 B,1010,Primera Division,1,over25,under,5.23,1.52,0.6923,2,true,1.04,1,0
 B,1550,Fortuna Liga,0,btts,nao,6.12,2.04,0.5202,0.5,false,-0.5,2,1
-B,1549,Fortuna Liga,0,1x2,home,26.92,1.5,0.8462,0.5,true,0.25,2,1
+B,1549,Fortuna Liga,0,over25,over,38.33,1.66,0.8333,0.5,true,0.33,2,1
 B,1548,Fortuna Liga,0,btts,nao,8,2.2,0.4909,0.5,true,0.6,3,0
 B,1532,Allsvenskan,0,1x2,home,28.1,1.65,0.7764,0.5,true,0.325,2,1
-B,1531,Allsvenskan,0,1x2,home,21.85,1.44,0.8462,0.5,false,-0.5,1,2
+B,1531,Allsvenskan,0,over25,over,30.83,1.57,0.8333,0.5,true,0.285,1,2
 B,1529,Super League,1,1x2,home,33.69,1.58,0.8462,2,false,-2,1,2
-B,1514,League One,0,over25,over,6.55,2.06,0.5172,0.5,true,0.53,4,1
-B,947,League One,0,over25,over,14.08,2.06,0.5538,0.5,true,0.53,4,1
+B,1514,League One,0,1x2,home,49.03,2.63,0.5667,0.5,true,0.815,4,1
+B,947,League One,0,1x2,home,31.5,2.63,0.5,0.5,true,0.815,4,1
 B,985,Fortuna Liga,0,over25,over,21.67,1.66,0.733,0.5,true,0.33,2,1
 B,984,Fortuna Liga,0,1x2,home,11.52,1.9,0.587,0.5,true,0.45,3,0
 B,983,Fortuna Liga,0,btts,nao,5.9,2.04,0.5191,0.5,false,-0.5,2,1
@@ -1022,14 +1022,14 @@ B,1528,Super League,1,btts,nao,58,2.55,0.6196,2,true,3.1,0,5
 B,1527,Super League,1,over25,over,18.33,1.42,0.8333,2,true,0.84,3,3
 B,963,Super League,1,btts,nao,60.04,2.55,0.6276,2,true,3.1,0,5
 B,962,Super League,1,1x2,away,30.91,8,0.1636,2,false,-2,3,3
-B,1655,League One,0,1x2,away,23.48,3.55,0.3478,0.5,true,1.275,0,1
-B,1654,League One,0,,,,,,,skip,,3,4
+B,1655,League One,0,over25,under,32.73,1.81,0.7333,0.5,true,0.405,0,1
+B,1654,League One,0,1x2,draw,37.04,3.95,0.3469,0.5,false,-0.5,3,4
 B,1087,League One,0,1x2,away,23.97,3.55,0.3492,0.5,true,1.275,0,1
 B,1086,League One,0,1x2,draw,29.45,3.95,0.3277,0.5,false,-0.5,3,4
-B,1653,League One,0,over25,under,19.53,1.63,0.7333,0.5,false,-0.5,0,3
+B,1653,League One,0,1x2,home,36.77,3.2,0.4274,0.5,false,-0.5,0,3
 B,1526,Super League,1,over25,under,10.66,2.7,0.4098,2,false,-2,2,3
 B,961,Super League,1,over25,under,20.48,2.7,0.4462,2,false,-2,2,3
-B,1085,League One,0,btts,nao,14.76,1.79,0.6411,0.5,true,0.395,0,3
+B,1085,League One,0,1x2,home,37.14,3.2,0.4286,0.5,false,-0.5,0,3
 B,1637,K League 2,0,1x2,away,25.4,3.3,0.38,0.5,false,-0.5,3,1
 B,1635,K League 2,0,1x2,draw,17.8,4.6,0.2561,0.5,false,-0.5,3,0
 B,1538,Premier League,1,1x2,away,31.58,10,0.1316,2,false,-2,3,2
@@ -1037,12 +1037,12 @@ B,1537,Premier League,1,over25,under,21,1.65,0.7333,2,true,1.3,0,1
 B,1536,Premier League,1,1x2,away,28.25,1.71,0.75,2,true,1.42,0,1
 B,1535,Premier League,1,1x2,away,150,19,0.1316,2,false,-2,2,0
 B,1070,K League 2,0,1x2,away,15.79,3.3,0.3509,0.5,false,-0.5,3,1
-B,1069,K League 2,0,btts,sim,11.69,1.82,0.6137,0.5,false,-0.5,3,0
+B,1069,K League 2,0,1x2,draw,31.94,4.6,0.2868,0.5,false,-0.5,3,0
 B,973,Premier League,1,1x2,away,210.91,19,0.1636,2,false,-2,2,0
 B,972,Premier League,1,1x2,away,63.64,10,0.1636,2,false,-2,3,2
 B,971,Premier League,1,over25,under,14.23,1.65,0.6923,2,true,1.3,0,1
 B,969,Premier League,1,over25,over,14,2.28,0.5,2,false,-2,0,1
-B,1828,Elitedivisionen Women,0,,,,,,,skip,,0,0
+B,1828,Elitedivisionen Women,0,1x2,home,34.64,3.15,0.4274,0.5,false,-0.5,0,0
 B,1525,Super League,1,1x2,home,22.67,2.4,0.5111,2,false,-2,0,1
 B,960,Super League,1,1x2,home,15.04,2.4,0.4793,2,false,-2,0,1
 B,944,Serie A,1,1x2,draw,57.31,4.8,0.3277,2,false,-2,0,2
@@ -1059,9 +1059,9 @@ B,832,Primera B Nacional,1,,,,,,,skip,,2,0
 B,1542,J-League,1,1x2,home,15.4,2.7,0.4274,2,false,-2,1,2
 B,977,J-League,1,1x2,home,15.71,2.7,0.4286,2,false,-2,1,2
 B,1652,League One,0,1x2,away,29.2,3.4,0.38,0.5,true,1.2,0,4
-B,1634,K League 2,0,,,,,,,skip,,0,0
-B,1084,League One,0,over25,over,7.98,1.95,0.5538,0.5,true,0.475,0,4
-B,1068,K League 2,0,over25,over,7.98,1.95,0.5538,0.5,false,-0.5,0,0
+B,1634,K League 2,0,1x2,home,32.5,3.1,0.4274,0.5,false,-0.5,0,0
+B,1084,League One,0,1x2,away,34.58,3.4,0.3958,0.5,true,1.2,0,4
+B,1068,K League 2,0,1x2,home,32.86,3.1,0.4286,0.5,false,-0.5,0,0
 B,1541,J-League,1,over25,over,24.14,2.4,0.5172,2,true,2.8,0,6
 B,1540,J-League,1,over25,under,43,1.95,0.7333,2,false,-2,1,3
 B,976,J-League,1,over25,over,32.9,2.4,0.5538,2,true,2.8,0,6
@@ -1088,8 +1088,8 @@ B,1670,Liga de Expansión MX,0,over25,over,11.9,2.35,0.4762,0.5,true,0.675,3,1
 B,1617,USL Championship,1,1x2,home,95.5,3.45,0.5667,2,true,4.9,1,0
 B,1184,Liga de Expansión MX,0,over25,over,17.5,2.35,0.5,0.5,true,0.675,3,1
 B,1051,USL Championship,1,1x2,home,161.08,3.45,0.7568,2,true,4.9,1,0
-B,1621,NWSL,0,btts,sim,5.38,1.79,0.5887,0.5,true,0.395,2,1
-B,1055,NWSL,0,over25,over,11.86,2.02,0.5538,0.5,true,0.51,2,1
+B,1621,NWSL,0,1x2,home,32.5,3.1,0.4274,0.5,true,1.05,2,1
+B,1055,NWSL,0,1x2,home,32.86,3.1,0.4286,0.5,true,1.05,2,1
 B,1616,USL Championship,1,over25,over,13.33,2.38,0.4762,2,true,2.76,2,1
 B,1518,Major League Soccer,1,1x2,home,32.36,1.82,0.7273,2,true,1.64,2,1
 B,1517,Major League Soccer,1,1x2,away,14.29,7,0.1633,2,false,-2,2,1
@@ -1107,7 +1107,7 @@ B,943,Serie A,1,1x2,home,12,1.48,0.7568,2,true,0.96,2,1
 B,1095,Primera B,0,,,,,,,skip,,5,0
 B,1031,Liga Pro,0,over25,over,9.09,1.97,0.5538,0.5,false,-0.5,1,1
 B,1027,Primera Division,1,1x2,home,58.48,2.7,0.587,2,false,-2,1,2
-B,1007,Division 1,0,over25,over,6.88,1.93,0.5538,0.5,true,0.465,2,1
+B,1007,Division 1,0,1x2,home,48.6,3.1,0.4793,0.5,true,1.05,2,1
 B,1004,Division 1,0,over25,over,12.5,2.25,0.5,0.5,false,-0.5,0,1
 B,1003,Division 1,0,1x2,home,25,4.25,0.2941,0.5,false,-0.5,1,2
 B,978,Serie A,1,over25,over,16.29,2.1,0.5538,2,true,2.2,0,3
@@ -1126,15 +1126,15 @@ B,773,Major League Soccer,1,over25,over,30,1.8,0.7222,2,true,1.6,4,4
 B,772,Major League Soccer,1,over25,over,24,1.24,1,2,true,0.48,6,2
 B,1423,USL Championship,1,1x2,home,92.34,4.5,0.4274,2,true,7,4,3
 B,1422,USL Championship,1,btts,nao,13.67,2.02,0.5627,2,false,-2,3,1
-B,1373,Primera A,0,btts,nao,17.15,1.82,0.6437,0.5,false,-0.5,3,1
+B,1373,Primera A,0,1x2,home,39.62,1.65,0.8462,0.5,true,0.325,3,1
 B,863,USL Championship,1,1x2,home,80,4.5,0.4,2,true,7,4,3
 B,862,USL Championship,1,btts,nao,13.22,2.02,0.5605,2,false,-2,3,1
 B,810,Primera A,0,1x2,home,24.86,1.65,0.7568,0.5,true,0.325,3,1
 B,1483,Serie C,0,btts,sim,27.28,2,0.6364,0.5,true,0.5,1,1
 B,1482,Serie C,0,over25,over,24.76,2.62,0.4762,0.5,false,-0.5,0,0
 B,1430,NWSL,0,1x2,draw,13.33,3.4,0.3333,0.5,false,-0.5,2,1
-B,916,Serie C,0,btts,sim,28.28,2,0.6414,0.5,true,0.5,1,1
-B,914,Serie C,0,1x2,home,29.42,2.7,0.4793,0.5,false,-0.5,0,0
+B,916,Serie C,0,1x2,away,43.86,4.1,0.3509,0.5,false,-0.5,1,1
+B,914,Serie C,0,over25,over,31,2.62,0.5,0.5,false,-0.5,0,0
 B,868,NWSL,0,1x2,away,5.26,3,0.3509,0.5,false,-0.5,2,1
 B,1418,Primera Division,1,btts,nao,13.96,1.75,0.6512,2,true,1.5,1,0
 B,858,Primera Division,1,1x2,draw,17.6,4.1,0.2868,2,false,-2,1,0
@@ -1150,8 +1150,8 @@ B,869,Primera Division,1,1x2,home,17.86,2.75,0.4286,2,false,-2,0,2
 B,861,USL Championship,1,1x2,home,34.21,2.8,0.4793,2,false,-2,0,0
 B,805,Serie A,1,over25,over,18.51,2.14,0.5538,2,true,2.28,3,2
 B,804,Serie A,1,over25,over,18.51,2.14,0.5538,2,false,-2,1,0
-B,1487,Primera B,0,,,,,,,skip,,1,1
-B,1415,Liga Pro,0,btts,nao,25.17,2.04,0.6136,0.5,false,-0.5,1,2
+B,1487,Primera B,0,1x2,home,41.09,1.94,0.7273,0.5,false,-0.5,1,1
+B,1415,Liga Pro,0,over25,under,37.13,1.87,0.7333,0.5,false,-0.5,1,2
 B,1384,Primera Division,1,1x2,away,56.52,4.5,0.3478,2,false,-2,1,0
 B,1375,Serie B,0,btts,sim,25.41,2.1,0.5972,0.5,false,-0.5,3,0
 B,920,Primera B,0,1x2,home,13.87,1.94,0.587,0.5,false,-0.5,1,1
@@ -1159,20 +1159,20 @@ B,855,Liga Pro,0,over25,under,29.46,1.87,0.6923,0.5,false,-0.5,1,2
 B,821,Primera Division,1,1x2,away,57.14,4.5,0.3492,2,false,-2,1,0
 B,812,Serie B,0,1x2,away,14.55,7,0.1636,0.5,false,-0.5,3,0
 B,1378,Division 1,0,,,,,,,skip,,2,1
-B,1167,Division 1,0,over25,over,6.88,1.93,0.5538,0.5,true,0.465,2,1
+B,1167,Division 1,0,1x2,home,48.6,3.1,0.4793,0.5,true,1.05,2,1
 B,838,Primera B Nacional,1,1x2,home,24.29,2.9,0.4286,2,true,3.8,1,0
-B,1492,Segunda Division,0,1x2,draw,11.02,3.2,0.3469,0.5,true,1.1,0,0
+B,1492,Segunda Division,0,over25,under,35.67,1.85,0.7333,0.5,true,0.425,0,0
 B,1334,Major League Soccer,1,btts,nao,39.79,2.55,0.5482,2,false,-2,1,1
 B,925,Segunda Division,0,over25,under,28.08,1.85,0.6923,0.5,true,0.425,0,0
 B,771,Major League Soccer,1,btts,nao,37.32,2.55,0.5385,2,false,-2,1,1
-B,1481,Serie C,0,btts,sim,17.16,2.04,0.5743,0.5,false,-0.5,0,2
+B,1481,Serie C,0,over25,over,31.9,2.55,0.5172,0.5,false,-0.5,0,2
 B,1455,Botola Pro,0,1x2,home,28.23,3,0.4274,0.5,false,-0.5,1,1
-B,1424,NWSL,0,,,,,,,skip,,1,2
+B,1424,NWSL,0,1x2,home,32.5,3.1,0.4274,0.5,false,-0.5,1,2
 B,1417,Primera Division,1,,,,,,,skip,,0,0
 B,1368,Serie A,1,over25,over,15.67,1.96,0.5902,2,false,-2,1,1
 B,1365,Serie A,1,1x2,home,47.2,2.88,0.5111,2,true,3.76,2,0
-B,915,Serie C,0,btts,sim,18.5,2.04,0.5809,0.5,false,-0.5,0,2
-B,867,NWSL,0,,,,,,,skip,,1,2
+B,915,Serie C,0,over25,over,41.21,2.55,0.5538,0.5,false,-0.5,0,2
+B,867,NWSL,0,1x2,home,48.6,3.1,0.4793,0.5,false,-0.5,1,2
 B,857,Primera Division,1,1x2,home,65.37,3.45,0.4793,2,false,-2,0,0
 B,803,Serie A,1,1x2,home,38.05,2.88,0.4793,2,true,3.76,2,0
 B,802,Serie A,1,1x2,home,12.11,1.91,0.587,2,false,-2,1,1
@@ -1222,7 +1222,7 @@ B,1146,Serie A,1,1x2,home,12,1.48,0.7568,2,true,0.96,2,1
 B,1397,Primera B Nacional,1,1x2,away,21.74,3.5,0.3478,2,false,-2,1,0
 B,769,Major League Soccer,1,over25,over,20.75,1.61,0.75,2,true,1.22,3,0
 B,835,Primera B Nacional,1,1x2,away,22.22,3.5,0.3492,2,false,-2,1,0
-B,1491,Segunda Division,0,1x2,draw,11.02,3.2,0.3469,0.5,false,-0.5,0,1
+B,1491,Segunda Division,0,over25,under,32,1.8,0.7333,0.5,true,0.4,0,1
 B,1391,1. SNL,0,1x2,home,8.99,2.55,0.4274,0.5,true,0.775,2,1
 B,924,Segunda Division,0,over25,under,24.62,1.8,0.6923,0.5,true,0.4,0,1
 B,827,1. SNL,0,,,,,,,skip,,2,1
@@ -1230,12 +1230,12 @@ B,1454,Botola Pro,0,1x2,away,22.45,7.5,0.1633,0.5,false,-0.5,3,2
 B,1396,Primera B Nacional,1,btts,nao,13.31,1.5,0.7554,2,true,1,2,0
 B,1395,Primera B Nacional,1,1x2,away,21.6,3.2,0.38,2,true,4.4,0,1
 B,1394,Primera B Nacional,1,over25,over,52.38,3.2,0.4762,2,false,-2,0,0
-B,1393,Ligat ha'Al,0,1x2,home,25.23,1.48,0.8462,0.5,false,-0.5,2,5
-B,1392,Ligat ha'Al,0,1x2,home,21.45,1.67,0.7273,0.5,false,-0.5,1,1
+B,1393,Ligat ha'Al,0,btts,nao,32.14,2.25,0.5873,0.5,false,-0.5,2,5
+B,1392,Ligat ha'Al,0,btts,nao,34.94,2.43,0.5553,0.5,false,-0.5,1,1
 B,1388,DFB Pokal,0,btts,nao,29.13,2.85,0.4531,0.5,true,0.925,3,0
 B,1383,Primera Division,1,over25,over,13.79,2.2,0.5172,2,true,2.4,3,0
-B,1173,Ligat ha'Al,0,1x2,home,19.29,1.67,0.7143,0.5,false,-0.5,1,1
-B,1172,Ligat ha'Al,0,1x2,home,12,1.48,0.7568,0.5,false,-0.5,2,5
+B,1173,Ligat ha'Al,0,btts,nao,33.04,2.43,0.5475,0.5,false,-0.5,1,1
+B,1172,Ligat ha'Al,0,btts,nao,32.37,2.25,0.5883,0.5,false,-0.5,2,5
 B,834,Primera B Nacional,1,over25,over,69.41,3.2,0.5294,2,false,-2,0,0
 B,833,Primera B Nacional,1,1x2,away,26.67,3.2,0.3958,2,true,4.4,0,1
 B,831,Primera B Nacional,1,btts,nao,12.06,1.5,0.7471,2,true,1,2,0
@@ -1256,18 +1256,18 @@ B,1170,1. HNL,0,btts,nao,17.64,1.94,0.6064,0.5,true,0.47,0,0
 B,922,Liga Pro Serie B,0,1x2,home,15.71,2.7,0.4286,0.5,true,0.85,1,0
 B,1403,Primera Division,1,1x2,home,54.85,1.83,0.8462,2,true,1.66,2,1
 B,841,Primera Division,1,1x2,home,38.49,1.83,0.7568,2,true,1.66,2,1
-B,1490,Segunda Division,0,btts,nao,29.74,2.02,0.6423,0.5,true,0.51,0,1
+B,1490,Segunda Division,0,1x2,away,37.5,2.75,0.5,0.5,true,0.875,0,1
 B,1453,Botola Pro,0,1x2,away,11.3,3.2,0.3478,0.5,true,1.1,1,2
-B,1433,Ykkösliiga,0,btts,nao,21.62,2.2,0.5528,0.5,true,0.6,0,1
+B,1433,Ykkösliiga,0,over25,under,36.19,2.6,0.5238,0.5,true,0.8,0,1
 B,1386,Super Liga,0,1x2,home,11.27,1.53,0.7273,0.5,true,0.265,3,0
 B,1385,Super Liga,0,btts,nao,12.08,1.82,0.6158,0.5,true,0.41,5,0
 B,1318,Serie A,1,btts,nao,58.76,2.55,0.6226,2,false,-2,3,3
 B,1147,Serie A,1,btts,nao,59.2,2.55,0.6243,2,false,-2,3,3
 B,923,Segunda Division,0,btts,nao,28.27,2.02,0.635,0.5,true,0.51,0,1
-B,873,Ykkösliiga,0,1x2,draw,27.82,3.9,0.3277,0.5,false,-0.5,0,1
+B,873,Ykkösliiga,0,over25,under,30,2.6,0.5,0.5,true,0.8,0,1
 B,823,Super Liga,0,btts,nao,13.19,1.82,0.6219,0.5,true,0.41,5,0
 B,822,Super Liga,0,1x2,home,15.78,1.53,0.7568,0.5,true,0.265,3,0
-B,1389,1. SNL,0,1x2,home,29.46,1.53,0.8462,0.5,true,0.265,3,0
+B,1389,1. SNL,0,over25,over,40,1.4,1,0.5,true,0.2,3,0
 B,1356,Ekstraklasa,0,over25,under,26.87,1.73,0.7333,0.5,true,0.365,1,1
 B,1355,Ekstraklasa,0,over25,over,20,1.44,0.8333,0.5,true,0.22,3,2
 B,1354,Ekstraklasa,0,1x2,home,23.54,1.46,0.8462,0.5,true,0.23,6,2
@@ -1275,23 +1275,23 @@ B,1353,Ekstraklasa,0,btts,sim,5.88,1.67,0.634,0.5,false,-0.5,1,0
 B,1352,Ekstraklasa,0,1x2,draw,20,6.1,0.1967,0.5,true,2.55,2,2
 B,1351,Ekstraklasa,0,btts,nao,19.87,2.1,0.5708,0.5,true,0.55,4,0
 B,1350,Ekstraklasa,0,btts,nao,13.45,2.65,0.4281,0.5,false,-0.5,1,1
-B,1349,Ekstraklasa,0,1x2,away,11.84,8.5,0.1316,0.5,false,-0.5,3,0
+B,1349,Ekstraklasa,0,btts,nao,31.28,1.77,0.7417,0.5,true,0.385,3,0
 B,1348,Ekstraklasa,0,over25,over,8.62,2.1,0.5172,0.5,true,0.55,2,1
-B,766,Championship,0,over25,over,26.26,2.28,0.5538,0.5,false,-0.5,1,0
-B,826,1. SNL,0,1x2,home,15.78,1.53,0.7568,0.5,true,0.265,3,0
+B,766,Championship,0,btts,sim,39.72,2.02,0.6917,0.5,false,-0.5,1,0
+B,826,1. SNL,0,over25,over,40,1.4,1,0.5,true,0.2,3,0
 B,793,Ekstraklasa,0,btts,nao,24.66,1.95,0.6393,0.5,false,-0.5,1,1
 B,792,Ekstraklasa,0,1x2,home,10.49,1.46,0.7568,0.5,true,0.23,6,2
 B,791,Ekstraklasa,0,,,,,,,skip,,1,0
-B,790,Ekstraklasa,0,over25,under,27.18,2.85,0.4462,0.5,false,-0.5,2,2
+B,790,Ekstraklasa,0,1x2,draw,39.64,6.1,0.2289,0.5,true,2.55,2,2
 B,789,Ekstraklasa,0,1x2,draw,20.47,4.2,0.2868,0.5,false,-0.5,4,0
-B,788,Ekstraklasa,0,btts,nao,29.94,1.77,0.7341,0.5,true,0.385,3,0
+B,788,Ekstraklasa,0,1x2,away,39.09,8.5,0.1636,0.5,false,-0.5,3,0
 B,787,Ekstraklasa,0,btts,nao,12.62,2.65,0.425,0.5,false,-0.5,1,1
 B,786,Ekstraklasa,0,over25,over,16.29,2.1,0.5538,0.5,true,0.55,2,1
 B,785,Ekstraklasa,0,,,,,,,skip,,3,2
 B,1445,Superettan,0,1x2,home,9.38,2.14,0.5111,0.5,true,0.57,3,1
 B,1390,Ligat ha'Al,0,1x2,home,22.58,4.75,0.2581,0.5,false,-0.5,2,2
 B,1359,Premier League,1,1x2,away,20,3.45,0.3478,2,true,4.9,1,2
-B,1171,Ligat ha'Al,0,1x2,draw,11.86,3.9,0.2868,0.5,true,1.45,2,2
+B,1171,Ligat ha'Al,0,1x2,home,39.71,4.75,0.2941,0.5,false,-0.5,2,2
 B,881,Superettan,0,,,,,,,skip,,3,1
 B,796,Premier League,1,1x2,away,20.48,3.45,0.3492,2,true,4.9,1,2
 B,1329,Championship,0,btts,sim,20.57,2.02,0.5969,0.5,false,-0.5,1,0
@@ -1300,12 +1300,12 @@ B,1432,Ykkösliiga,0,,,,,,,skip,,1,0
 B,1380,1. HNL,0,btts,nao,15.11,1.84,0.6256,0.5,true,0.42,2,0
 B,1379,1. HNL,0,,,,,,,skip,,2,0
 B,1347,Veikkausliiga,0,1x2,away,20,4,0.3,0.5,false,-0.5,3,0
-B,1346,Veikkausliiga,0,1x2,draw,24.9,3.6,0.3469,0.5,false,-0.5,2,0
+B,1346,Veikkausliiga,0,1x2,away,38.7,3.65,0.38,0.5,false,-0.5,2,0
 B,1345,Veikkausliiga,0,btts,nao,13.76,1.85,0.6149,0.5,false,-0.5,2,1
 B,1343,Veikkausliiga,0,,,,,,,skip,,0,1
 B,1169,1. HNL,0,btts,nao,13.38,1.84,0.6162,0.5,true,0.42,2,0
 B,1168,1. HNL,0,over25,over,7.43,1.94,0.5538,0.5,false,-0.5,2,0
-B,1471,Inkasso-Deildin,0,,,,,,,skip,,0,1
+B,1471,Inkasso-Deildin,0,over25,under,41.43,2.7,0.5238,0.5,true,0.85,0,1
 B,904,Inkasso-Deildin,0,over25,under,27.06,2.7,0.4706,0.5,true,0.85,0,1
 B,903,Inkasso-Deildin,0,1x2,home,8,2.7,0.4,0.5,true,0.85,5,3
 B,902,Inkasso-Deildin,0,over25,under,16.91,2.62,0.4462,0.5,true,0.81,0,0
@@ -1315,30 +1315,30 @@ B,784,Veikkausliiga,0,1x2,home,5,2.45,0.4286,0.5,false,-0.5,0,1
 B,783,Veikkausliiga,0,btts,nao,9.67,1.97,0.5567,0.5,true,0.485,3,0
 B,782,Veikkausliiga,0,1x2,away,28.07,3.65,0.3509,0.5,false,-0.5,2,0
 B,781,Veikkausliiga,0,1x2,draw,26.18,3.85,0.3277,0.5,false,-0.5,2,1
-B,1468,Tweede Divisie,0,,,,,,,skip,,3,2
+B,1468,Tweede Divisie,0,over25,under,30.34,2.7,0.4828,0.5,false,-0.5,3,2
 B,1467,Tweede Divisie,0,,,,,,,skip,,2,3
 B,1466,Tweede Divisie,0,over25,over,23,1.23,1,0.5,true,0.115,4,1
 B,1465,Tweede Divisie,0,1x2,home,16.53,2.28,0.5111,0.5,false,-0.5,2,4
 B,1464,Tweede Divisie,0,1x2,home,5.29,2.06,0.5111,0.5,false,-0.5,2,2
-B,1463,Tweede Divisie,0,,,,,,,skip,,1,2
+B,1463,Tweede Divisie,0,over25,over,50,1.5,1,0.5,true,0.25,1,2
 B,1462,Tweede Divisie,0,1x2,home,23.54,1.46,0.8462,0.5,true,0.23,7,0
-B,1461,Tweede Divisie,0,,,,,,,skip,,5,4
-B,1460,Tweede Divisie,0,,,,,,,skip,,1,2
-B,901,Tweede Divisie,0,,,,,,,skip,,1,2
+B,1461,Tweede Divisie,0,over25,over,30,1.3,1,0.5,true,0.15,5,4
+B,1460,Tweede Divisie,0,1x2,away,31.25,1.75,0.75,0.5,true,0.375,1,2
+B,901,Tweede Divisie,0,1x2,away,31.25,1.75,0.75,0.5,true,0.375,1,2
 B,900,Tweede Divisie,0,over25,under,20.48,2.7,0.4462,0.5,false,-0.5,3,2
 B,899,Tweede Divisie,0,,,,,,,skip,,2,3
 B,898,Tweede Divisie,0,over25,over,23,1.23,1,0.5,true,0.115,4,1
 B,897,Tweede Divisie,0,over25,under,9.33,2.45,0.4462,0.5,false,-0.5,2,4
 B,896,Tweede Divisie,0,over25,under,10.67,2.48,0.4462,0.5,false,-0.5,2,2
-B,895,Tweede Divisie,0,,,,,,,skip,,1,2
+B,895,Tweede Divisie,0,over25,over,50,1.5,1,0.5,true,0.25,1,2
 B,894,Tweede Divisie,0,1x2,home,10.49,1.46,0.7568,0.5,true,0.23,7,0
-B,893,Tweede Divisie,0,,,,,,,skip,,5,4
+B,893,Tweede Divisie,0,over25,over,30,1.3,1,0.5,true,0.15,5,4
 B,1763,Super Liga,0,btts,nao,11.98,1.82,0.6153,0.5,true,0.41,5,0
 B,1446,Superettan,0,1x2,away,14.78,3.3,0.3478,0.5,false,-0.5,1,0
 B,1443,Superettan,0,1x2,away,14,3,0.38,0.5,false,-0.5,1,0
 B,1441,Allsvenskan Women,0,1x2,home,27.78,2.5,0.5111,0.5,false,-0.5,0,3
-B,1440,Allsvenskan Women,0,over25,under,20.69,2.5,0.4828,0.5,true,0.75,0,1
-B,1431,Ykkösliiga,0,over25,under,23.2,1.68,0.7333,0.5,true,0.34,0,1
+B,1440,Allsvenskan Women,0,1x2,draw,47.45,4.25,0.3469,0.5,false,-0.5,0,1
+B,1431,Ykkösliiga,0,btts,nao,43.23,1.84,0.7784,0.5,true,0.42,0,1
 B,1412,Premier League,1,btts,nao,26.14,1.7,0.742,2,true,1.4,0,1
 B,1411,Premier League,1,btts,nao,23.31,1.72,0.7169,2,true,1.44,0,0
 B,1410,Premier League,1,btts,nao,25.45,1.67,0.7512,2,true,1.34,0,0
@@ -1353,7 +1353,7 @@ B,880,Superettan,0,1x2,away,5.26,3,0.3509,0.5,false,-0.5,1,0
 B,879,Superettan,0,1x2,away,15.79,3.3,0.3509,0.5,false,-0.5,1,0
 B,877,Allsvenskan Women,0,1x2,draw,21.9,4.25,0.2868,0.5,false,-0.5,0,1
 B,876,Allsvenskan Women,0,1x2,home,19.83,2.5,0.4793,0.5,false,-0.5,0,3
-B,871,Ykkösliiga,0,over25,under,16.31,1.68,0.6923,0.5,true,0.34,0,1
+B,871,Ykkösliiga,0,btts,nao,44.35,1.84,0.7845,0.5,true,0.42,0,1
 B,852,Premier League,1,btts,nao,25.83,1.67,0.7535,2,true,1.34,0,0
 B,851,Premier League,1,,,,,,,skip,,1,0
 B,850,Premier League,1,1x2,draw,54.52,6.75,0.2289,2,false,-2,0,2
@@ -1363,22 +1363,22 @@ B,847,Premier League,1,btts,nao,25.09,1.7,0.7358,2,true,1.4,0,1
 B,846,Premier League,1,btts,nao,22.93,1.72,0.7147,2,true,1.44,0,0
 B,819,Primera Division,1,,,,,,,skip,,1,2
 B,779,Allsvenskan,0,,,,,,,skip,,2,0
-B,778,Allsvenskan,0,1x2,draw,8.15,3.3,0.3277,0.5,false,-0.5,2,1
+B,778,Allsvenskan,0,1x2,away,49.12,4.25,0.3509,0.5,false,-0.5,2,1
 B,1358,Premier League,1,1x2,away,6.12,6.5,0.1633,2,false,-2,0,0
 B,795,Premier League,1,1x2,draw,14.46,5,0.2289,2,true,8,0,0
 B,1777,Elitedivisionen Women,0,1x2,draw,13.89,4.1,0.2778,0.5,false,-0.5,1,0
 B,1438,Allsvenskan Women,0,,,,,,,skip,,4,2
 B,1419,First Division,0,over25,over,22.5,1.47,0.8333,0.5,true,0.235,2,4
-B,1372,Fortuna Liga,0,over25,under,28.33,1.75,0.7333,0.5,false,-0.5,0,3
-B,1371,Fortuna Liga,0,btts,nao,19.58,2.07,0.5777,0.5,true,0.535,1,0
+B,1372,Fortuna Liga,0,btts,nao,35.07,1.85,0.7301,0.5,true,0.425,0,3
+B,1371,Fortuna Liga,0,1x2,home,30.33,2.3,0.5667,0.5,true,0.65,1,0
 B,1370,Fortuna Liga,0,over25,over,7.41,1.82,0.5902,0.5,false,-0.5,0,2
 B,1369,Fortuna Liga,0,btts,nao,11.01,2.05,0.5415,0.5,true,0.525,4,0
 B,1340,Super League,1,1x2,home,23.95,2.9,0.4274,2,true,3.8,2,0
 B,875,Allsvenskan Women,0,1x2,draw,11.86,3.9,0.2868,0.5,false,-0.5,4,2
 B,859,First Division,0,1x2,away,21.5,1.62,0.75,0.5,true,0.31,2,4
 B,809,Fortuna Liga,0,1x2,draw,17.6,4.1,0.2868,0.5,false,-0.5,4,0
-B,808,Fortuna Liga,0,over25,under,21.15,1.75,0.6923,0.5,false,-0.5,0,3
-B,807,Fortuna Liga,0,btts,nao,19.5,2.07,0.5773,0.5,true,0.535,1,0
+B,808,Fortuna Liga,0,btts,nao,34.4,1.85,0.7265,0.5,true,0.425,0,3
+B,807,Fortuna Liga,0,1x2,home,35,2.3,0.587,0.5,true,0.65,1,0
 B,806,Fortuna Liga,0,1x2,away,5.26,3,0.3509,0.5,true,1,0,2
 B,777,Super League,1,1x2,home,24.29,2.9,0.4286,2,true,3.8,2,0
 B,1339,Super League,1,1x2,away,38,4.6,0.3,2,true,7.2,1,2
@@ -1391,13 +1391,13 @@ B,1478,League One,0,btts,nao,8.4,1.82,0.5956,0.5,false,-0.5,1,1
 B,1477,League One,0,over25,over,22.16,2.07,0.5902,0.5,false,-0.5,1,0
 B,1442,Superettan,0,1x2,home,23.95,2.9,0.4274,0.5,true,0.95,2,1
 B,1439,Allsvenskan Women,0,1x2,draw,23.16,3.55,0.3469,0.5,true,1.275,2,2
-B,1342,Veikkausliiga,0,btts,nao,17.44,1.89,0.6214,0.5,false,-0.5,2,1
+B,1342,Veikkausliiga,0,1x2,draw,38.78,4,0.3469,0.5,false,-0.5,2,1
 B,1338,Super League,1,1x2,away,66.96,4.8,0.3478,2,false,-2,1,1
 B,911,League One,0,btts,nao,10.56,1.82,0.6075,0.5,false,-0.5,1,1
 B,910,League One,0,1x2,away,24.69,3.15,0.3958,0.5,false,-0.5,1,0
 B,878,Superettan,0,1x2,home,16,2.9,0.4,0.5,true,0.95,2,1
 B,874,Allsvenskan Women,0,btts,nao,16.39,2.02,0.5762,0.5,false,-0.5,2,2
-B,780,Veikkausliiga,0,btts,nao,17.6,1.89,0.6222,0.5,false,-0.5,2,1
+B,780,Veikkausliiga,0,1x2,draw,31.09,4,0.3277,0.5,false,-0.5,2,1
 B,775,Super League,1,1x2,away,67.62,4.8,0.3492,2,false,-2,1,1
 B,1452,K League 2,0,over25,over,8.57,2.28,0.4762,0.5,true,0.64,2,3
 B,1364,J-League,1,1x2,away,18.26,3.4,0.3478,2,false,-2,1,0
@@ -1408,8 +1408,8 @@ B,794,Premier League,1,,,,,,,skip,,1,1
 B,1363,J-League,1,1x2,draw,45.71,4.2,0.3469,2,false,-2,4,2
 B,800,J-League,1,1x2,draw,37.65,4.2,0.3277,2,false,-2,4,2
 B,843,Liga 1,0,btts,nao,24.98,1.97,0.6344,0.5,false,-0.5,1,1
-B,830,Ligat ha'Al,0,1x2,home,12,1.48,0.7568,0.5,false,-0.5,2,5
-B,829,Ligat ha'Al,0,over25,under,6.2,2.38,0.4462,0.5,true,0.69,1,1
+B,830,Ligat ha'Al,0,btts,nao,36.21,2.25,0.6054,0.5,false,-0.5,2,5
+B,829,Ligat ha'Al,0,btts,nao,38.85,2.43,0.5714,0.5,false,-0.5,1,1
 B,828,Ligat ha'Al,0,1x2,draw,11.86,3.9,0.2868,0.5,true,1.45,2,2
 B,817,1. HNL,0,btts,nao,13.38,1.84,0.6162,0.5,true,0.42,2,0
 B,815,1. HNL,0,over25,over,7.43,1.94,0.5538,0.5,false,-0.5,2,0
@@ -1424,7 +1424,7 @@ B,1408,A-League,0,1x2,away,20,3.45,0.3478,0.5,false,-0.5,1,0
 B,845,A-League,0,1x2,away,21.05,3.45,0.3509,0.5,false,-0.5,1,0
 B,1451,K League 2,0,,,,,,,skip,,3,2
 B,1450,K League 2,0,,,,,,,skip,,0,1
-B,887,K League 2,0,,,,,,,skip,,3,2
+B,887,K League 2,0,1x2,home,50,3.75,0.4,0.5,true,1.375,3,2
 B,886,K League 2,0,,,,,,,skip,,0,1
 B,1361,J-League,1,btts,sim,22.04,2.05,0.5953,2,false,-2,0,1
 B,1360,J-League,1,1x2,away,39.13,4,0.3478,2,false,-2,4,2
@@ -1434,20 +1434,20 @@ B,1778,Brasileiro Women,0,,,,,,,skip,,0,1
 B,1421,USL Championship,1,btts,nao,27.44,2,0.6372,2,true,2,2,0
 B,860,USL Championship,1,btts,nao,26.16,2,0.6308,2,true,2,2,0
 B,1488,Liga Pro Serie B,0,over25,over,29.31,2.5,0.5172,0.5,false,-0.5,0,0
-B,1486,Primera B,0,,,,,,,skip,,0,2
+B,1486,Primera B,0,1x2,away,47.5,2.95,0.5,0.5,true,0.975,0,2
 B,1427,NWSL,0,1x2,draw,24.9,3.6,0.3469,0.5,false,-0.5,1,2
 B,1413,Liga Pro,0,over25,under,20.69,2.5,0.4828,0.5,false,-0.5,2,3
 B,1401,Primera Division,1,1x2,home,28.23,3,0.4274,2,false,-2,1,1
-B,921,Liga Pro Serie B,0,,,,,,,skip,,0,0
+B,921,Liga Pro Serie B,0,over25,over,38.44,2.5,0.5538,0.5,false,-0.5,0,0
 B,919,Primera B,0,1x2,away,16.77,2.95,0.3958,0.5,true,0.975,0,2
 B,866,NWSL,0,1x2,away,22.81,3.5,0.3509,0.5,true,1.25,1,2
-B,853,Liga Pro,0,over25,under,11.56,2.5,0.4462,0.5,false,-0.5,2,3
+B,853,Liga Pro,0,1x2,draw,31.63,5.75,0.2289,0.5,false,-0.5,2,3
 B,842,Liga 1,0,,,,,,,skip,,1,1
 B,839,Primera Division,1,1x2,home,28.57,3,0.4286,2,false,-2,1,1
 B,818,1. HNL,0,btts,nao,19.51,1.727,0.692,0.5,false,-0.5,6,3
 B,816,1. HNL,0,over25,under,23.23,1.78,0.6923,0.5,true,0.39,2,0
 B,1316,Copa Argentina,0,over25,over,25.69,2.43,0.5172,0.5,false,-0.5,0,2
-B,753,Copa Argentina,0,,,,,,,skip,,0,2
+B,753,Copa Argentina,0,over25,over,34.56,2.43,0.5538,0.5,false,-0.5,0,2
 B,709,Primera Division,1,over25,over,14.88,2.17,0.5294,2,false,-2,0,0
 B,1270,Primera Division,1,1x2,draw,5.82,3.05,0.3469,2,true,4.1,0,0
 B,707,Serie B,0,btts,nao,16.08,1.65,0.7035,0.5,true,0.325,1,0
@@ -1461,11 +1461,11 @@ B,756,Segunda Division,0,1x2,home,6.89,2.23,0.4793,0.5,false,-0.5,0,1
 B,1295,Botola Pro,0,btts,nao,12.1,1.5,0.7473,0.5,false,-0.5,3,1
 B,718,Primera Division,1,1x2,home,52.14,3.55,0.4286,2,false,-2,1,1
 B,1281,Primera Division,1,1x2,home,51.73,3.55,0.4274,2,false,-2,1,1
-B,1308,Inkasso-Deildin,0,,,,,,,skip,,4,3
+B,1308,Inkasso-Deildin,0,1x2,away,40,2.8,0.5,0.5,false,-0.5,4,3
 B,1307,Inkasso-Deildin,0,btts,nao,15.8,2.62,0.442,0.5,true,0.81,0,0
 B,1306,Inkasso-Deildin,0,1x2,home,17.54,2.75,0.4274,0.5,true,0.875,3,1
 B,747,Inkasso-Deildin,0,btts,nao,14.34,2.62,0.4364,0.5,true,0.81,0,0
-B,746,Inkasso-Deildin,0,,,,,,,skip,,3,1
+B,746,Inkasso-Deildin,0,1x2,home,31.82,2.75,0.4793,0.5,true,0.875,3,1
 B,735,Pepsideild,0,1x2,home,12.71,2.63,0.4286,0.5,true,0.815,6,3
 B,734,Pepsideild,0,,,,,,,skip,,0,1
 B,733,Pepsideild,0,over25,over,24,1.24,1,0.5,true,0.12,5,0
@@ -1476,15 +1476,15 @@ B,748,Inkasso-Deildin,0,1x2,away,10.83,2.8,0.3958,0.5,false,-0.5,4,3
 B,1760,Primera Division,1,1x2,home,28.23,3,0.4274,2,false,-2,1,1
 B,1301,Premier Division,0,1x2,home,28.23,3,0.4274,0.5,false,-0.5,1,1
 B,1299,Premier Division,0,1x2,away,18.42,9,0.1316,0.5,true,4,1,2
-B,740,Premier Division,0,btts,nao,11.18,1.64,0.6779,0.5,false,-0.5,1,2
-B,739,Premier Division,0,,,,,,,skip,,1,1
+B,740,Premier Division,0,1x2,away,47.27,9,0.1636,0.5,true,4,1,2
+B,739,Premier Division,0,1x2,home,43.8,3,0.4793,0.5,false,-0.5,1,1
 B,712,Coupe de France,0,1x2,draw,24.77,4.35,0.2868,0.5,false,-0.5,3,1
 B,1276,Coupe de France,0,1x2,draw,20.83,4.35,0.2778,0.5,false,-0.5,3,1
-B,1298,Premier Division,0,over25,over,25,1.5,0.8333,0.5,true,0.25,2,1
+B,1298,Premier Division,0,1x2,away,30.61,8,0.1633,0.5,false,-0.5,2,1
 B,1297,Premier Division,0,1x2,home,17.54,2.75,0.4274,0.5,false,-0.5,0,0
 B,1296,Premier Division,0,,,,,,,skip,,2,4
 B,738,Premier Division,0,1x2,home,17.86,2.75,0.4286,0.5,false,-0.5,0,0
-B,737,Premier Division,0,1x2,draw,14.46,5,0.2289,0.5,false,-0.5,2,1
+B,737,Premier Division,0,1x2,away,30.91,8,0.1636,0.5,false,-0.5,2,1
 B,736,Premier Division,0,1x2,home,12.61,3.7,0.3043,0.5,false,-0.5,2,4
 B,1255,Serie A,1,over25,under,54,2.1,0.7333,2,true,2.2,1,1
 B,1144,Serie A,1,over25,under,45.38,2.1,0.6923,2,true,2.2,1,1
@@ -1494,12 +1494,12 @@ B,755,Segunda Division,0,btts,nao,13,2.04,0.5539,0.5,true,0.52,0,0
 B,732,Pepsideild,0,over25,under,24.95,2.8,0.4462,0.5,true,0.9,1,0
 B,731,Pepsideild,0,over25,under,28.52,2.88,0.4462,0.5,true,0.94,0,1
 B,714,1. SNL,0,,,,,,,skip,,3,2
-B,713,1. SNL,0,btts,sim,6.7,1.49,0.7161,0.5,false,-0.5,0,4
+B,713,1. SNL,0,1x2,away,36,1.36,1,0.5,true,0.18,0,4
 B,711,Super Liga,0,over25,under,22.5,4.9,0.25,0.5,false,-0.5,1,2
 B,708,Serie B,0,btts,nao,18.37,1.8,0.6576,0.5,true,0.4,0,0
 B,1275,1. SNL,0,,,,,,,skip,,3,2
 B,1274,Super Liga,0,btts,nao,5.16,1.9,0.5535,0.5,false,-0.5,1,2
-B,1273,1. SNL,0,over25,over,12.5,1.35,0.8333,0.5,true,0.175,0,4
+B,1273,1. SNL,0,1x2,away,36,1.36,1,0.5,true,0.18,0,4
 B,1266,Serie B,0,over25,under,23.2,1.68,0.7333,0.5,true,0.34,0,0
 B,1290,Pepsideild,0,btts,nao,15.34,2.75,0.4194,0.5,true,0.875,1,0
 B,1289,Pepsideild,0,over25,under,18.03,2.88,0.4098,0.5,true,0.94,0,1
@@ -1510,35 +1510,35 @@ B,1264,Allsvenskan,0,over25,over,12.5,1.5,0.75,0.5,true,0.25,1,2
 B,1286,Premier League,1,over25,under,64,1.64,1,2,true,1.28,0,1
 B,1271,1. HNL,0,btts,nao,19.54,1.727,0.6922,0.5,false,-0.5,6,3
 B,1163,1. HNL,0,btts,nao,19.51,1.727,0.692,0.5,false,-0.5,6,3
-B,728,Allsvenskan Women,0,btts,nao,15.85,2.33,0.4972,0.5,true,0.665,0,1
+B,728,Allsvenskan Women,0,1x2,home,42.63,2.43,0.587,0.5,false,-0.5,0,1
 B,719,First Division,0,btts,nao,13.2,2.28,0.4965,0.5,true,0.64,5,0
-B,705,Veikkausliiga,0,1x2,draw,13.07,3.45,0.3277,0.5,false,-0.5,2,1
+B,705,Veikkausliiga,0,1x2,home,46,3.65,0.4,0.5,true,1.325,2,1
 B,1282,First Division,0,btts,nao,11.38,2.28,0.4885,0.5,true,0.64,5,0
 B,1261,Veikkausliiga,0,1x2,draw,19.69,3.45,0.3469,0.5,false,-0.5,2,1
-B,1287,Allsvenskan Women,0,btts,nao,16.97,2.33,0.502,0.5,true,0.665,0,1
-B,721,Ykkösliiga,0,1x2,draw,26.18,3.85,0.3277,0.5,false,-0.5,0,1
-B,720,Ykkösliiga,0,1x2,draw,16.34,3.55,0.3277,0.5,false,-0.5,0,2
-B,1284,Ykkösliiga,0,1x2,home,16.13,4.5,0.2581,0.5,false,-0.5,0,1
-B,1283,Ykkösliiga,0,1x2,draw,23.16,3.55,0.3469,0.5,false,-0.5,0,2
-B,1304,First League,0,btts,nao,20.4,1.55,0.7768,0.5,false,-0.5,1,1
+B,1287,Allsvenskan Women,0,1x2,home,37.7,2.43,0.5667,0.5,false,-0.5,0,1
+B,721,Ykkösliiga,0,btts,nao,49.23,2.17,0.6877,0.5,true,0.585,0,1
+B,720,Ykkösliiga,0,btts,nao,42.54,2.08,0.6853,0.5,true,0.54,0,2
+B,1284,Ykkösliiga,0,btts,nao,47.13,2.17,0.678,0.5,true,0.585,0,1
+B,1283,Ykkösliiga,0,over25,under,48.13,2.02,0.7333,0.5,true,0.51,0,2
+B,1304,First League,0,1x2,away,46.94,9,0.1633,0.5,false,-0.5,1,1
 B,1303,First League,0,,,,,,,skip,,3,0
 B,1302,First League,0,over25,under,29.8,1.77,0.7333,0.5,false,-0.5,3,0
-B,745,First League,0,over25,under,27.38,1.84,0.6923,0.5,true,0.42,1,1
+B,745,First League,0,1x2,away,47.27,9,0.1636,0.5,false,-0.5,1,1
 B,743,First League,0,1x2,draw,17.6,4.1,0.2868,0.5,false,-0.5,3,0
 B,742,First League,0,over25,under,22.54,1.77,0.6923,0.5,false,-0.5,3,0
-B,710,Super Liga,0,over25,under,17.69,1.7,0.6923,0.5,true,0.35,0,0
-B,1272,Super Liga,0,over25,under,24.67,1.7,0.7333,0.5,true,0.35,0,0
+B,710,Super Liga,0,btts,nao,36.7,1.83,0.747,0.5,true,0.415,0,0
+B,1272,Super Liga,0,btts,nao,35.64,1.83,0.7412,0.5,true,0.415,0,0
 B,717,1. Division,0,1x2,home,24.11,1.64,0.7568,0.5,true,0.32,5,2
 B,716,1. Division,0,btts,nao,7.94,2.06,0.524,0.5,false,-0.5,3,4
 B,715,1. Division,0,1x2,home,6.24,1.81,0.587,0.5,true,0.405,2,0
-B,1280,1. Division,0,over25,under,5.24,2.18,0.4828,0.5,false,-0.5,5,2
+B,1280,1. Division,0,1x2,home,38.77,1.64,0.8462,0.5,true,0.32,5,2
 B,1279,1. Division,0,1x2,draw,7.55,3.1,0.3469,0.5,false,-0.5,3,4
 B,1278,1. Division,0,,,,,,,skip,,2,0
 B,725,Premier League,1,btts,nao,31.65,1.48,0.8895,2,false,-2,2,1
 B,724,Premier League,1,over25,under,64,1.64,1,2,true,1.28,0,1
 B,722,Premier League,1,1x2,away,39.68,4,0.3492,2,false,-2,2,2
 B,1285,Premier League,1,btts,nao,31.02,1.48,0.8853,2,false,-2,2,1
-B,1269,1. HNL,0,btts,nao,21.32,1.93,0.6286,0.5,true,0.465,2,0
+B,1269,1. HNL,0,over25,under,30.53,1.78,0.7333,0.5,true,0.39,2,0
 B,1162,1. HNL,0,over25,under,23.23,1.78,0.6923,0.5,true,0.39,2,0
 B,1250,Premier League,1,1x2,away,39.13,4,0.3478,2,false,-2,2,2
 C,1692,K League 2,0,,,,,,,skip,,0,1
