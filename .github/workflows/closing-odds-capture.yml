@@ -1,0 +1,49 @@
+name: closing-odds-capture
+
+# 4 waves UTC cobrindo o pico europeu (15h kicks) ao americano (21h kicks).
+# Cada wave roda ~30min-1h antes do bloco principal de jogos pra capturar
+# odds proximas ao kick-off (CLV tracking — tarefa A1). Idempotente via
+# UNIQUE(fixture_id, market, side, source) → 4 runs/dia no mesmo fixture
+# inserem 1 row apenas, da 1a janela que pega.
+on:
+  schedule:
+    - cron: "0 15,17,19,21 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: closing-odds-capture
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: scripts/scraper
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install mise (ruby 4.0.3)
+        uses: jdx/mise-action@v2
+        with:
+          working_directory: scripts/scraper
+
+      - name: cache bundle
+        uses: actions/cache@v4
+        with:
+          path: scripts/scraper/vendor/bundle
+          key: ${{ runner.os }}-gems-${{ hashFiles('scripts/scraper/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gems-
+
+      - name: bundle install
+        run: |
+          bundle config set --local path 'vendor/bundle'
+          bundle install --jobs 4 --retry 3
+
+      - name: capture closing odds
+        env:
+          DATABASE_URL: ${{ secrets.SCRAPER_DATABASE_URL }}
+          ADAMCHOI_API_TOKEN: ${{ secrets.ADAMCHOI_API_TOKEN }}
+        run: bundle exec bin/capture_closing_odds

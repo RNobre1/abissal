@@ -213,6 +213,13 @@ curl -X POST "https://api.supabase.com/v1/projects/etdrxzgspgslunivhrbe/database
 
 Writes (scraper, refresh-detail, cache fill) go through service_role (bypasses RLS) — fixtures are reference data shared across users.
 
+### Métricas de calibração (apêndice)
+
+- **Hit rate (winner / over-under)** — fração de acertos em `ai_predictions.correct_*`. Útil mas só significa algo em ≥ 300 resolved.
+- **Brier score** — distância quadrática entre probabilidade prevista e resultado real (0 = perfeito; 0.25 = chute aleatório binário). Aplicado tanto em `ai_predictions.pred_confidence` (legado copilot) quanto em `fixture_simulations.p_*` (motor estatístico) e `ai_recommendations.prob_estimated` (IA-2).
+- **ROI / win-rate (apostas resolvidas)** — `sum(pl_units) / sum(units_final)`. Métrica de bottom-line; varia muito até passar de 300 bets.
+- **CLV (Closing Line Value)** — `(odd_taken / odd_close − 1) × 100`. Persistido em `closing_odds` (migration `0026`, fixture × market × side × source, único por `(fixture_id, market, side, source)`); capturado 4×/dia via `.github/workflows/closing-odds-capture.yml` chamando o widget `/api/widget/match/{id}/odds` do Choistats numa janela `[now+5min, now+4h]` ao redor do KO. **Métrica única que sobrevive a small-sample**: ROI/Brier exigem 300+ bets pra distinguir sorte de skill; CLV diz isso em ~50. Painel em `/calibracao` (seção CLV) mostra média geral, IC95% (`σ/√n × 1.96`), quebra por liga/mercado. **Target Wave C: +1.5% sustentado em ≥ 300 bets**.
+
 ## External services and APIs
 
 **Choistats (public, token-gated SPA):**

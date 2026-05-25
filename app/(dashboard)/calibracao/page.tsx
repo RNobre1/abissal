@@ -19,6 +19,8 @@ import {
   groupAiRecoByConfidence,
   type AiRecoRow,
 } from "@/lib/calibracao/ai-reco-metrics";
+import { ClvPanel } from "./_components/clv-panel";
+import type { ClvSample, ClvMarket } from "@/lib/calibracao/clv-metrics";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -298,6 +300,76 @@ export default async function CalibracaoPage() {
   const aiRecoByLeague = groupAiRecoByLeague(aiRecoRows).slice(0, 5);
   const aiRecoByConfidence = groupAiRecoByConfidence(aiRecoRows);
 
+  // ── CLV tracking (tarefa A1): JOIN ai_recommendations × closing_odds.
+  // Lê só escalares — odd_captured (taken), league, e o JOIN traz odd_close.
+  // Filtra `verdict='bet'` no SQL pra não trazer skips inúteis.
+  let clvSamples: ClvSample[] = [];
+  let clvQueryError: string | null = null;
+  try {
+    const { data, error } = await admin
+      .from("closing_odds")
+      .select(
+        "fixture_id, market, side, odd_close, ai_recommendation_id, ai_recommendations(id, league, market, side, odd_captured, verdict)",
+      )
+      .eq("source", "choistats")
+      .limit(2000);
+    if (error)
+      throw new Error(error.message ?? "failed to fetch closing_odds");
+    // PostgREST devolve a relação como objeto único (FK nullable). Filtra
+    // linhas órfãs (reco deletada) e mantém só verdict='bet' com odd_captured
+    // não-nulo — único cenário válido pra CLV.
+    type RawClv = {
+      fixture_id: number | null;
+      market: string;
+      side: string;
+      odd_close: number | string;
+      ai_recommendation_id: number | null;
+      ai_recommendations:
+        | {
+            id: number;
+            league: string | null;
+            market: string | null;
+            side: string | null;
+            odd_captured: number | string | null;
+            verdict: string;
+          }
+        | null;
+    };
+    const raw = (data ?? []) as unknown as RawClv[];
+    clvSamples = raw.flatMap((r): ClvSample[] => {
+      const reco = r.ai_recommendations;
+      if (!reco) return [];
+      if (reco.verdict !== "bet") return [];
+      if (reco.odd_captured == null) return [];
+      // Só agrega CLV no MESMO market+side da reco. (Capturamos todos os 7
+      // markets na fixture, mas só o que a IA escolheu virou bet — comparar
+      // odd_close de outros markets contra odd_captured nem faz sentido.)
+      if (reco.market !== r.market || reco.side !== r.side) return [];
+      if (r.market !== "1x2" && r.market !== "over25" && r.market !== "btts")
+        return [];
+      const oddTaken =
+        typeof reco.odd_captured === "string"
+          ? Number.parseFloat(reco.odd_captured)
+          : reco.odd_captured;
+      const oddClose =
+        typeof r.odd_close === "string"
+          ? Number.parseFloat(r.odd_close)
+          : r.odd_close;
+      return [
+        {
+          ai_recommendation_id: reco.id,
+          league: reco.league,
+          market: r.market as ClvMarket,
+          side: r.side,
+          odd_taken: oddTaken,
+          odd_close: oddClose,
+        },
+      ];
+    });
+  } catch (err) {
+    clvQueryError = err instanceof Error ? err.message : "erro desconhecido";
+  }
+
   const resolvedSims: ResolvedSimRow[] = simRows
     .filter((r) => r.status === "resolved")
     .map((r) => ({
@@ -529,6 +601,13 @@ export default async function CalibracaoPage() {
           <AiRecoByConfidenceTable rows={aiRecoByConfidence} />
         </div>
       </section>
+
+      {/* Tarefa A1 — CLV (Closing Line Value).
+          Mede valor capturado vs odd que fechou ~30min pré-KO. Métrica
+          única que distingue sorte de skill em ~50 bets (vs 300+ pra
+          ROI/Brier). Capture: cron 4x/dia (15/17/19/21 UTC) via
+          .github/workflows/closing-odds-capture.yml. */}
+      <ClvPanel samples={clvSamples} queryError={clvQueryError} />
 
       {/* Curvas isotônicas ativas — display somente. Ajuste offline via
           `scripts/calibracao/fit-isotonic.ts`. Aplicação na leitura

@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'dotenv/load' if File.exist?(File.expand_path('../.env', __dir__))
+require_relative '../lib/scraper/closing_odds_capture'
+
+if ARGV.include?('--help') || ARGV.include?('-h')
+  puts <<~USAGE
+    Usage: bin/capture_closing_odds
+
+    Captures closing odds (~30 min before kick-off) from the Choistats API
+    for `ai_recommendations` with verdict='bet' whose kickoff_utc falls in
+    the next 4 hours and which don't yet have closing_odds rows (source=
+    'choistats'). Idempotent via UNIQUE(fixture_id, market, side, source).
+
+    Designed to run via GitHub Actions cron 4x/day (15/17/19/21 UTC) so the
+    window covers Europe (15h kicks) through the Americas (21h kicks).
+
+    Env vars:
+      DATABASE_URL                     Postgres connection string (required)
+      ADAMCHOI_API_TOKEN               Choistats API token (optional; defaults to embedded)
+
+    Exit codes:
+      0 success
+      1 failure (an exception bubbled up — see stderr for stack trace)
+  USAGE
+  exit 0
+end
+
+begin
+  AdamStats::Scraper::ClosingOddsCapture.new.run
+  exit 0
+rescue StandardError => e
+  warn "[capture_closing_odds] uncaught #{e.class}: #{e.message}"
+  e.backtrace&.each { |line| warn "  #{line}" }
+  exit 1
+end
