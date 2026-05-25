@@ -50,8 +50,8 @@ import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
  *      and `ai_recommendations` rows.
  *  10. Return { decision, reco_id, logId, costUsd, latencyMs }.
  *
- * Auth: matches sibling routes (`/api/copilot`, `/api/fixtures/[id]/refresh`)
- * — service-role admin client, no per-request session gate (single-user app).
+ * Auth: matches sibling routes (`/api/fixtures/[id]/refresh`) —
+ * service-role admin client, no per-request session gate (single-user app).
  *
  * Spec: docs/superpowers/specs/2026-05-24-ai-recomendador-design.md §4.3
  *       docs/superpowers/plans/2026-05-24-ai-recomendador-plan.md Wave 3

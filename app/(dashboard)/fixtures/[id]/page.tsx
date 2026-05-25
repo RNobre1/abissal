@@ -45,7 +45,6 @@ import { ScatterPlayground } from "@/components/fixtures/stats/panels/scatter-pl
 import { StreaksHeatmap } from "@/components/fixtures/stats/panels/streaks-heatmap";
 import { Players } from "@/components/fixtures/stats/panels/players";
 import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-browser";
-import { FixtureCopilotDrawer } from "@/components/fixtures/fixture-copilot-drawer";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
 import { SimulationPanel } from "./_components/simulation-panel";
@@ -255,27 +254,20 @@ export default async function StatsPage({ params }: StatsPageProps) {
   );
 
   return (
-    <>
-      <StatsLayout
-        fixtureId={row.id}
-        hero={
-          <Hero
-            homeTeam={row.home_team}
-            awayTeam={row.away_team}
-            kickoffBrt={kickoffBrt}
-            league={row.league}
-            country={row.country}
-            kpis={kpis}
-          />
-        }
-        panels={panels}
-      />
-      <FixtureCopilotDrawer
-        fixtureId={row.id}
-        homeTeam={row.home_team}
-        awayTeam={row.away_team}
-      />
-    </>
+    <StatsLayout
+      fixtureId={row.id}
+      hero={
+        <Hero
+          homeTeam={row.home_team}
+          awayTeam={row.away_team}
+          kickoffBrt={kickoffBrt}
+          league={row.league}
+          country={row.country}
+          kpis={kpis}
+        />
+      }
+      panels={panels}
+    />
   );
 }
 
