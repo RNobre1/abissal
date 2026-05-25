@@ -175,6 +175,19 @@
 
 5. **Botão direto na listagem** — `OportunidadesIa` ganha botão "[ + bilhete ]" inline em cada card. Click adiciona ao slip sem precisar abrir `/fixtures/[id]`. Power+Naive+IHC+Casual convergem.
 
+6. **Players panel — scatter respeita critério** (pedido Pilot 2026-05-25):
+   - **Bug atual**: `components/fixtures/stats/panels/players.tsx` tem 2 partes: (i) ranking top-5 home + top-5 away com toggle de 5 critérios (goals, cards, first_cards, sot, assists) já implementado; (ii) mini-scatter abaixo com X=minutos × Y=`(goals+assists)*90/minutes` **hardcoded**. Trocar critério no ranking não afeta o scatter — sempre mostra envolvimento em gol.
+   - **Fix**: scatter usa o `criterion` ativo pra calcular Y axis:
+     - `goals` → `goals * 90 / minutes`
+     - `cards` → `cards * 90 / minutes`
+     - `sot` → `sot * 90 / minutes`
+     - `assists` → `assists * 90 / minutes`
+     - `first_cards` → `first_cards * 90 / minutes`
+   - Atualizar label do Y axis dinamicamente ("gols/90", "cartões/90", etc)
+   - Median reference line recalcula por critério
+   - **TDD**: test em `tests/unit/components/fixtures/stats/panels/players.test.tsx` (criar se não existir) — assertar que mudar `criterion` muda valores plotados
+   - Esforço: S (1h)
+
 **TDD**: tests UI + accessibility tests + E2E manual final
 
 **Esforço**: L-XL (10-14h) · **Risco**: médio
