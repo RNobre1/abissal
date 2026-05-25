@@ -12,6 +12,13 @@ import {
   marketDeviation,
   type ResolvedSimRow,
 } from "@/lib/calibracao/sim-reliability";
+import {
+  summarizeAiRecoRoi,
+  brierAiReco,
+  groupAiRecoByLeague,
+  groupAiRecoByConfidence,
+  type AiRecoRow,
+} from "@/lib/calibracao/ai-reco-metrics";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -267,6 +274,30 @@ export default async function CalibracaoPage() {
     groupedLeagues.values(),
   ).sort((a, b) => b.n - a.n);
 
+  // ── Wave 5: IA Recommendations (migration 0022). Leitura escalar-only
+  // (sem edge_table_snapshot, sem reasoning_full) — Lição B12. Degrada
+  // graciosamente: a página continua renderizando outras seções.
+  let aiRecoRows: AiRecoRow[] = [];
+  let aiRecoQueryError: string | null = null;
+  try {
+    const { data, error } = await admin
+      .from("ai_recommendations")
+      .select(
+        "id, league, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units",
+      )
+      .order("created_at", { ascending: false })
+      .limit(2000);
+    if (error)
+      throw new Error(error.message ?? "failed to fetch ai_recommendations");
+    aiRecoRows = (data ?? []) as AiRecoRow[];
+  } catch (err) {
+    aiRecoQueryError = err instanceof Error ? err.message : "erro desconhecido";
+  }
+  const aiRecoRoi = summarizeAiRecoRoi(aiRecoRows);
+  const aiRecoBrier = brierAiReco(aiRecoRows);
+  const aiRecoByLeague = groupAiRecoByLeague(aiRecoRows).slice(0, 5);
+  const aiRecoByConfidence = groupAiRecoByConfidence(aiRecoRows);
+
   const resolvedSims: ResolvedSimRow[] = simRows
     .filter((r) => r.status === "resolved")
     .map((r) => ({
@@ -445,6 +476,58 @@ export default async function CalibracaoPage() {
             reliability · brier ao longo do tempo · desvio vs mercado: esperando primeiros jogos resolverem.
           </p>
         )}
+      </section>
+
+      {/* Wave 5 — IA Recommendations (migration 0022).
+          Mede ROI/WR/Brier sobre as recos resolvidas do IA-2 Recomendador.
+          Separado de ai_predictions (legado copilot) e fixture_simulations
+          (motor estatístico) — três sistemas distintos, três métricas. */}
+      <section className="mt-16 border-t border-[var(--color-line-subtle)] pt-10">
+        <header className="mb-6">
+          <span className="label">IA-2 recomendador</span>
+          <h3 className="mt-2 text-base font-semibold">
+            performance das recomendações de aposta (resolved)
+          </h3>
+          <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+            ROI cumulativo, Brier do prob_estimated, e quebra por liga/confidence.
+            Inclui apenas recos com status=&ldquo;resolved&rdquo;.
+          </p>
+        </header>
+
+        {aiRecoQueryError && (
+          <p
+            className="card mb-6 p-4 text-sm"
+            style={{ color: "var(--color-vermelho)" }}
+            role="alert"
+          >
+            falha ao ler ai_recommendations: {aiRecoQueryError}
+          </p>
+        )}
+
+        <div data-section="ai-reco-roi">
+          <AiRecoRoiCards summary={aiRecoRoi} />
+        </div>
+
+        <div className="mt-10" data-section="ai-reco-brier">
+          <h3 className="mb-4 text-base font-semibold">
+            brier do prob_estimated (vs resultado real)
+          </h3>
+          <AiRecoBrierCard brier={aiRecoBrier} />
+        </div>
+
+        <div className="mt-10" data-section="ai-reco-by-league">
+          <h3 className="mb-4 text-base font-semibold">
+            por liga (top 5 por volume)
+          </h3>
+          <AiRecoByLeagueTable rows={aiRecoByLeague} />
+        </div>
+
+        <div className="mt-10" data-section="ai-reco-by-confidence">
+          <h3 className="mb-4 text-base font-semibold">
+            por confidence (sanity: alto deve ter WR &gt; medio &gt; baixo)
+          </h3>
+          <AiRecoByConfidenceTable rows={aiRecoByConfidence} />
+        </div>
       </section>
 
       {/* Curvas isotônicas ativas — display somente. Ajuste offline via
@@ -959,4 +1042,182 @@ function abbreviateModel(model: string): string {
   const parts = model.split("/");
   const last = parts[parts.length - 1] ?? model;
   return last.replace(/^deepseek-/, "").replace(/-/g, " ");
+}
+
+// ── Wave 5: IA Recommendations components ────────────────────────────────────
+
+function AiRecoRoiCards({
+  summary,
+}: {
+  summary: ReturnType<typeof summarizeAiRecoRoi>;
+}) {
+  if (summary.resolvedCount === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem recomendações resolvidas ainda — o reconciler preenche P/L após os
+        jogos terminarem. 0 bets registradas.
+      </p>
+    );
+  }
+  const sign = summary.totalPl >= 0 ? "+" : "";
+  const items: Array<{ label: string; value: string }> = [
+    { label: "n bets", value: `${summary.betCount}` },
+    { label: "won / lost", value: `${summary.won} / ${summary.lost}` },
+    {
+      label: "win rate",
+      value:
+        summary.winRate == null
+          ? "—"
+          : `${Math.round(summary.winRate * 100)}%`,
+    },
+    { label: "P/L total (u)", value: `${sign}${summary.totalPl.toFixed(2)}` },
+    {
+      label: "units arriscadas",
+      value: summary.totalUnitsRisked.toFixed(2),
+    },
+    {
+      label: "ROI por unit",
+      value:
+        summary.roiPerUnit == null
+          ? "—"
+          : `${(summary.roiPerUnit * 100).toFixed(1)}%`,
+    },
+  ];
+  return (
+    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+      {items.map((it) => (
+        <div key={it.label} className="card flex flex-col gap-1 px-4 py-3">
+          <dt className="label text-[var(--color-ink-faint)]">{it.label}</dt>
+          <dd className="num text-base tabular-nums text-[var(--color-ink)]">
+            {it.value}
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function AiRecoBrierCard({
+  brier,
+}: {
+  brier: ReturnType<typeof brierAiReco>;
+}) {
+  if (brier.n === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem dados pra Brier — precisamos de recos resolvidas (bet + bet_won
+        definido + prob_estimated).
+      </p>
+    );
+  }
+  return (
+    <dl className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+      <div className="card flex flex-col gap-1 px-4 py-3">
+        <dt className="label text-[var(--color-ink-faint)]">amostra (n)</dt>
+        <dd className="num text-base tabular-nums text-[var(--color-ink)]">
+          {brier.n}
+        </dd>
+      </div>
+      <div className="card flex flex-col gap-1 px-4 py-3">
+        <dt className="label text-[var(--color-ink-faint)]">brier</dt>
+        <dd className="num text-base tabular-nums text-[var(--color-ink)]">
+          {brier.brier == null ? "—" : brier.brier.toFixed(3)}
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function AiRecoByLeagueTable({
+  rows,
+}: {
+  rows: ReturnType<typeof groupAiRecoByLeague>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem recos resolvidas por liga ainda.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--color-line-subtle)]">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-line-subtle)] text-[var(--color-ink-faint)]">
+            <Th>liga</Th>
+            <Th className="num text-right">n (total)</Th>
+            <Th className="num text-right">bets</Th>
+            <Th className="num text-right">P/L (u)</Th>
+            <Th className="num text-right">win rate</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.league}
+              className="border-b border-[var(--color-line-subtle)] last:border-0"
+            >
+              <Td>{r.league}</Td>
+              <Td className="num text-right tabular-nums">{r.total}</Td>
+              <Td className="num text-right tabular-nums">{r.bets}</Td>
+              <Td className="num text-right tabular-nums">
+                {`${r.totalPl >= 0 ? "+" : ""}${r.totalPl.toFixed(2)}`}
+              </Td>
+              <Td className="num text-right tabular-nums">
+                {r.winRate == null ? "—" : `${Math.round(r.winRate * 100)}%`}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AiRecoByConfidenceTable({
+  rows,
+}: {
+  rows: ReturnType<typeof groupAiRecoByConfidence>;
+}) {
+  if (rows.length === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem confidence labels ainda.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--color-line-subtle)]">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-line-subtle)] text-[var(--color-ink-faint)]">
+            <Th>confidence</Th>
+            <Th className="num text-right">n (total)</Th>
+            <Th className="num text-right">bets</Th>
+            <Th className="num text-right">P/L (u)</Th>
+            <Th className="num text-right">win rate</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.confidence}
+              className="border-b border-[var(--color-line-subtle)] last:border-0"
+            >
+              <Td>{r.confidence}</Td>
+              <Td className="num text-right tabular-nums">{r.total}</Td>
+              <Td className="num text-right tabular-nums">{r.bets}</Td>
+              <Td className="num text-right tabular-nums">
+                {`${r.totalPl >= 0 ? "+" : ""}${r.totalPl.toFixed(2)}`}
+              </Td>
+              <Td className="num text-right tabular-nums">
+                {r.winRate == null ? "—" : `${Math.round(r.winRate * 100)}%`}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
 }

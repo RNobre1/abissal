@@ -42,6 +42,10 @@ vi.mock("@/lib/supabase/admin", () => ({
       if (t === "ai_predictions") return buildAiOrSimBuilder("ai");
       if (t === "fixture_simulations") return buildAiOrSimBuilder("sim");
       if (t === "model_calibration") return buildCalBuilder();
+      // ai_recommendations e league_parameters (Wave 5) — não testados aqui;
+      // reusam buildCalBuilder pra devolver vazio com cadeia compatível.
+      if (t === "ai_recommendations") return buildCalBuilder();
+      if (t === "league_parameters") return buildCalBuilder();
       throw new Error("unexpected table " + t);
     },
   }),

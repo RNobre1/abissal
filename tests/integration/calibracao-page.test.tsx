@@ -43,6 +43,26 @@ type MockRows = PredRow[];
 let mockRows: MockRows = [];
 let mockSimRows: SimRow[] = [];
 
+function buildEmptyChain() {
+  // Cadeia universal pra tabelas que a página passou a ler (Wave 5+) mas
+  // não fazem parte do escopo deste arquivo — devolvem [] em qualquer
+  // método encadeado.
+  const b: Record<string, unknown> = {};
+  b.select = () => b;
+  b.eq = () => b;
+  b.is = () => b;
+  b.gte = () => b;
+  b.lt = () => b;
+  b.order = () => b;
+  const resolved = () => Promise.resolve({ data: [], error: null });
+  b.limit = () => ({ then: (cb: (v: unknown) => unknown) => resolved().then(cb) });
+  // Thenable: permite `await builder` direto quando a cadeia termina em
+  // .order (sem .limit). Mantido como property do Record pra não conflitar
+  // com a inferência de PromiseLike.
+  b.then = (cb: (v: unknown) => unknown) => resolved().then(cb);
+  return b;
+}
+
 function buildAdminMock() {
   return {
     from: (table: string) => {
@@ -56,15 +76,19 @@ function buildAdminMock() {
           }),
         };
       }
-      expect(table).toBe("ai_predictions");
-      return {
-        select: () => ({
-          order: () => ({
-            limit: () =>
-              Promise.resolve({ data: mockRows, error: null }),
+      if (table === "ai_predictions") {
+        return {
+          select: () => ({
+            order: () => ({
+              limit: () =>
+                Promise.resolve({ data: mockRows, error: null }),
+            }),
           }),
-        }),
-      };
+        };
+      }
+      // model_calibration / league_parameters / ai_recommendations (Wave 5)
+      // — não testadas aqui; devolvem vazio.
+      return buildEmptyChain();
     },
   };
 }
