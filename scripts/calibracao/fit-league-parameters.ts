@@ -32,31 +32,21 @@ if (!URL || !SR) {
 const FIT_VERSION = "fit-mom-v1";
 
 /**
- * Ligas que rodam calibração com threshold relaxado (20 amostras em vez
- * de 30). Lista alinhada com `SCRAPER_LEAGUE_SLUGS` do scraper (ligas
- * principais que o Pilot prioriza). Calibrações com n < 30 ainda são
- * úteis (melhores que NEUTRAL_BASELINE), mas marcadas com
- * `low_confidence: true` na lib → UI sinaliza badge.
+ * Threshold mínimo de amostras resolvidas por liga.
  *
- * Nomes devem bater EXATAMENTE com `fixture_simulations.league` (que vem
- * da listagem do choistats). Lista validada via query SQL antes do commit.
+ * **Universal a partir de 2026-05-25**: substitui o `PRIORITY_LEAGUES`
+ * hardcoded (5 ligas) por discovery dinâmico — qualquer liga com n >=
+ * MIN_SAMPLES é calibrada, sem allowlist. Motivação: o IA-2 estava
+ * gerando edges absurdos (>100%) em ligas como Eliteserien, K League 2,
+ * Botola Pro etc. porque os sims usavam o NEUTRAL_BASELINE no lugar de
+ * parâmetros próprios. A whitelist hardcoded era o gargalo.
+ *
+ * Quem fica abaixo de STRICT_THRESHOLD (30) é calibrado mesmo assim mas
+ * recebe `low_confidence: true` (a UI já consome esse flag pra mostrar
+ * badge). Quem fica abaixo de MIN_SAMPLES (20) é pulado silenciosamente
+ * — manteremos NEUTRAL_BASELINE até acumular amostras suficientes.
  */
-const PRIORITY_LEAGUES: ReadonlyMap<string, number> = new Map([
-  // Nomes EXATOS conforme aparecem em fixture_simulations.league (vindo
-  // do choistats listing). Nomes não-existentes no DB são no-ops.
-  ["Major League Soccer", 20],
-  ["Premier League", 20],
-  ["La Liga", 20],
-  ["Serie A", 20],
-  ["Tipico Bundesliga", 20],
-  ["Ligue 1", 20],
-  // Brasileirão (Série A/B/C) — adicionar quando aparecerem no DB
-  ["Brasileiro", 20],
-  ["Brasileiro Serie B", 20],
-  // Portugal — adicionar quando aparecerem
-  ["Liga Portugal", 20],
-  ["Primeira Liga", 20],
-]);
+const MIN_SAMPLES = 20;
 
 const supabase = createClient(URL, SR, { auth: { persistSession: false } });
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -94,23 +84,31 @@ async function main() {
     process.exit(0);
   }
 
-  const fits = fitLeagueParams(samples, 30, {
-    priorityLeagues: PRIORITY_LEAGUES,
-  });
+  const fits = fitLeagueParams(samples, MIN_SAMPLES);
   if (fits.length === 0) {
     console.log(
-      "no leagues passing thresholds (default 30, prioritárias 20); nothing to fit",
+      `no leagues passing threshold (n >= ${MIN_SAMPLES}); nothing to fit`,
     );
     return;
   }
 
+  console.log(
+    `discovered ${fits.length} eligible leagues (universal threshold n >= ${MIN_SAMPLES}); fitting...`,
+  );
+  let highConfidence = 0;
+  let lowConfidence = 0;
   for (const f of fits) {
     await upsertLeague(f);
     const flag = f.low_confidence ? "  ⚠ low_confidence" : "";
+    if (f.low_confidence) lowConfidence += 1;
+    else highConfidence += 1;
     console.log(
       `[ok] ${f.league}: n=${f.n}, home=${f.avg_goals_home.toFixed(3)}, away=${f.avg_goals_away.toFixed(3)}, rho=${f.rho.toFixed(4)}${flag}`,
     );
   }
+  console.log(
+    `\nsummary: ${highConfidence} high-confidence + ${lowConfidence} low-confidence = ${fits.length} total`,
+  );
 }
 
 async function upsertLeague(p: LeagueParams) {
