@@ -64,10 +64,20 @@ module AdamStats::Scraper
           #   home 0.40*2.0 - 1 = -20%; draw 0.30*3.0 - 1 = -10%;
           #   away 0.30*3.2 - 1 = -4% (≈0.30*3.2 = 0.96); over/under em torno de 0%; btts -5%
           'detail_json' => JSON.generate(
-            'odds' => {
-              '1X2' => { '1' => { 'average' => 2.0 }, 'X' => { 'average' => 3.0 }, '2' => { 'average' => 3.2 } },
-              'OVER_UNDER_2_5' => { 'OVER' => { 'average' => 2.0 }, 'UNDER' => { 'average' => 1.85 } },
-              'BTTS' => { 'YES' => { 'average' => 1.9 }, 'NO' => { 'average' => 1.9 } }
+            'odds_summary' => {
+              'Result' => {
+                'A' => { 'decimal_odds' => 2.0 },
+                'Draw' => { 'decimal_odds' => 3.0 },
+                'B' => { 'decimal_odds' => 3.2 }
+              },
+              'Match Goals Overs/Unders' => {
+                'Over 2.5' => { 'decimal_odds' => 2.0 },
+                'Under 2.5' => { 'decimal_odds' => 1.85 }
+              },
+              'BTTS' => {
+                'Yes' => { 'decimal_odds' => 1.9 },
+                'No' => { 'decimal_odds' => 1.9 }
+              }
             }
           )
         }
@@ -104,10 +114,20 @@ module AdamStats::Scraper
             'p_over_25' => '0.60', 'p_btts' => '0.50',
             'top_scorelines' => '[]', 'sim_stats' => '{}',
             'detail_json' => JSON.generate(
-              'odds' => {
-                '1X2' => { '1' => { 'average' => 2.0 }, 'X' => { 'average' => 3.5 }, '2' => { 'average' => 3.8 } },
-                'OVER_UNDER_2_5' => { 'OVER' => { 'average' => 1.85 }, 'UNDER' => { 'average' => 2.0 } },
-                'BTTS' => { 'YES' => { 'average' => 1.8 }, 'NO' => { 'average' => 2.1 } }
+              'odds_summary' => {
+                'Result' => {
+                  'A' => { 'decimal_odds' => 2.0 },
+                  'Draw' => { 'decimal_odds' => 3.5 },
+                  'B' => { 'decimal_odds' => 3.8 }
+                },
+                'Match Goals Overs/Unders' => {
+                  'Over 2.5' => { 'decimal_odds' => 1.85 },
+                  'Under 2.5' => { 'decimal_odds' => 2.0 }
+                },
+                'BTTS' => {
+                  'Yes' => { 'decimal_odds' => 1.8 },
+                  'No' => { 'decimal_odds' => 2.1 }
+                }
               }
             ) }
         ]

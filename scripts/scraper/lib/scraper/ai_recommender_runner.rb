@@ -188,17 +188,30 @@ module AdamStats
         detail = parse_json(row['detail_json'])
         return nil unless detail.is_a?(Hash)
 
-        odds_root = detail['odds'] || detail['odds_summary'] || {}
+        odds_root = detail['odds_summary'] || detail['odds'] || {}
         return nil unless odds_root.is_a?(Hash)
 
+        # Shape REAL do choistats (verificado empiricamente 2026-05-24):
+        #   odds_summary:
+        #     "Result":    { "<home_team_name>", "Draw", "<away_team_name>" }
+        #     "BTTS":      { "Yes", "No" }
+        #     "Match Goals Overs/Unders": { "Over 2.5", "Under 2.5", ... }
+        #   Cada valor: { "bookmaker": "X", "decimal_odds": Float }
+        #
+        # NOTA: 1X2 (Result) usa nome do time como key — precisa do row['home_team'] e
+        # row['away_team'] pra resolver.
+        result_market = odds_root['Result'] || {}
+        btts_market   = odds_root['BTTS'] || {}
+        mg_market     = odds_root['Match Goals Overs/Unders'] || {}
+
         result = {
-          home:     dig_avg(odds_root, '1X2', '1'),
-          draw:     dig_avg(odds_root, '1X2', 'X'),
-          away:     dig_avg(odds_root, '1X2', '2'),
-          over25:   dig_avg(odds_root, 'OVER_UNDER_2_5', 'OVER'),
-          under25:  dig_avg(odds_root, 'OVER_UNDER_2_5', 'UNDER'),
-          btts_sim: dig_avg(odds_root, 'BTTS', 'YES'),
-          btts_nao: dig_avg(odds_root, 'BTTS', 'NO')
+          home:     dig_decimal(result_market, row['home_team']),
+          draw:     dig_decimal(result_market, 'Draw'),
+          away:     dig_decimal(result_market, row['away_team']),
+          over25:   dig_decimal(mg_market, 'Over 2.5'),
+          under25:  dig_decimal(mg_market, 'Under 2.5'),
+          btts_sim: dig_decimal(btts_market, 'Yes'),
+          btts_nao: dig_decimal(btts_market, 'No')
         }
         return nil if result.values.compact.empty?
 
@@ -207,11 +220,15 @@ module AdamStats
         nil
       end
 
-      def dig_avg(odds_root, market, side)
-        node = odds_root.dig(market, side)
+      # Field is `decimal_odds` (not `average`). Tolerant: returns nil
+      # for missing key, missing node, or non-numeric value.
+      def dig_decimal(market_node, key)
+        return nil unless market_node.is_a?(Hash) && key
+
+        node = market_node[key]
         return nil unless node.is_a?(Hash)
 
-        v = node['average']
+        v = node['decimal_odds']
         v.respond_to?(:to_f) ? v.to_f : nil
       end
 
