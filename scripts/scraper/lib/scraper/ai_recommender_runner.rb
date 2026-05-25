@@ -75,8 +75,13 @@ module AdamStats
         @logger = logger
         @client = client
         @dry_run = dry_run
-        @bankroll = bankroll || (ENV['AI_RECO_BANKROLL']&.to_f || DEFAULT_BANKROLL)
-        @model = model || ENV['AI_RECO_MODEL'] || DEFAULT_MODEL
+        # ENV vars vindas de GH Actions `${{ vars.X }}` chegam como string vazia
+        # quando a var não está definida (não nil). Ruby `"" || x` retorna `""`
+        # (truthy), o que furava o fallback. Normalizar pra nil antes do `||`.
+        env_bankroll = ENV['AI_RECO_BANKROLL'].to_s.strip
+        env_model = ENV['AI_RECO_MODEL'].to_s.strip
+        @bankroll = bankroll || (env_bankroll.empty? ? DEFAULT_BANKROLL : env_bankroll.to_f)
+        @model = model || (env_model.empty? ? DEFAULT_MODEL : env_model)
       end
 
       def run
