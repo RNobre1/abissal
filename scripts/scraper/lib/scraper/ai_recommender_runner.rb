@@ -19,8 +19,11 @@ module AdamStats
       #   v2 (2026-05-25 tarde): 20.0 — backtest de 30d mostrou
       #     `D20 (edge≥20%) ROI +14.4%` vs `A (edge≥5%) ROI +8.1%`.
       #     Combinado com blending α=0.5 (cenário H), ROI projetado +18.66%.
-      #     Ref: docs/superpowers/specs/2026-05-25-backtest-ai-reco-relatorio.md
-      EDGE_THRESHOLD = 20.0
+      #   v3 (2026-05-25 noite): 10.0 — walk-forward sem leakage demoliu in-sample.
+      #     D10 ficou 1º no ranking WF (ROI -13.12%, melhor entre todos).
+      #     D20 ficou 4º. Reverter pra D10 é a config menos ruim dos dados reais.
+      #     Ref: docs/superpowers/specs/2026-05-25-backtest-walk-forward.md
+      EDGE_THRESHOLD = 10.0
       # Acima desse edge_pct, em liga NAO calibrada, recusamos a bet:
       # simulador sem league_parameters produz ruido amplificado
       # (ex: Kolding IF edge 114%, 2026-05-25). Espelha SANITY_EDGE_THRESHOLD
@@ -37,11 +40,14 @@ module AdamStats
       DEFAULT_MODEL = 'deepseek/deepseek-r1'.freeze
       DEFAULT_BANKROLL = 1000.0
       # Blending sim × mercado (v1 universal — 2026-05-25).
-      # 0.5 = mistura 50/50 prob_calibrated_sim + prob_market_devigged.
-      # Reduz edges absurdos em ligas não-calibradas (Kolding IF 114% → ~57%).
+      # Histórico:
+      #   v1 (2026-05-25 tarde): 0.5 — backtest in-sample H (D20+α=0.5) ROI +18.66%.
+      #   v2 (2026-05-25 noite): 0.3 — R6 walk-forward: α=0.5 cenários (F,H,G)
+      #     caíram pra fundo no ranking WF. 0.3 é compromisso: atenua edges
+      #     absurdos sem amplificar sim tanto quanto 0.5.
       # Override via ENV AI_RECO_BLEND_ALPHA (0..1). Override por liga é TODO v2
       # (fit em fixture_simulations resolvidas — quando houver dataset por liga).
-      DEFAULT_BLEND_ALPHA = 0.5
+      DEFAULT_BLEND_ALPHA = 0.3
 
       # Cron query priorizada (B19 — 2026-05-25):
       # 1. Fixtures de ligas CALIBRADAS primeiro (tem isotonic_lookup +
@@ -387,7 +393,7 @@ module AdamStats
 
       def persist_skip(conn, row, candidates, league_calibrated,
                        reduction_reason: nil,
-                       summary_line: 'Nenhum candidato com edge >= 20%',
+                       summary_line: 'Nenhum candidato com edge >= 10%',
                        reasoning: 'Nenhum mercado com valor; skip.')
         if @dry_run
           @logger.call("[ai-reco] dry-run skip persist for fixture #{row['fixture_id']}")

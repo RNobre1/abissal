@@ -101,7 +101,7 @@ export default async function BetDetailPage({
       : null;
 
   return (
-    <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-10">
         <Link
           href="/bets"

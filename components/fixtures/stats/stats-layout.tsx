@@ -107,7 +107,7 @@ export function renderPanelSlot(p: PanelSlot, mobile = false): ReactNode {
  */
 export function StatsLayout({ fixtureId, hero, panels }: StatsLayoutProps) {
   return (
-    <main className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 lg:px-8 lg:py-12">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-7xl flex-1 px-4 py-8 lg:px-8 lg:py-12">
       <header className="mb-6 flex items-center justify-between gap-2">
         <Link
           href={`/fixtures/${fixtureId}`}

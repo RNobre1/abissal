@@ -8,7 +8,7 @@ module AdamStats
       # Pra cada mercado relevante (1x2/over25/btts), calcula:
       #   prob_blended = α · prob_calibrado + (1 − α) · prob_market_devigged
       #   edge_pct     = (prob_blended * odd - 1) * 100
-      #   kelly fracionado (¼ Kelly) = ((prob*odd - 1) / (odd - 1)) / 4
+      #   kelly fracionado (⅛ Kelly) = ((prob*odd - 1) / (odd - 1)) / 8
       #   kelly_units = kelly_fracionado * (bankroll / 100)   [1 unit = 1% bankroll]
       #
       # Blending sim × mercado (v1 universal, default α=1.0 retrocompat):
@@ -23,7 +23,8 @@ module AdamStats
       #
       # Spec §3 Camada 1 + §5 (IA-2 Recomendador design).
       module EdgeCalculator
-        DEFAULT_KELLY_FRACTION = 0.25
+        # R2 walk-forward (2026-05-25 noite): ¼ Kelly → ⅛ Kelly
+        DEFAULT_KELLY_FRACTION = 0.125
         DEFAULT_BLEND_ALPHA = 1.0
 
         module_function
@@ -32,7 +33,7 @@ module AdamStats
         # @param odds [Hash] symbol keys: :home, :draw, :away, :over25, :under25, :btts_sim, :btts_nao
         # @param bankroll [Numeric] em unidades monetárias absolutas (1 unit = bankroll/100)
         # @param isotonic_lookup [Hash<String, Proc>, nil] map "metric-side" → fn(p) → p_calibrado
-        # @param kelly_fraction [Numeric] default 0.25 (¼ Kelly)
+        # @param kelly_fraction [Numeric] default 0.125 (⅛ Kelly; R2 walk-forward: ¼→⅛)
         # @param blend_alpha [Numeric] 0..1; default 1.0. < 1.0 ativa blending sim × mercado.
         # @return [Array<Hash>] candidatos ordenados por edge_pct desc
         def build(sim, odds, bankroll,

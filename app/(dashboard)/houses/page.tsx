@@ -16,7 +16,7 @@ export default async function HousesPage() {
   const archived = houses.filter((h) => h.archived_at);
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-12 flex items-end justify-between">
         <div>
           <span className="label">casas</span>

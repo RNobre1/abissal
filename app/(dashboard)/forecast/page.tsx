@@ -22,7 +22,7 @@ export default async function ForecastPage() {
 
   if (series.length < 14) {
     return (
-      <main className="mx-auto w-full max-w-3xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+      <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
         <header className="mb-10">
           <span className="label">previsão</span>
           <h2 className="mt-2">ainda cedo demais</h2>
@@ -88,7 +88,7 @@ export default async function ForecastPage() {
   ];
 
   return (
-    <main className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-4xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-10">
         <span className="label">previsão · {HORIZON_DAYS}d</span>
         <h2 className="mt-2">se a curva continuar</h2>

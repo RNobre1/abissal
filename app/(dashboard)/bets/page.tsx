@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fmt } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import type { Database } from "@/lib/supabase/types";
+import { buildBetsFilter, STATUS_FILTERS } from "./filter-helpers";
 
 type BetStatus = Database["public"]["Enums"]["bet_status"];
 type BetKind = Database["public"]["Enums"]["bet_kind"];
@@ -23,14 +24,6 @@ const KIND_LABEL: Record<BetKind, string> = {
   multiple: "múltipla",
   system: "sistema",
 };
-
-const STATUS_FILTERS: Array<{ key: string; label: string; values: BetStatus[] }> = [
-  { key: "all", label: "todas", values: [] },
-  { key: "pending", label: "pendentes", values: ["pending"] },
-  { key: "won", label: "ganhas", values: ["won", "half_won"] },
-  { key: "lost", label: "perdidas", values: ["lost", "half_lost"] },
-  { key: "other", label: "outras", values: ["void", "cashed_out", "partially_void"] },
-];
 
 function statusTone(s: BetStatus): "ink" | "depth" | "vermelho" | "muted" {
   if (s === "won" || s === "half_won" || s === "cashed_out") return "depth";
@@ -55,35 +48,70 @@ function toneColor(tone: "ink" | "depth" | "vermelho" | "muted"): string {
 export default async function BetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; house?: string }>;
+  searchParams: Promise<{ status?: string; house?: string; league?: string; market?: string }>;
 }) {
   const sp = await searchParams;
   const supabase = await createClient();
+  const betsFilter = buildBetsFilter(sp);
 
-  const housesQuery = await supabase
-    .from("houses")
-    .select("id, name, slug, color_hex")
-    .order("name");
-  const houses = housesQuery.data ?? [];
+  const [housesResult, marketsResult, leaguesResult] = await Promise.all([
+    supabase.from("houses").select("id, name, slug, color_hex").order("name"),
+    supabase.from("markets").select("id, name").order("name"),
+    supabase
+      .from("bet_selections")
+      .select("league")
+      .not("league", "is", null)
+      .order("league"),
+  ]);
+
+  const houses = housesResult.data ?? [];
   const houseBySlug = new Map(houses.map((h) => [h.slug, h]));
   const houseById = new Map(houses.map((h) => [h.id, h]));
-  const houseFilter = sp.house ? houseBySlug.get(sp.house) : undefined;
+  const houseFilter = betsFilter.houseSlug
+    ? houseBySlug.get(betsFilter.houseSlug)
+    : undefined;
 
-  const statusKey = sp.status ?? "all";
-  const filter = STATUS_FILTERS.find((f) => f.key === statusKey) ?? STATUS_FILTERS[0];
+  const availableMarkets = marketsResult.data ?? [];
 
-  let query = supabase
-    .from("bets")
-    .select(
-      "id, house_id, kind, status, total_stake, total_odds, expected_return, actual_return, placed_at, resolved_at, note",
-    )
-    .order("placed_at", { ascending: false })
-    .limit(200);
+  const leagueSet = new Set<string>();
+  for (const row of leaguesResult.data ?? []) {
+    if (row.league) leagueSet.add(row.league);
+  }
+  const availableLeagues = Array.from(leagueSet).sort();
 
-  if (filter.values.length > 0) query = query.in("status", filter.values);
-  if (houseFilter) query = query.eq("house_id", houseFilter.id);
+  // Build bets query
+  // When league or market filter is active, join through bet_selections
+  let betsQuery;
+  if (betsFilter.league || betsFilter.marketId) {
+    betsQuery = supabase
+      .from("bets")
+      .select(
+        "id, house_id, kind, status, total_stake, total_odds, expected_return, actual_return, placed_at, resolved_at, note, bet_selections!inner(league, market_id)",
+      )
+      .order("placed_at", { ascending: false })
+      .limit(200);
 
-  const { data: bets } = await query;
+    if (betsFilter.league) {
+      betsQuery = betsQuery.eq("bet_selections.league", betsFilter.league);
+    }
+    if (betsFilter.marketId) {
+      betsQuery = betsQuery.eq("bet_selections.market_id", betsFilter.marketId);
+    }
+  } else {
+    betsQuery = supabase
+      .from("bets")
+      .select(
+        "id, house_id, kind, status, total_stake, total_odds, expected_return, actual_return, placed_at, resolved_at, note",
+      )
+      .order("placed_at", { ascending: false })
+      .limit(200);
+  }
+
+  if (betsFilter.statusValues.length > 0)
+    betsQuery = betsQuery.in("status", betsFilter.statusValues);
+  if (houseFilter) betsQuery = betsQuery.eq("house_id", houseFilter.id);
+
+  const { data: bets } = await betsQuery;
   const rows = bets ?? [];
 
   const summaryQuery = await supabase
@@ -93,6 +121,24 @@ export default async function BetsPage({
   const summary = summaryQuery.data;
 
   const noHouses = houses.length === 0;
+
+  function buildHref(overrides: Record<string, string | undefined>) {
+    const params = new URLSearchParams();
+    const merged = {
+      status: betsFilter.statusKey !== "all" ? betsFilter.statusKey : undefined,
+      house: betsFilter.houseSlug,
+      league: betsFilter.league,
+      market: betsFilter.marketId,
+      ...overrides,
+    };
+    for (const [k, v] of Object.entries(merged)) {
+      if (v) params.set(k, v);
+    }
+    const qs = params.toString();
+    return qs ? `/bets?${qs}` : "/bets";
+  }
+
+  const selectedMarket = availableMarkets.find((m) => m.id === betsFilter.marketId);
 
   return (
     <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
@@ -136,17 +182,14 @@ export default async function BetsPage({
         </section>
       )}
 
-      <nav className="mb-6 flex flex-wrap gap-1">
+      {/* Status filter nav */}
+      <nav className="mb-4 flex flex-wrap gap-1">
         {STATUS_FILTERS.map((f) => {
-          const active = f.key === filter.key;
-          const href = new URLSearchParams();
-          if (f.key !== "all") href.set("status", f.key);
-          if (sp.house) href.set("house", sp.house);
-          const qs = href.toString();
+          const active = f.key === betsFilter.statusKey;
           return (
             <Link
               key={f.key}
-              href={qs ? `/bets?${qs}` : "/bets"}
+              href={buildHref({ status: f.key !== "all" ? f.key : undefined })}
               className="rounded-[var(--radius-sm)] px-3 py-1.5 text-xs uppercase tracking-[0.18em] transition-colors"
               style={{
                 color: active
@@ -163,17 +206,96 @@ export default async function BetsPage({
         })}
       </nav>
 
-      {houseFilter && (
-        <p className="mb-6 text-sm text-[var(--color-ink-muted)]">
-          casa: <span className="num">{houseFilter.name}</span> ·{" "}
-          <Link
-            href={
-              filter.key === "all" ? "/bets" : `/bets?status=${filter.key}`
-            }
-            className="underline hover:text-[var(--color-ink)]"
-          >
-            limpar
-          </Link>
+      {/* League + Market filters */}
+      {(availableLeagues.length > 0 || availableMarkets.length > 0) && (
+        <div className="mb-6 flex flex-wrap gap-3">
+          {availableLeagues.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="league-filter"
+                className="num text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-muted)]"
+              >
+                liga
+              </label>
+              <select
+                id="league-filter"
+                value={betsFilter.league ?? ""}
+                onChange={(e) => {
+                  // client-side redirect via form GET
+                }}
+                className="rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-vermelho)]"
+              >
+                <option value="">todas</option>
+                {availableLeagues.map((lg) => (
+                  <option key={lg} value={lg}>
+                    {lg}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {availableMarkets.length > 0 && (
+            <div className="flex items-center gap-2">
+              <label
+                htmlFor="market-filter"
+                className="num text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-muted)]"
+              >
+                mercado
+              </label>
+              <select
+                id="market-filter"
+                value={betsFilter.marketId ?? ""}
+                onChange={() => {}}
+                className="rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-vermelho)]"
+              >
+                <option value="">todos</option>
+                {availableMarkets.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Active filter chips */}
+      {(houseFilter || betsFilter.league || selectedMarket) && (
+        <p className="mb-6 flex flex-wrap items-center gap-3 text-sm text-[var(--color-ink-muted)]">
+          {houseFilter && (
+            <span>
+              casa: <span className="num">{houseFilter.name}</span> ·{" "}
+              <Link
+                href={buildHref({ house: undefined })}
+                className="underline hover:text-[var(--color-ink)]"
+              >
+                limpar
+              </Link>
+            </span>
+          )}
+          {betsFilter.league && (
+            <span>
+              liga: <span className="num">{betsFilter.league}</span> ·{" "}
+              <Link
+                href={buildHref({ league: undefined })}
+                className="underline hover:text-[var(--color-ink)]"
+              >
+                limpar
+              </Link>
+            </span>
+          )}
+          {selectedMarket && (
+            <span>
+              mercado: <span className="num">{selectedMarket.name}</span> ·{" "}
+              <Link
+                href={buildHref({ market: undefined })}
+                className="underline hover:text-[var(--color-ink)]"
+              >
+                limpar
+              </Link>
+            </span>
+          )}
         </p>
       )}
 

@@ -105,13 +105,13 @@ export function parseDecision(content: string): AiDecision | null {
 
 /**
  * Garante que units_final respeita o cap absoluto.
- *  - liga calibrada: 2.0u
- *  - liga NÃO calibrada: 0.5u
+ *  - liga calibrada: 1.0u (R2 walk-forward: 2.0→1.0, 2026-05-25 noite)
+ *  - liga NÃO calibrada: 0.1u (R3 walk-forward: 0.5→0.1, 2026-05-25 noite)
  * verdict='skip' não tem units pra cappear (passa through).
  */
 export function enforceCaps(d: AiDecision, leagueCalibrated: boolean): AiDecision {
   if (d.verdict !== "bet") return d;
-  const cap = leagueCalibrated ? 2.0 : 0.5;
+  const cap = leagueCalibrated ? 1.0 : 0.1;
   if (typeof d.units_final !== "number" || !Number.isFinite(d.units_final)) {
     return { ...d, units_final: 0 };
   }

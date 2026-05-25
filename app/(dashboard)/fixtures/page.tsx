@@ -34,7 +34,7 @@ export default async function FixturesPage({ searchParams }: FixturesPageProps) 
   const tomorrowIso = parseDateParam("tomorrow") ?? todayIso;
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-10 flex items-end justify-between gap-6">
         <div>
           <span className="label">fixtures</span>

@@ -39,7 +39,15 @@ export default function RootLayout({
       lang="pt-BR"
       className={`${fraunces.variable} ${dmSans.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="min-h-screen">{children}</body>
+      <body className="min-h-screen">
+        <a
+          href="#main"
+          className="sr-only focus:not-sr-only focus:fixed focus:top-2 focus:left-2 focus:z-50 focus:bg-[var(--color-vermelho)] focus:px-3 focus:py-2 focus:text-[var(--color-ink-display)] focus:rounded"
+        >
+          pular para conteúdo
+        </a>
+        {children}
+      </body>
     </html>
   );
 }

@@ -44,8 +44,8 @@ import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
  *   5. Load active isotonic curves via `getActiveCurves(model_version)` and
  *      build the lookup map passed into `buildEdgeTable`.
  *   6. Detect league_calibrated via `league_parameters` (effective row).
- *   7. Build edge table, filter `edge_pct >= 20` (v2 — 2026-05-25 tarde,
- *      elevado de 5%; backtest histórico mostrou ROI projetado +14.4%).
+ *   7. Build edge table, filter `edge_pct >= 10` (v3 — 2026-05-25 noite,
+ *      walk-forward sem leakage: D10 ficou 1º no ranking WF).
  *   8. If no candidates → persist `verdict='skip'` and return 200 (no IA call).
  *   9. Else → buildPrompt → runRecommender → persist both `llm_request_logs`
  *      and `ai_recommendations` rows.
@@ -69,20 +69,26 @@ const ROUTE_LABEL = "ai-reco-on-demand";
  *   v2 (2026-05-25 tarde): 20.0 — backtest de 30d mostrou
  *     `D20 (edge≥20%) ROI +14.4%` vs `A (edge≥5%) ROI +8.1%`.
  *     Combinado com blending α=0.5 (H): ROI projetado +18.66%.
- *     Espelha `EDGE_THRESHOLD` do Ruby runner.
- *     Ref: docs/superpowers/specs/2026-05-25-backtest-ai-reco-relatorio.md
+ *   v3 (2026-05-25 noite): 10.0 — walk-forward sem leakage demoliu in-sample.
+ *     D10 ficou 1º no ranking walk-forward (ROI -13.12%, melhor entre todos).
+ *     D20 ficou 4º. Reverter pra D10 é a config menos ruim dos dados reais.
+ *     Ref: docs/superpowers/specs/2026-05-25-backtest-walk-forward.md
+ * Espelha `EDGE_THRESHOLD` do Ruby runner.
  */
-const EDGE_THRESHOLD_PCT = 20.0;
+const EDGE_THRESHOLD_PCT = 10.0;
 const DEFAULT_BANKROLL = 1000.0;
 /**
  * Blending sim × mercado (v1 universal — 2026-05-25).
- * 0.5 = mistura 50/50 prob_calibrated_sim + prob_market_devigged.
- * Reduz edges absurdos em ligas não-calibradas (Kolding IF 114% → ~57%).
+ * Histórico:
+ *   v1 (2026-05-25 tarde): 0.5 — backtest in-sample H (D20+α=0.5) ROI +18.66%.
+ *   v2 (2026-05-25 noite): 0.3 — R6 walk-forward: α=0.5 cenários (F,H,G)
+ *     caíram pra fundo no ranking WF. Cenários conservadores (α→1.0) menos ruins.
+ *     0.3 é compromisso: atenua edges absurdos sem amplificar sim tanto quanto 0.5.
  * Sincronizar com `DEFAULT_BLEND_ALPHA` em
  * `scripts/scraper/lib/scraper/ai_recommender_runner.rb`.
  * Override via ENV AI_RECO_BLEND_ALPHA (0..1). Override por liga é TODO v2.
  */
-const DEFAULT_BLEND_ALPHA = 0.5;
+const DEFAULT_BLEND_ALPHA = 0.3;
 
 const bodySchema = z.object({
   fixtureId: z.number().int().positive(),
@@ -241,7 +247,7 @@ export async function POST(request: Request): Promise<Response> {
       verdict: "skip",
       confidence: "baixo",
       reasoning: "Nenhum mercado com valor; skip.",
-      summary_line: "Nenhum candidato com edge >= 20%",
+      summary_line: "Nenhum candidato com edge >= 10%",
       red_flags: [],
     };
 
@@ -695,7 +701,7 @@ async function persistSkip(args: {
         units_final: null,
         reduction_reason: null,
         confidence: "baixo",
-        summary_line: "Nenhum candidato com edge >= 20%",
+        summary_line: "Nenhum candidato com edge >= 10%",
         reasoning_full: "Nenhum mercado com valor; skip.",
         red_flags: [],
         cost_usd: 0,

@@ -480,7 +480,7 @@ export default async function CalibracaoPage() {
   const isEmpty = rows.length === 0;
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-8">
         <span className="label">calibração IA</span>
         <h2 className="mt-2">acerto e calibração do copilot</h2>

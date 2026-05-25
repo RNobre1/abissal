@@ -65,14 +65,15 @@ export interface BuildOptions {
   /** Map "metric-side" → fn(p) → p_calibrado. Métricas: '1x2-home', '1x2-draw',
    *  '1x2-away', 'over25' (cobre tb 'under25' via 1-p). */
   isotonicLookup?: Partial<Record<string, (p: number) => number>>;
-  /** Default ¼ Kelly = 0.25. Pode customizar pra ½ Kelly etc. */
+  /** Default ⅛ Kelly = 0.125. Pode customizar pra ¼ Kelly etc. */
   kellyFraction?: number;
   /** Blending sim × mercado. 0..1. Default 1.0 (sem blending — status quo).
    *  prob_final = blendAlpha · prob_calibrado + (1 − blendAlpha) · prob_market_devigged. */
   blendAlpha?: number;
 }
 
-const DEFAULT_KELLY_FRACTION = 0.25;
+// R2 walk-forward (2026-05-25 noite): ¼ Kelly → ⅛ Kelly
+const DEFAULT_KELLY_FRACTION = 0.125;
 const DEFAULT_BLEND_ALPHA = 1.0;
 
 function kellyUnits(prob: number, odd: number, bankroll: number, fraction: number): number {

@@ -49,7 +49,7 @@ export default async function TransactionsPage({
   const houseById = new Map(houses.map((h) => [h.id, h.name]));
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-10 flex items-end justify-between">
         <div>
           <span className="label">transações</span>

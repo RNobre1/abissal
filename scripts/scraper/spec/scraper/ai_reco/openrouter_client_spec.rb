@@ -47,21 +47,21 @@ module AdamStats::Scraper::AiReco
     end
 
     describe '#call enforce_caps' do
-      it 'aplica cap 2.0u em liga calibrada quando IA devolve units > 2.0' do
+      it 'aplica cap 1.0u em liga calibrada quando IA devolve units > 1.0 (R2 walk-forward: 2.0→1.0)' do
         over = valid_decision.merge(units_final: 3.0)
         body = { choices: [{ message: { content: over.to_json } }],
                  usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 } }.to_json
         client = described_class.new(api_key: 't', conn: stub_faraday(status: 200, body: body))
         result = client.call({ system: 's', user: 'u' }, model: 'deepseek/deepseek-r1', league_calibrated: true)
-        expect(result[:decision][:units_final]).to eq(2.0)
+        expect(result[:decision][:units_final]).to eq(1.0)
       end
 
-      it 'aplica cap 0.5u em liga nao-calibrada' do
+      it 'aplica cap 0.1u em liga nao-calibrada (R3 walk-forward: 0.5→0.1)' do
         body = { choices: [{ message: { content: valid_decision.merge(units_final: 1.5).to_json } }],
                  usage: { prompt_tokens: 100, completion_tokens: 100, total_tokens: 200 } }.to_json
         client = described_class.new(api_key: 't', conn: stub_faraday(status: 200, body: body))
         result = client.call({ system: 's', user: 'u' }, model: 'deepseek/deepseek-r1', league_calibrated: false)
-        expect(result[:decision][:units_final]).to eq(0.5)
+        expect(result[:decision][:units_final]).to eq(0.1)
       end
     end
 

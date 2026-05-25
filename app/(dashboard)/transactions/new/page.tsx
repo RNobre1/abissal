@@ -19,7 +19,7 @@ export default async function NewTransactionPage() {
   const defaultIso = nowLocal.toISOString().slice(0, 16);
 
   return (
-    <main className="mx-auto w-full max-w-2xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-2xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-10">
         <span className="label">transações / nova</span>
         <h2 className="mt-2">novo lançamento</h2>

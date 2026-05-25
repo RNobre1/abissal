@@ -102,7 +102,7 @@ export default async function LlmObservabilityPage() {
   const recent = logs.slice(0, 10);
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-8">
         <span className="label">observabilidade IA</span>
         <h2 className="mt-2">llm observability</h2>

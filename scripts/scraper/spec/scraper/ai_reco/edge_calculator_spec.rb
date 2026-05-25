@@ -40,13 +40,13 @@ module AdamStats::Scraper::AiReco
       expect(home[:kelly_units]).to eq(0)
     end
 
-    it 'kelly fracionado ¼ (1 unit = 1% bankroll)' do
+    it 'kelly fracionado ⅛ (1 unit = 1% bankroll) — R2 walk-forward: ¼→⅛' do
       out = EdgeCalculator.build(base_sim, base_odds, 1000)
       home = out.find { |c| c[:market] == '1x2' && c[:side] == 'home' }
       # f_full = (0.50*1.10 - 0.50)/1.10 = 0.05/1.10 ≈ 0.04545
-      # f_quarter = 0.04545/4 ≈ 0.011364
-      # bankroll/100 = 10 → units = 0.011364 * 10 ≈ 0.1136
-      expect(home[:kelly_units]).to be_within(0.01).of(0.1136)
+      # f_eighth = 0.04545 * 0.125 ≈ 0.005682
+      # bankroll/100 = 10 → units = 0.005682 * 10 ≈ 0.05682
+      expect(home[:kelly_units]).to be_within(0.005).of(0.05682)
     end
 
     it 'ignora mercado sem odd' do

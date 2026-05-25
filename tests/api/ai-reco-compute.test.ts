@@ -446,10 +446,10 @@ describe("POST /api/ai-reco/compute — preconditions", () => {
 describe("POST /api/ai-reco/compute — happy path", () => {
   it("returns 200 with decision, reco_id, costUsd, latencyMs when OpenRouter succeeds", async () => {
     mockState.fixtureRow = makeFixtureRow();
-    // p_home=0.75 (raw edge 57.5% × odd 2.10) → blended α=0.5 com mercado
-    // devigado (~0.487) = 0.619 → edge_blended ~30% (passa threshold v2=20%,
-    // abaixo do sanity 50%). Default p_home=0.60 daria edge_blended ~12%
-    // (skip no v2). Override mantém o caminho "bet" exercitado.
+    // p_home=0.75 → blended α=0.3 com mercado devigado (~0.4645) = 0.5501
+    // → edge_blended ~15.5% (passa threshold v3=10%, abaixo sanity 50%).
+    // Default p_home=0.60 daria edge_blended ~3.5% (skip no v3).
+    // VALID_DECISION.units_final=1.5 → capped a 1.0u (R2: cap calibrada 2.0→1.0).
     mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = [{ league: "Premier League" }];
 
@@ -475,7 +475,7 @@ describe("POST /api/ai-reco/compute — happy path", () => {
     };
 
     expect(body.decision.verdict).toBe("bet");
-    expect(body.decision.units_final).toBe(1.5);
+    expect(body.decision.units_final).toBe(1.0); // capped 1.5→1.0 (R2)
     expect(body.reco_id).toBe(888);
     expect(body.logId).toBe(999);
     expect(typeof body.costUsd).toBe("number");
@@ -627,7 +627,7 @@ describe("POST /api/ai-reco/compute — error paths", () => {
 });
 
 describe("POST /api/ai-reco/compute — cap enforcement", () => {
-  it("enforces 0.5u cap when league is NOT calibrated", async () => {
+  it("enforces 0.1u cap when league is NOT calibrated (R3 walk-forward: 0.5→0.1)", async () => {
     mockState.fixtureRow = makeFixtureRow({ league: "Obscure League" });
     mockState.simRow = makeSimRow({ league: "Obscure League", p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = []; // not calibrated
@@ -647,11 +647,11 @@ describe("POST /api/ai-reco/compute — cap enforcement", () => {
     const res = await callRoute({ fixtureId: 42 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { decision: { units_final: number } };
-    // Cap 0.5u enforced (was 1.5)
-    expect(body.decision.units_final).toBe(0.5);
+    // Cap 0.1u enforced (was 1.5, R3 walk-forward)
+    expect(body.decision.units_final).toBe(0.1);
   });
 
-  it("enforces 2.0u cap when league IS calibrated", async () => {
+  it("enforces 1.0u cap when league IS calibrated (R2 walk-forward: 2.0→1.0)", async () => {
     mockState.fixtureRow = makeFixtureRow();
     mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
     mockState.calibratedLeagueRows = [{ league: "Premier League" }];
@@ -671,8 +671,8 @@ describe("POST /api/ai-reco/compute — cap enforcement", () => {
     const res = await callRoute({ fixtureId: 42 });
     expect(res.status).toBe(200);
     const body = (await res.json()) as { decision: { units_final: number } };
-    // Cap 2.0u enforced (was 3.5)
-    expect(body.decision.units_final).toBe(2.0);
+    // Cap 1.0u enforced (was 3.5, R2 walk-forward)
+    expect(body.decision.units_final).toBe(1.0);
   });
 });
 

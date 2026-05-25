@@ -81,7 +81,7 @@ export default async function OverviewPage() {
   const isEmpty = houses.length === 0;
 
   return (
-    <main className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
+    <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-12 flex items-baseline justify-between">
         <span className="label">visão geral</span>
         <span className="label">{fmt.date(new Date())}</span>
@@ -110,6 +110,7 @@ export default async function OverviewPage() {
               acumulado:{" "}
               <span
                 className="num"
+                aria-label={`P/L acumulado: ${fmt.signed(cumulativePl)}`}
                 style={{
                   color:
                     cumulativePl >= 0
@@ -117,6 +118,7 @@ export default async function OverviewPage() {
                       : "var(--color-vermelho-hi)",
                 }}
               >
+                <span aria-hidden="true">{cumulativePl >= 0 ? "▲ " : "▼ "}</span>
                 {fmt.signed(cumulativePl)}
               </span>
             </p>
@@ -280,11 +282,15 @@ function Metric({
   tone: "ink" | "depth" | "vermelho";
   compact?: boolean;
 }) {
+  const directionSymbol =
+    tone === "depth" ? "▲" : tone === "vermelho" ? "▼" : null;
+
   return (
     <div className="flex flex-col gap-3 bg-[var(--color-surface-2)] p-6">
       <span className="label">{label}</span>
       <span
         className={`num ${compact ? "text-2xl" : "text-3xl md:text-4xl"}`}
+        aria-label={`${label}: ${value}`}
         style={{
           color:
             tone === "depth"
@@ -294,6 +300,11 @@ function Metric({
                 : "var(--color-ink-display)",
         }}
       >
+        {directionSymbol && (
+          <span aria-hidden="true" className="mr-0.5">
+            {directionSymbol}
+          </span>
+        )}
         {value}
       </span>
     </div>

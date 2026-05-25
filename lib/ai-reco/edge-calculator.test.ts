@@ -44,16 +44,15 @@ describe("buildEdgeTable", () => {
     }
   });
 
-  it("calcula kelly fracionado (¼ Kelly)", () => {
+  it("calcula kelly fracionado (⅛ Kelly)", () => {
     // f = (p*b - q) / b onde b = odd-1, q = 1-p
     // pra home: p=0.50, b=1.10, q=0.50; f = (0.55-0.50)/1.10 = 0.04545
-    // ¼ Kelly = 0.04545 / 4 = 0.01136
-    // Fórmula impl: (f * fraction * bankroll) / 100 = 0.04545 * 0.25 * 1000 / 100 = 0.1136
-    // (Plan original tinha 1.125 mas isso conflita com o teste 'bankroll linear' — corrigido pro
-    //  valor matemático da fórmula impl, que é o que faz os outros 10 tests passarem.)
+    // ⅛ Kelly = 0.04545 * 0.125 = 0.005682
+    // Fórmula impl: (f * fraction * bankroll) / 100 = 0.04545 * 0.125 * 1000 / 100 = 0.05682
+    // R2 walk-forward: Kelly fraction ¼→⅛ (2026-05-25)
     const out = buildEdgeTable(baseSim, baseOdds, 1000);
     const home = out.find(c => c.market === "1x2" && c.side === "home")!;
-    expect(home.kelly_units).toBeCloseTo(0.1136, 3);
+    expect(home.kelly_units).toBeCloseTo(0.05682, 3);
   });
 
   it("kelly_units = 0 pra edge negativo", () => {

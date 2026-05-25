@@ -102,13 +102,13 @@ module AdamStats
         end
 
         # Garante que units_final respeita o cap absoluto:
-        #   - liga calibrada     -> 2.0u
-        #   - liga NAO calibrada -> 0.5u
+        #   - liga calibrada     -> 1.0u (R2 walk-forward: 2.0→1.0, 2026-05-25 noite)
+        #   - liga NAO calibrada -> 0.1u (R3 walk-forward: 0.5→0.1, 2026-05-25 noite)
         # verdict=skip passa through.
         def enforce_caps(decision, league_calibrated)
           return decision unless decision[:verdict] == 'bet'
 
-          cap = league_calibrated ? 2.0 : 0.5
+          cap = league_calibrated ? 1.0 : 0.1
           units = decision[:units_final]
           units_f = units.is_a?(Numeric) && (!units.respond_to?(:finite?) || units.finite?) ? units.to_f : 0.0
           capped = [[units_f, 0.0].max, cap].min

@@ -60,19 +60,19 @@ describe("parseDecision", () => {
 });
 
 describe("enforceCaps", () => {
-  it("cap 2.0u liga calibrada", () => {
-    const d: AiDecision = { ...JSON.parse(validDecisionJson), units_final: 2.5 };
-    expect(enforceCaps(d, true).units_final).toBe(2.0);
+  it("cap 1.0u liga calibrada (R2 walk-forward: 2.0→1.0)", () => {
+    const d: AiDecision = { ...JSON.parse(validDecisionJson), units_final: 1.5 };
+    expect(enforceCaps(d, true).units_final).toBe(1.0);
   });
 
-  it("cap 0.5u liga não-calibrada", () => {
-    const d: AiDecision = { ...JSON.parse(validDecisionJson), units_final: 1.5 };
-    expect(enforceCaps(d, false).units_final).toBe(0.5);
+  it("cap 0.1u liga não-calibrada (R3 walk-forward: 0.5→0.1)", () => {
+    const d: AiDecision = { ...JSON.parse(validDecisionJson), units_final: 0.5 };
+    expect(enforceCaps(d, false).units_final).toBe(0.1);
   });
 
   it("não mexe quando units já abaixo do cap", () => {
-    const d: AiDecision = { ...JSON.parse(validDecisionJson), units_final: 0.8 };
-    expect(enforceCaps(d, true).units_final).toBe(0.8);
+    const d: AiDecision = { ...JSON.parse(validDecisionJson), units_final: 0.05 };
+    expect(enforceCaps(d, false).units_final).toBe(0.05);
   });
 
   it("verdict='skip' não tem units pra cappear (passa through)", () => {
@@ -245,7 +245,7 @@ describe("runRecommender", () => {
     expect(result.usage!.total_tokens).toBe(1200);
   });
 
-  it("aplica enforceCaps no resultado", async () => {
+  it("aplica enforceCaps no resultado (cap 1.0u calibrada — R2 walk-forward)", async () => {
     const overCapJson = JSON.stringify({
       verdict: "bet", market: "btts", side: "sim",
       prob_estimated: 0.7, units_final: 3.0, kelly_pre: 3.0, reduction_reason: null,
@@ -262,7 +262,7 @@ describe("runRecommender", () => {
       { system: "s", user: "u" },
       { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as any },
     );
-    expect(result.decision!.units_final).toBe(2.0); // cap aplicado
+    expect(result.decision!.units_final).toBe(1.0); // cap 1.0u aplicado (R2)
   });
 
   it("retorna ok=false quando OpenRouter retorna não-200", async () => {
