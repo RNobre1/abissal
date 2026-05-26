@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { KeyboardHelpModal } from "@/components/keyboard-help-modal";
 
 const NAV_GROUPS: Array<{
   label: string;
@@ -116,6 +117,9 @@ export default async function DashboardLayout({
       <CommandPalette />
 
       <MobileBottomNav />
+
+      {/* Global keyboard shortcuts help modal — open with ? */}
+      <KeyboardHelpModal />
     </div>
   );
 }
