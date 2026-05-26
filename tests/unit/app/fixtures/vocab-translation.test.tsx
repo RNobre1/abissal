@@ -84,6 +84,7 @@ describe("U.2 — Vocabulário traduzido (AiRecoPanel)", () => {
         fixtureId={19427226}
         homeTeam="Liverpool"
         awayTeam="Tottenham"
+        defaultStake={150}
       />,
     );
     const text = container.textContent ?? "";

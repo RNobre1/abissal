@@ -200,8 +200,9 @@ export function AiRecoPanel({
     : "liga não-calibrada";
 
   // Aposta sugerida: R$ XX (Z unidades) — âncora comportamental (BE)
-  const stakeValue = reco.units_final != null && reco.units_final > 0
-    ? reco.units_final * unitValue
+  // defaultStake já vem computado em BRL pelo SSR (Wave B: computeDefaultStake(units_final, bankrollSettings))
+  const stakeValue = reco.units_final != null && reco.units_final > 0 && defaultStake > 0
+    ? defaultStake
     : null;
   const stakeDisplay = stakeValue != null
     ? `R$ ${stakeValue.toFixed(2)} (${units ?? "—"} unidades)`
