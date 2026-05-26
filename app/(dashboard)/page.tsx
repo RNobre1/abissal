@@ -10,9 +10,20 @@ import {
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
 import { OportunidadesIa } from "./_components/oportunidades-ia";
+import { QuietModeCard } from "@/components/disciplina/quiet-mode-card";
+import { isQuietModeActive } from "@/lib/disciplina/quiet-mode";
 
 export default async function OverviewPage() {
   const supabase = await createClient();
+
+  // Quiet mode check — antes das queries pesadas para short-circuit se ativo
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const quietMode = user
+    ? await isQuietModeActive(supabase, user.id)
+    : { active: false };
 
   const [housesQuery, summaryQuery, recentTxQuery, dailyPlQuery] =
     await Promise.all([
@@ -87,7 +98,15 @@ export default async function OverviewPage() {
         <span className="label">{fmt.date(new Date())}</span>
       </header>
 
-      <OportunidadesIa />
+      {quietMode.active && quietMode.until ? (
+        <QuietModeCard
+          until={quietMode.until}
+          totalBalance={totalBalance}
+          cumulativePl={cumulativePl}
+        />
+      ) : (
+        <OportunidadesIa />
+      )}
 
       {isEmpty ? <FirstRun /> : (
         <>
