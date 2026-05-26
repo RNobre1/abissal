@@ -184,5 +184,77 @@ module AdamStats::Scraper::AiReco
         expect(valid.sum).to be_within(1e-6).of(1.0)
       end
     end
+
+    # ── Wave O+E: mercados secundários (corners, cards, SOT) ───────────────────
+
+    describe 'mercados secundários — corners/cards/SOT' do
+      let(:sim_with_secondary) do
+        base_sim.merge(
+          sim_corners_total_mean: 10.5,
+          sim_cards_total_mean: 4.3,
+          sim_sot_total_mean: 6.7
+        )
+      end
+      let(:odds_with_secondary) do
+        base_odds.merge(
+          corners_over_95: 1.90, corners_under_95: 1.90,
+          corners_over_105: 2.20, corners_under_105: 1.65,
+          cards_over_45: 1.85, cards_under_45: 1.95,
+          sot_over_75: 1.95, sot_under_75: 1.85
+        )
+      end
+
+      it 'gera candidatos de corners quando sim_corners_total_mean e odds presentes' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        corners = out.select { |c| c[:market].start_with?('corners-') }
+        expect(corners.length).to be >= 2
+      end
+
+      it 'gera candidatos de cards quando sim_cards_total_mean e odds presentes' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        cards = out.select { |c| c[:market].start_with?('cards-') }
+        expect(cards.length).to be >= 1
+      end
+
+      it 'gera candidatos de SOT quando sim_sot_total_mean e odds presentes' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        sot = out.select { |c| c[:market].start_with?('sot-') }
+        expect(sot.length).to be >= 1
+      end
+
+      it 'corners over 9.5 com mean=10.5: P(X>9.5|10.5) ≈ 0.603 via Poisson' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        over95 = out.find { |c| c[:market] == 'corners-over' && c[:side] == '95' }
+        expect(over95).not_to be_nil
+        # scipy: 1 - poisson.cdf(9, 10.5) = 0.6029
+        expect(over95[:prob_estimated]).to be_within(0.02).of(0.6029)
+      end
+
+      it 'sem sim_corners_total_mean → nenhum candidato corners' do
+        out = EdgeCalculator.build(base_sim, odds_with_secondary, 1000)
+        corners = out.select { |c| c[:market].start_with?('corners-') }
+        expect(corners).to be_empty
+      end
+
+      it 'sem odds corners → nenhum candidato corners mesmo com mean' do
+        out = EdgeCalculator.build(sim_with_secondary, base_odds, 1000)
+        corners = out.select { |c| c[:market].start_with?('corners-') }
+        expect(corners).to be_empty
+      end
+
+      it 'edge calculado corretamente para corners-over 9.5 com odd 1.90' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        over95 = out.find { |c| c[:market] == 'corners-over' && c[:side] == '95' }
+        expect(over95).not_to be_nil
+        # prob ≈ 0.6029, odd 1.90 → edge = (0.6029 * 1.90 - 1) * 100 ≈ +14.5%
+        expected_edge = (0.6029 * 1.90 - 1.0) * 100.0
+        expect(over95[:edge_pct]).to be_within(1.0).of(expected_edge)
+      end
+
+      it 'resultado ainda ordenado por edge desc com mercados secundários' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        out.each_cons(2) { |a, b| expect(a[:edge_pct]).to be >= b[:edge_pct] }
+      end
+    end
   end
 end

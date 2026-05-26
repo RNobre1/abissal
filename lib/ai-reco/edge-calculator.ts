@@ -25,12 +25,19 @@
  * Spec §3 Camada 1 + §5.
  */
 
+import { poissonProbOver, poissonProbUnder } from "./dist-helpers";
+
 export interface SimInput {
   p_home?: number | null;
   p_draw?: number | null;
   p_away?: number | null;
   p_over_25?: number | null;
   p_btts?: number | null;
+  // Wave O+E — secondary markets (Poisson-approximated from sim_stats p50).
+  // Unit: expected total match count (home + away combined).
+  sim_corners_total_mean?: number | null;
+  sim_cards_total_mean?: number | null;
+  sim_sot_total_mean?: number | null;
 }
 
 export interface OddsInput {
@@ -41,10 +48,66 @@ export interface OddsInput {
   under25?: number | null;
   btts_sim?: number | null;
   btts_nao?: number | null;
+  // Wave O+E — secondary market odds (over/under lines).
+  // "95" = line 9.5, "105" = line 10.5, "115" = 11.5, etc.
+  corners_over_95?: number | null;
+  corners_under_95?: number | null;
+  corners_over_105?: number | null;
+  corners_under_105?: number | null;
+  corners_over_85?: number | null;
+  corners_under_85?: number | null;
+  cards_over_35?: number | null;
+  cards_under_35?: number | null;
+  cards_over_45?: number | null;
+  cards_under_45?: number | null;
+  cards_over_55?: number | null;
+  cards_under_55?: number | null;
+  sot_over_75?: number | null;
+  sot_under_75?: number | null;
+  sot_over_95?: number | null;
+  sot_under_95?: number | null;
+  sot_over_105?: number | null;
+  sot_under_105?: number | null;
 }
 
-export type Market = "1x2" | "over25" | "btts";
-export type Side = "home" | "draw" | "away" | "over" | "under" | "sim" | "nao";
+/**
+ * Market union — Wave O+E extends 1x2/over25/btts with:
+ *   corners-over / corners-under  (line encoded in side: "85", "95", "105")
+ *   cards-over   / cards-under    (line: "35", "45", "55")
+ *   sot-over     / sot-under      (line: "75", "95", "105")
+ *
+ * V1 approximation: prob estimated via Poisson(mean=sim_*_total_mean).
+ * V2 TODO: use actual sample distribution from Monte Carlo runs for better
+ * CDF accuracy (p50 ≠ mean for non-symmetric distributions).
+ */
+export type Market =
+  | "1x2"
+  | "over25"
+  | "btts"
+  | "corners-over"
+  | "corners-under"
+  | "cards-over"
+  | "cards-under"
+  | "sot-over"
+  | "sot-under";
+
+export type Side =
+  | "home"
+  | "draw"
+  | "away"
+  | "over"
+  | "under"
+  | "sim"
+  | "nao"
+  // Secondary market line identifiers (numeric string):
+  | "85"
+  | "95"
+  | "105"
+  | "115"
+  | "35"
+  | "45"
+  | "55"
+  | "75";
 
 export interface EdgeCandidate {
   market: Market;
@@ -306,6 +369,145 @@ export function buildEdgeTable(
         edge_pct: pct(blended, odds.btts_nao),
         kelly_units: kellyUnits(blended, odds.btts_nao, bankroll, kFrac),
       });
+    }
+  }
+
+  // ── Wave O+E: CORNERS (Poisson approx from sim_corners_total_mean) ─────────
+  // V1: p50 used as Poisson mean. V2 TODO: proper CDF from MC samples.
+  if (isFiniteNum(sim.sim_corners_total_mean)) {
+    const mean = sim.sim_corners_total_mean!;
+    const cornerLines: Array<[number, keyof OddsInput, keyof OddsInput, Side]> = [
+      [8.5, "corners_over_85", "corners_under_85", "85"],
+      [9.5, "corners_over_95", "corners_under_95", "95"],
+      [10.5, "corners_over_105", "corners_under_105", "105"],
+    ];
+    for (const [line, overKey, underKey, sideLbl] of cornerLines) {
+      if (isFiniteNum(odds[overKey])) {
+        const p = poissonProbOver(mean, line);
+        const cornersDevig = isFiniteNum(odds[underKey])
+          ? devigProportional([odds[overKey], odds[underKey]])
+          : null;
+        const { prob_calibrated, prob_market, prob_blended } = computeBlend(
+          p, `corners-over-${sideLbl}`, cornersDevig?.[0], alpha, lookup,
+        );
+        out.push({
+          market: "corners-over", side: sideLbl,
+          prob_estimated: p, prob_calibrated, prob_market,
+          prob_blended: alpha < 1.0 ? prob_blended : undefined,
+          odd: odds[overKey] as number,
+          edge_pct: pct(prob_blended, odds[overKey] as number),
+          kelly_units: kellyUnits(prob_blended, odds[overKey] as number, bankroll, kFrac),
+        });
+      }
+      if (isFiniteNum(odds[underKey])) {
+        const p = poissonProbUnder(mean, line);
+        const cornersDevig = isFiniteNum(odds[overKey])
+          ? devigProportional([odds[overKey], odds[underKey]])
+          : null;
+        const { prob_calibrated, prob_market, prob_blended } = computeBlend(
+          p, `corners-under-${sideLbl}`, cornersDevig?.[1], alpha, lookup,
+        );
+        out.push({
+          market: "corners-under", side: sideLbl,
+          prob_estimated: p, prob_calibrated, prob_market,
+          prob_blended: alpha < 1.0 ? prob_blended : undefined,
+          odd: odds[underKey] as number,
+          edge_pct: pct(prob_blended, odds[underKey] as number),
+          kelly_units: kellyUnits(prob_blended, odds[underKey] as number, bankroll, kFrac),
+        });
+      }
+    }
+  }
+
+  // ── Wave O+E: CARDS (Poisson approx from sim_cards_total_mean) ─────────────
+  if (isFiniteNum(sim.sim_cards_total_mean)) {
+    const mean = sim.sim_cards_total_mean!;
+    const cardLines: Array<[number, keyof OddsInput, keyof OddsInput, Side]> = [
+      [3.5, "cards_over_35", "cards_under_35", "35"],
+      [4.5, "cards_over_45", "cards_under_45", "45"],
+      [5.5, "cards_over_55", "cards_under_55", "55"],
+    ];
+    for (const [line, overKey, underKey, sideLbl] of cardLines) {
+      if (isFiniteNum(odds[overKey])) {
+        const p = poissonProbOver(mean, line);
+        const cardsDevig = isFiniteNum(odds[underKey])
+          ? devigProportional([odds[overKey], odds[underKey]])
+          : null;
+        const { prob_calibrated, prob_market, prob_blended } = computeBlend(
+          p, `cards-over-${sideLbl}`, cardsDevig?.[0], alpha, lookup,
+        );
+        out.push({
+          market: "cards-over", side: sideLbl,
+          prob_estimated: p, prob_calibrated, prob_market,
+          prob_blended: alpha < 1.0 ? prob_blended : undefined,
+          odd: odds[overKey] as number,
+          edge_pct: pct(prob_blended, odds[overKey] as number),
+          kelly_units: kellyUnits(prob_blended, odds[overKey] as number, bankroll, kFrac),
+        });
+      }
+      if (isFiniteNum(odds[underKey])) {
+        const p = poissonProbUnder(mean, line);
+        const cardsDevig = isFiniteNum(odds[overKey])
+          ? devigProportional([odds[overKey], odds[underKey]])
+          : null;
+        const { prob_calibrated, prob_market, prob_blended } = computeBlend(
+          p, `cards-under-${sideLbl}`, cardsDevig?.[1], alpha, lookup,
+        );
+        out.push({
+          market: "cards-under", side: sideLbl,
+          prob_estimated: p, prob_calibrated, prob_market,
+          prob_blended: alpha < 1.0 ? prob_blended : undefined,
+          odd: odds[underKey] as number,
+          edge_pct: pct(prob_blended, odds[underKey] as number),
+          kelly_units: kellyUnits(prob_blended, odds[underKey] as number, bankroll, kFrac),
+        });
+      }
+    }
+  }
+
+  // ── Wave O+E: SHOTS ON TARGET (Poisson approx from sim_sot_total_mean) ─────
+  if (isFiniteNum(sim.sim_sot_total_mean)) {
+    const mean = sim.sim_sot_total_mean!;
+    const sotLines: Array<[number, keyof OddsInput, keyof OddsInput, Side]> = [
+      [7.5, "sot_over_75", "sot_under_75", "75"],
+      [9.5, "sot_over_95", "sot_under_95", "95"],
+      [10.5, "sot_over_105", "sot_under_105", "105"],
+    ];
+    for (const [line, overKey, underKey, sideLbl] of sotLines) {
+      if (isFiniteNum(odds[overKey])) {
+        const p = poissonProbOver(mean, line);
+        const sotDevig = isFiniteNum(odds[underKey])
+          ? devigProportional([odds[overKey], odds[underKey]])
+          : null;
+        const { prob_calibrated, prob_market, prob_blended } = computeBlend(
+          p, `sot-over-${sideLbl}`, sotDevig?.[0], alpha, lookup,
+        );
+        out.push({
+          market: "sot-over", side: sideLbl,
+          prob_estimated: p, prob_calibrated, prob_market,
+          prob_blended: alpha < 1.0 ? prob_blended : undefined,
+          odd: odds[overKey] as number,
+          edge_pct: pct(prob_blended, odds[overKey] as number),
+          kelly_units: kellyUnits(prob_blended, odds[overKey] as number, bankroll, kFrac),
+        });
+      }
+      if (isFiniteNum(odds[underKey])) {
+        const p = poissonProbUnder(mean, line);
+        const sotDevig = isFiniteNum(odds[overKey])
+          ? devigProportional([odds[overKey], odds[underKey]])
+          : null;
+        const { prob_calibrated, prob_market, prob_blended } = computeBlend(
+          p, `sot-under-${sideLbl}`, sotDevig?.[1], alpha, lookup,
+        );
+        out.push({
+          market: "sot-under", side: sideLbl,
+          prob_estimated: p, prob_calibrated, prob_market,
+          prob_blended: alpha < 1.0 ? prob_blended : undefined,
+          odd: odds[underKey] as number,
+          edge_pct: pct(prob_blended, odds[underKey] as number),
+          kelly_units: kellyUnits(prob_blended, odds[underKey] as number, bankroll, kFrac),
+        });
+      }
     }
   }
 

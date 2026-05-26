@@ -83,5 +83,36 @@ module AdamStats::Scraper::AiReco
       expect(out[:system]).to include('market')
       expect(out[:system]).to include('units_final')
     end
+
+    # ── Wave O+E: mercados secundários ──────────────────────────────────────────
+
+    it 'PROMPT_VERSION é prompt-v1.1 após Wave O+E' do
+      expect(PromptBuilder::PROMPT_VERSION).to eq('prompt-v1.1')
+    end
+
+    it 'schema JSON inclui mercados secundários (corners-over, cards-over, sot-over)' do
+      out = PromptBuilder.build(**base_input)
+      expect(out[:system]).to include('corners-over')
+      expect(out[:system]).to include('cards-over')
+      expect(out[:system]).to include('sot-over')
+    end
+
+    it 'heurísticas contextuais presentes no system prompt' do
+      out = PromptBuilder.build(**base_input)
+      expect(out[:system].downcase).to match(/corner|escanteio/i)
+      expect(out[:system].downcase).to match(/cart[aã]o|card/i)
+    end
+
+    it 'candidato corners-over aparece na edge table do user prompt' do
+      input_with_corners = base_input.merge(
+        candidates: [
+          { market: 'corners-over', side: '95', prob_calibrated: 0.62,
+            edge_pct: 17.5, kelly_units: 0.8, odd: 1.90 }
+        ]
+      )
+      out = PromptBuilder.build(**input_with_corners)
+      expect(out[:user]).to include('corners-over')
+      expect(out[:user]).to include('95')
+    end
   end
 end
