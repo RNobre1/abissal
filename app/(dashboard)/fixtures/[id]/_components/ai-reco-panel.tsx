@@ -136,7 +136,7 @@ export function AiRecoPanel({
         className="card flex flex-col gap-3 p-4 lg:p-5"
       >
         <header className="flex items-baseline justify-between gap-2">
-          <span className="label">recomendação IA</span>
+          <span className="label">sugestões da IA</span>
           <span className="label text-[var(--color-ink-faint)]">
             sob demanda
           </span>
@@ -161,14 +161,14 @@ export function AiRecoPanel({
         className="card flex flex-col gap-2 p-4 lg:p-5"
       >
         <header className="flex items-baseline justify-between gap-2">
-          <span className="label">recomendação IA</span>
-          <span className="label text-[var(--color-ink-faint)]">skip</span>
+          <span className="label">sugestões da IA</span>
+          <span className="label text-[var(--color-ink-faint)]">sem oportunidade</span>
         </header>
         <span className="font-display text-lg text-[var(--color-ink-display)]">
           IA não vê valor
         </span>
         <p className="text-sm text-[var(--color-ink-muted)]">
-          {reco.reasoning_full ?? "Nenhum mercado com edge >= 5%."}
+          {reco.reasoning_full ?? "Nenhum mercado com vantagem estimada >= 5%."}
         </p>
         {feedbackFooter(feedback)}
         <AiRecoActions
@@ -199,6 +199,14 @@ export function AiRecoPanel({
     ? "liga calibrada"
     : "liga não-calibrada";
 
+  // Aposta sugerida: R$ XX (Z unidades) — âncora comportamental (BE)
+  const stakeValue = reco.units_final != null && reco.units_final > 0
+    ? reco.units_final * unitValue
+    : null;
+  const stakeDisplay = stakeValue != null
+    ? `R$ ${stakeValue.toFixed(2)} (${units ?? "—"} unidades)`
+    : `${units ?? "—"} unidades`;
+
   return (
     <section
       data-section="ai-reco"
@@ -207,9 +215,9 @@ export function AiRecoPanel({
     >
       <header className="flex items-baseline justify-between gap-2">
         <span className="label">
-          recomendação IA · confiança {confidence}
+          sugestões da IA · confiança {confidence}
         </span>
-        <span className="label text-[var(--color-ink-faint)]">bet</span>
+        <span className="label text-[var(--color-ink-faint)]">oportunidade</span>
       </header>
 
       <div>
@@ -220,7 +228,7 @@ export function AiRecoPanel({
 
       <div className="label text-[var(--color-ink-muted)]">
         <div>
-          Edge {edge ?? "—"}% · Kelly {kelly ?? "—"}u → IA {units ?? "—"}u
+          Vantagem estimada {edge ?? "—"}% · Aposta sugerida: {stakeDisplay}
         </div>
         {reco.reduction_reason ? (
           <div>Motivo redução: {reco.reduction_reason}</div>
@@ -240,14 +248,24 @@ export function AiRecoPanel({
         </ul>
       ) : null}
 
-      <footer className="label text-[var(--color-ink-faint)]">
-        Modelo:{" "}
-        <span data-ai-reco-model={reco.llm_model ?? ""}>
-          {reco.llm_model ?? "—"}
-        </span>{" "}
-        · prompt {reco.prompt_version ?? "—"} · {fmtCost(reco.cost_usd)} ·{" "}
-        {calibrationLabel}
-      </footer>
+      <details className="label text-[var(--color-ink-faint)]">
+        <summary className="cursor-pointer select-none hover:text-[var(--color-ink-muted)]">
+          metadados técnicos
+        </summary>
+        <div className="mt-1 flex flex-col gap-0.5">
+          <div>
+            Modelo:{" "}
+            <span data-ai-reco-model={reco.llm_model ?? ""}>
+              {reco.llm_model ?? "—"}
+            </span>{" "}
+            · prompt {reco.prompt_version ?? "—"}
+          </div>
+          <div>
+            Custo: {fmtCost(reco.cost_usd)} · Kelly bruto: {kelly ?? "—"}u ·{" "}
+            {calibrationLabel}
+          </div>
+        </div>
+      </details>
 
       {feedbackFooter(feedback)}
       <AiRecoActions

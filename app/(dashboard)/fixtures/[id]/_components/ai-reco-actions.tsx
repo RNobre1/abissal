@@ -23,10 +23,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FeedbackButtons } from "./feedback-buttons";
-import {
-  ApostaiModal,
-  type ApostaiHouseOption,
-} from "./apostei-modal";
+import type { ApostaiHouseOption } from "./apostei-modal";
+import { AposteiBottomSheet } from "./apostei-bottom-sheet";
 import { AddToSlipButton } from "@/components/bet-slip/add-to-slip-button";
 import { applyStakeJitter } from "@/lib/ai-reco/stake-jitter";
 
@@ -164,7 +162,6 @@ export function AiRecoActions({
           setModalOpen(true);
         }}
       />
-
       {/* Wave M — "+ bilhete" button alongside "Apostei agora" */}
       {fixtureId != null && market && side && defaultOdd && defaultOdd > 1 ? (
         <AddToSlipButton
@@ -183,31 +180,33 @@ export function AiRecoActions({
         />
       ) : null}
 
-      {modalOpen ? (
-        <ApostaiModal
-          aiRecommendationId={aiRecommendationId}
-          houses={houses}
-          defaultOdd={defaultOdd}
-          defaultStake={jitteredStake}
-          market={market}
-          side={side}
-          onCancel={() => setModalOpen(false)}
-          onSuccess={(betId) => {
-            setOptimisticLinked({
-              id: betId,
-              total_stake: 0, // Vai ser substituído no refresh()
-              total_odds: defaultOdd ?? 0,
-              house_name:
-                houses.find((h) => h.id === houses[0]?.id)?.name ?? null,
-              status: "pending",
-            });
-            setModalOpen(false);
-            startTransition(() => {
-              router.refresh();
-            });
-          }}
-        />
-      ) : null}
+      {/* Wave U — bottom sheet (substitui o ApostaiModal legacy);
+          Wave B jitter aplicado no stake antes de abrir o sheet. */}
+      <AposteiBottomSheet
+        aiRecommendationId={aiRecommendationId}
+        houses={houses}
+        defaultOdd={defaultOdd}
+        defaultStake={jitteredStake}
+        market={market}
+        side={side}
+        open={modalOpen}
+        onOpenChange={(v) => setModalOpen(v)}
+        onCancel={() => setModalOpen(false)}
+        onSuccess={(betId) => {
+          setOptimisticLinked({
+            id: betId,
+            total_stake: 0, // Vai ser substituído no refresh()
+            total_odds: defaultOdd ?? 0,
+            house_name:
+              houses.find((h) => h.id === houses[0]?.id)?.name ?? null,
+            status: "pending",
+          });
+          setModalOpen(false);
+          startTransition(() => {
+            router.refresh();
+          });
+        }}
+      />
     </div>
   );
 }

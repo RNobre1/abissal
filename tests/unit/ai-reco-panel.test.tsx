@@ -106,7 +106,7 @@ describe("<AiRecoPanel> - state A (verdict=bet)", () => {
     expect(section!.getAttribute("data-ai-reco-verdict")).toBe("bet");
   });
 
-  it("shows the summary line, edge and units", () => {
+  it("shows the summary line, edge (renamed to Vantagem estimada) and units", () => {
     render(
       <AiRecoPanel
         reco={betReco()}
@@ -116,9 +116,11 @@ describe("<AiRecoPanel> - state A (verdict=bet)", () => {
       />,
     );
     expect(screen.getByText(/BTTS-sim/)).toBeInTheDocument();
-    expect(screen.getByText(/Edge 12/)).toBeInTheDocument();
-    expect(screen.getByText(/Kelly 1.8u/)).toBeInTheDocument();
-    expect(screen.getByText(/IA 1.5u/)).toBeInTheDocument();
+    // U.2: "Edge" → "Vantagem estimada"
+    expect(screen.getByText(/Vantagem estimada 12/)).toBeInTheDocument();
+    // U.2: "Aposta sugerida: R$ XX (Z unidades)" substituiu "Kelly → IA"
+    expect(screen.getByText(/Aposta sugerida/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.5\s*unidades/i)).toBeInTheDocument();
   });
 
   it("shows the reduction reason when present", () => {
@@ -290,7 +292,8 @@ describe("<AiRecoPanel> - state B (verdict=skip)", () => {
         awayTeam="Tottenham"
       />,
     );
-    expect(screen.getByText(/Nenhum mercado com edge/)).toBeInTheDocument();
+    // U.2: "edge" → "vantagem estimada" no fallback
+    expect(screen.getByText(/Nenhum mercado com vantagem estimada/)).toBeInTheDocument();
   });
 
   it("does NOT render the bet card chrome (summary line / red flags / footer)", () => {
@@ -433,7 +436,8 @@ describe("<AiRecoPanel> feedback loop — bet card", () => {
     fireEvent.click(betBtn);
 
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(container.querySelector("[data-apostei-modal]")).not.toBeNull();
+    // U.4: BottomSheet Radix Dialog Portal renderiza em document.body
+    expect(document.querySelector("[data-apostei-modal]")).not.toBeNull();
   });
 
   it("after a successful POST the clicked button is marked as saved (aria-pressed)", async () => {
@@ -550,7 +554,8 @@ describe('<AiRecoPanel> "Apostei" modal flow (A2)', () => {
     ) as HTMLButtonElement;
     fireEvent.click(betBtn);
 
-    const modal = container.querySelector("[data-apostei-modal]");
+    // U.4: BottomSheet Radix Dialog Portal renderiza em document.body
+    const modal = document.querySelector("[data-apostei-modal]");
     expect(modal).not.toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
@@ -569,9 +574,10 @@ describe('<AiRecoPanel> "Apostei" modal flow (A2)', () => {
     fireEvent.click(
       container.querySelector("[data-feedback-button='bet']") as HTMLButtonElement,
     );
-    expect(container.querySelector("[data-apostei-house]")).not.toBeNull();
-    expect(container.querySelector("[data-apostei-odd]")).not.toBeNull();
-    expect(container.querySelector("[data-apostei-stake]")).not.toBeNull();
+    // U.4: Radix Portal renderiza em body
+    expect(document.querySelector("[data-apostei-house]")).not.toBeNull();
+    expect(document.querySelector("[data-apostei-odd]")).not.toBeNull();
+    expect(document.querySelector("[data-apostei-stake]")).not.toBeNull();
   });
 
   it("Confirmar POSTa pra /api/ai-reco/apostei com payload correto", async () => {
@@ -598,7 +604,8 @@ describe('<AiRecoPanel> "Apostei" modal flow (A2)', () => {
     fireEvent.click(
       container.querySelector("[data-feedback-button='bet']") as HTMLButtonElement,
     );
-    const confirmBtn = container.querySelector(
+    // U.4: Radix Portal renderiza em body
+    const confirmBtn = document.querySelector(
       "[data-apostei-confirm]",
     ) as HTMLButtonElement;
     fireEvent.click(confirmBtn);
@@ -631,11 +638,12 @@ describe('<AiRecoPanel> "Apostei" modal flow (A2)', () => {
     fireEvent.click(
       container.querySelector("[data-feedback-button='bet']") as HTMLButtonElement,
     );
-    const cancelBtn = container.querySelector(
+    // U.4: Radix Portal renderiza em body
+    const cancelBtn = document.querySelector(
       "[data-apostei-cancel]",
     ) as HTMLButtonElement;
     fireEvent.click(cancelBtn);
-    expect(container.querySelector("[data-apostei-modal]")).toBeNull();
+    expect(document.querySelector("[data-apostei-modal]")).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

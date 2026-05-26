@@ -9,7 +9,8 @@ import type {
   OddsSummary,
   RefereeRecord,
 } from "@/lib/fixtures/stats/detail-json-types";
-import { StatsLayout, type PanelSlot } from "@/components/fixtures/stats/stats-layout";
+import { StatsLayout, renderPanelSlot, type PanelSlot } from "@/components/fixtures/stats/stats-layout";
+import { DecisionZone } from "@/components/fixtures/decision-zone";
 import { Hero, type HeroKpiBundle } from "@/components/fixtures/stats/hero";
 import {
   deriveTeamRecord,
@@ -275,20 +276,33 @@ export default async function StatsPage({ params }: StatsPageProps) {
     bankrollSettings,
   );
 
+  // DecisionZone: Hero + AiRecoPanel + MomentumChart no topo, com divisor
+  // explícito "análise técnica ↓" antes dos painéis de análise (U.1).
+  // O momentumPanel é extraído da lista e injetado na zona de decisão.
+  const momentumPanel = panels.find((p) => p.id === "B") ?? null;
+  const aiRecoPanel = panels.find((p) => p.id === "AI_RECO") ?? null;
+  const technicalPanels = panels.filter((p) => p.id !== "B" && p.id !== "AI_RECO");
+
   return (
     <StatsLayout
       fixtureId={row.id}
       hero={
-        <Hero
-          homeTeam={row.home_team}
-          awayTeam={row.away_team}
-          kickoffBrt={kickoffBrt}
-          league={row.league}
-          country={row.country}
-          kpis={kpis}
+        <DecisionZone
+          hero={
+            <Hero
+              homeTeam={row.home_team}
+              awayTeam={row.away_team}
+              kickoffBrt={kickoffBrt}
+              league={row.league}
+              country={row.country}
+              kpis={kpis}
+            />
+          }
+          reco={aiRecoPanel?.node ?? null}
+          momentum={momentumPanel != null ? renderPanelSlot(momentumPanel) : null}
         />
       }
-      panels={panels}
+      panels={technicalPanels}
     />
   );
 }
