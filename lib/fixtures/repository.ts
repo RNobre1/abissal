@@ -169,16 +169,15 @@ export async function fixturesForBrtDay(
   const rows = (data ?? []) as CompactFixtureRow[];
   const sorted = [...rows].sort(compareFixtures);
 
-  const signalMap = await fetchBadgeView(
-    supabase,
-    sorted.map((r) => r.id),
-    BADGE_VIEW_SCALAR,
-  );
-
   const choistatsIds = sorted
     .map((r) => parseChoistatsId(r.source_url))
     .filter((v): v is number => v !== null);
-  const aiBetIds = await fetchAiBetIds(supabase, choistatsIds);
+
+  // fetchBadgeView and fetchAiBetIds are independent — run in parallel.
+  const [signalMap, aiBetIds] = await Promise.all([
+    fetchBadgeView(supabase, sorted.map((r) => r.id), BADGE_VIEW_SCALAR),
+    fetchAiBetIds(supabase, choistatsIds),
+  ]);
 
   return sorted.map((row) => {
     const dto = toDto(row);
@@ -240,16 +239,15 @@ export async function fixturesWithBadgesForDashboard(
   const rows = (data ?? []) as CompactFixtureRow[];
   const sorted = [...rows].sort(compareFixtures);
 
-  const badgeMap = await fetchBadgeView(
-    supabase,
-    sorted.map((r) => r.id),
-    BADGE_VIEW_FULL,
-  );
-
   const choistatsIds = sorted
     .map((r) => parseChoistatsId(r.source_url))
     .filter((v): v is number => v !== null);
-  const aiBetIds = await fetchAiBetIds(supabase, choistatsIds);
+
+  // fetchBadgeView and fetchAiBetIds are independent — run in parallel.
+  const [badgeMap, aiBetIds] = await Promise.all([
+    fetchBadgeView(supabase, sorted.map((r) => r.id), BADGE_VIEW_FULL),
+    fetchAiBetIds(supabase, choistatsIds),
+  ]);
 
   return sorted.map((row) => {
     const dto = toDto(row);
