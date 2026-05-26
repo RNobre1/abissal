@@ -25,6 +25,7 @@ import {
 } from "@/lib/calibracao/active-curves-repository";
 import { applyIsotonic } from "@/lib/calibracao/isotonic";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
+import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 
 /**
  * POST /api/ai-reco/compute — on-demand AI recommendation for a single fixture.
@@ -158,11 +159,8 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "fixture not found" }, { status: 404 });
   }
 
-  // Derivar choistats id do source_url. Pattern: /fixture/<digits>
-  if (fixture.source_url) {
-    const m = fixture.source_url.match(/\/fixture\/(\d+)/);
-    if (m) choistatsId = Number(m[1]);
-  }
+  // Derivar choistats id do source_url via shared utility.
+  choistatsId = parseChoistatsId(fixture.source_url);
 
   // ---------------------------------------------------------------------------
   // 3. Simulation + odds extraction

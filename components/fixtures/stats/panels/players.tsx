@@ -78,9 +78,56 @@ function valueFor(p: PlayerRanked, criterion: PlayerRankingCriterion): number {
   }
 }
 
+/** @deprecated Use criterionPer90 with the active criterion instead */
 function efficiencyPer90(p: Player): number {
   if (p.minutes <= 0) return 0;
   return ((p.goals + p.assists) * 90) / p.minutes;
+}
+
+function criterionPer90(p: PlayerRanked, criterion: PlayerRankingCriterion): number {
+  if (p.minutes <= 0) return 0;
+  switch (criterion) {
+    case "goals":
+      return (p.goals * 90) / p.minutes;
+    case "cards":
+      return ((p.card_score ?? p.yellows + p.reds * 2) * 90) / p.minutes;
+    case "sot":
+      return (p.shots_on_target * 90) / p.minutes;
+    case "assists":
+      return (p.assists * 90) / p.minutes;
+    case "first_cards":
+      return (p.first_cards * 90) / p.minutes;
+  }
+}
+
+function criterionYLabel(criterion: PlayerRankingCriterion): string {
+  switch (criterion) {
+    case "goals":
+      return "gols/90";
+    case "cards":
+      return "cartões/90";
+    case "sot":
+      return "chutes/90";
+    case "assists":
+      return "assist/90";
+    case "first_cards":
+      return "1º cartão/90";
+  }
+}
+
+function criterionDecisiveLabel(criterion: PlayerRankingCriterion): string {
+  switch (criterion) {
+    case "goals":
+      return "titular decisivo";
+    case "cards":
+      return "titular cartões";
+    case "sot":
+      return "titular chutes";
+    case "assists":
+      return "titular assist";
+    case "first_cards":
+      return "titular 1º cartão";
+  }
 }
 
 const URL_DEFAULTS = { player_rank: "goals" };
@@ -183,6 +230,7 @@ export function Players({
         awayTeam={awayTeam}
         home={home}
         away={away}
+        criterion={criterion}
         width={width}
         height={height}
       />
@@ -245,6 +293,7 @@ interface ScatterEfficiencyProps {
   awayTeam: string;
   home: Player[];
   away: Player[];
+  criterion: PlayerRankingCriterion;
   width?: number;
   height?: number;
 }
@@ -259,13 +308,15 @@ interface ScatterDot {
 interface ScatterTooltipProps {
   active?: boolean;
   payload?: Array<{ payload: ScatterDot }>;
+  /** Dynamic Y axis label, forwarded from the active criterion. */
+  yLabel?: string;
 }
 
 /**
  * Adaptador recharts → RichTooltipCard. Valores SEMPRE via fmt* (minutos
  * com fmtInt — "2.480"; eff com fmtNum — "0.45", nunca o float cru).
  */
-export function PlayerScatterTooltip({ active, payload }: ScatterTooltipProps) {
+export function PlayerScatterTooltip({ active, payload, yLabel = "G+A /90" }: ScatterTooltipProps) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
   return (
@@ -273,12 +324,12 @@ export function PlayerScatterTooltip({ active, payload }: ScatterTooltipProps) {
       title={`${d.name} · ${d.sideName}`}
       rows={[
         { k: "Minutos", v: fmtInt(d.x) },
-        { k: "G+A /90", v: fmtNum(d.y) },
+        { k: yLabel, v: fmtNum(d.y) },
       ]}
       reading={
         d.y >= 0.5
-          ? "Decisivo: gera gol/assistência acima da média."
-          : "Baixo retorno ofensivo por 90min jogados."
+          ? "Acima da mediana — produção alta pelo critério ativo."
+          : "Abaixo da mediana pelo critério ativo."
       }
     />
   );
@@ -289,6 +340,7 @@ function ScatterEfficiency({
   awayTeam,
   home,
   away,
+  criterion,
   width,
   height = 220,
 }: ScatterEfficiencyProps) {
@@ -298,11 +350,11 @@ function ScatterEfficiency({
         .filter((p) => p.minutes > 0)
         .map((p) => ({
           x: p.minutes,
-          y: efficiencyPer90(p),
+          y: criterionPer90(p, criterion),
           name: p.name,
           sideName: homeTeam,
         })),
-    [home, homeTeam],
+    [home, homeTeam, criterion],
   );
   const awayDots = useMemo<ScatterDot[]>(
     () =>
@@ -310,11 +362,11 @@ function ScatterEfficiency({
         .filter((p) => p.minutes > 0)
         .map((p) => ({
           x: p.minutes,
-          y: efficiencyPer90(p),
+          y: criterionPer90(p, criterion),
           name: p.name,
           sideName: awayTeam,
         })),
-    [away, awayTeam],
+    [away, awayTeam, criterion],
   );
 
   const { medX, medY } = useMemo(() => {
@@ -329,17 +381,21 @@ function ScatterEfficiency({
     return null;
   }
 
+  const yLabel = criterionYLabel(criterion);
+  const decisiveLabel = criterionDecisiveLabel(criterion);
+
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className="label flex items-center gap-1.5 text-[var(--color-ink-muted)]">
-          minutos × decisivo /90min
+          minutos × {yLabel}
           <InfoPopover label="como ler o gráfico de jogadores">
             <p>
               Cada ponto é um jogador. Eixo X = minutos jogados (volume); eixo Y
-              = (gols + assistências) por 90min (eficiência). As linhas marcam a
-              mediana de cada eixo — quem cai no canto superior direito é{" "}
-              <strong>titular decisivo</strong> (joga muito e produz muito).
+              = {yLabel} (critério ativo). As linhas marcam a mediana de cada
+              eixo — quem cai no canto superior direito é{" "}
+              <strong>{decisiveLabel}</strong> (joga muito e produz muito no
+              critério selecionado).
             </p>
           </InfoPopover>
         </span>
@@ -354,6 +410,8 @@ function ScatterEfficiency({
             awayDots={awayDots}
             medX={medX}
             medY={medY}
+            yLabel={yLabel}
+            decisiveLabel={decisiveLabel}
             width={width}
             height={height}
           />
@@ -367,11 +425,13 @@ function ScatterEfficiency({
             awayDots={awayDots}
             medX={medX}
             medY={medY}
+            yLabel={yLabel}
+            decisiveLabel={decisiveLabel}
           />
         </ResponsiveContainer>
       )}
       <p className="text-xs text-[var(--color-ink-faint)]">
-        Canto superior direito = mais minutos e mais decisivo.
+        Canto superior direito = mais minutos e mais {yLabel}.
       </p>
     </div>
   );
@@ -384,6 +444,8 @@ interface ScatterBodyProps {
   awayDots: ScatterDot[];
   medX: number;
   medY: number;
+  yLabel: string;
+  decisiveLabel: string;
   width?: number;
   height?: number;
 }
@@ -395,6 +457,8 @@ function ScatterBody({
   awayDots,
   medX,
   medY,
+  yLabel,
+  decisiveLabel,
   width,
   height,
 }: ScatterBodyProps) {
@@ -427,7 +491,7 @@ function ScatterBody({
         stroke="var(--color-ink-faint)"
       >
         <Label
-          value="Decisivo /90min"
+          value={yLabel}
           angle={-90}
           position="insideLeft"
           style={{ fill: "var(--color-ink-muted)", fontSize: 11, textAnchor: "middle" }}
@@ -444,14 +508,14 @@ function ScatterBody({
         strokeDasharray="4 4"
       >
         <Label
-          value="titular decisivo"
+          value={decisiveLabel}
           position="insideTopRight"
           style={{ fill: "var(--color-ink-muted)", fontSize: 10 }}
         />
       </ReferenceLine>
       <Tooltip
         cursor={{ strokeDasharray: "3 3" }}
-        content={<PlayerScatterTooltip />}
+        content={<PlayerScatterTooltip yLabel={yLabel} />}
       />
       <Scatter
         name={homeTeam}

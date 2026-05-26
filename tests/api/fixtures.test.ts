@@ -210,6 +210,18 @@ describe("GET /api/fixtures", () => {
     expect(mockState.tables).toContain("fixtures");
   });
 
+  it("Wave C — inclui Cache-Control public s-maxage=300 swr=600 em respostas 200", async () => {
+    setRows([makeRow({ id: 1 })]);
+    const res = await GET(
+      makeRequest("http://localhost/api/fixtures?date=2026-05-12"),
+    );
+    expect(res.status).toBe(200);
+    const cc = res.headers.get("cache-control") ?? "";
+    expect(cc).toContain("public");
+    expect(cc).toContain("s-maxage=300");
+    expect(cc).toContain("stale-while-revalidate=600");
+  });
+
   it("returns 400 with { error } when ?date is missing", async () => {
     const res = await GET(makeRequest("http://localhost/api/fixtures"));
     expect(res.status).toBe(400);

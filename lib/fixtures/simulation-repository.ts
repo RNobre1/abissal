@@ -4,6 +4,7 @@ import {
   getActiveCurves,
   type ActiveCurves,
 } from "@/lib/calibracao/active-curves-repository";
+import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 
 /**
  * Reader for the `fixture_simulations` table (migration 0018, created by T2
@@ -266,19 +267,6 @@ export interface FixtureSimulationKey {
   homeTeam: string;
   awayTeam: string;
   kickoffUtc: string | null;
-}
-
-/**
- * Parses the choistats numeric id from a fixture `source_url`.
- *
- * Mirrors the Ruby producer verbatim: `%r{/fixture/(\d+)}` matches
- * `/fixture/<digits>` anywhere in the string and ignores any trailing slug.
- * Returns `null` when absent so the caller can fall back to teams/kickoff.
- */
-function parseChoistatsId(sourceUrl: string | null): number | null {
-  if (!sourceUrl) return null;
-  const m = sourceUrl.match(/\/fixture\/(\d+)/);
-  return m ? Number(m[1]) : null;
 }
 
 /**

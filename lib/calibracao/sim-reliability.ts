@@ -1,4 +1,5 @@
 import { brierScore, brierScoreMulticlass } from "@/lib/ai/calibration-metrics";
+import { crpsFromPercentiles, type PercentileSummary } from "@/lib/calibracao/crps";
 
 export interface ResolvedSimRow {
   league: string | null;
@@ -10,6 +11,53 @@ export interface ResolvedSimRow {
   actual_home_goals: number | null;
   actual_away_goals: number | null;
   actual_resolved_at: string | null;
+}
+
+// ── Wave G: Secondary actuals extension ──────────────────────────────────────
+// sim_stats JSON shape: { home: { corners: {p10,p50,p90}, cards: {...}, shots_on_target: {...} },
+//                         away: { ... } }
+// Secondary actuals: actual_btts, actual_corners_{home,away}, actual_cards_{home,away},
+//                    actual_sot_{home,away} — populated by the reconciler when available.
+// NOTE: choistats API only returns homeGoalsFt/awayGoalsFt/homeReds/awayReds for the
+// reconciled fixture. Corners/SOT/cards are NOT available for the current fixture
+// in the recent-results widget (only in historical recent results for past games).
+// These columns will be NULL until an alternate data source is available.
+// BTTS is fully derivable from goals.
+
+interface SimStatsMetric {
+  p10: number | null;
+  p50: number | null;
+  p90: number | null;
+  p10_1h?: number | null;
+  p50_1h?: number | null;
+  p90_1h?: number | null;
+  p10_2h?: number | null;
+  p50_2h?: number | null;
+  p90_2h?: number | null;
+}
+
+interface SimStatsSide {
+  corners?: SimStatsMetric | null;
+  cards?: SimStatsMetric | null;
+  shots_on_target?: SimStatsMetric | null;
+  goals?: SimStatsMetric | null;
+}
+
+interface SimStats {
+  home?: SimStatsSide | null;
+  away?: SimStatsSide | null;
+}
+
+export interface ResolvedSimRowSecondary extends ResolvedSimRow {
+  p_btts: number | null;
+  actual_btts: boolean | null;
+  actual_corners_home: number | null;
+  actual_corners_away: number | null;
+  actual_cards_home: number | null;
+  actual_cards_away: number | null;
+  actual_sot_home: number | null;
+  actual_sot_away: number | null;
+  sim_stats: SimStats | null | unknown;
 }
 
 export interface ReliabilityBin {
@@ -187,4 +235,195 @@ function extractMarketHome(anchor: unknown): number | null {
     .filter((v) => Number.isFinite(v) && v > 0);
   if (probs.length === 0) return null;
   return Math.max(...probs);
+}
+
+// ── Wave G: Secondary calibration metrics ────────────────────────────────────
+
+/**
+ * Brier score for BTTS (both-teams-to-score) forecasts.
+ *
+ * Uses actual_btts if available. Falls back to deriving BTTS from
+ * actual_home_goals / actual_away_goals when actual_btts is null.
+ * Skips rows where p_btts is null.
+ *
+ * Returns null if no valid rows exist.
+ */
+export function bttsBrier(rows: ResolvedSimRowSecondary[]): number | null {
+  let sumBrier = 0;
+  let n = 0;
+
+  for (const r of rows) {
+    const p = r.p_btts;
+    if (p == null || !Number.isFinite(p)) continue;
+
+    // Resolve actual BTTS: prefer the explicit column, fall back to goals.
+    let actualBtts: boolean | null = r.actual_btts;
+    if (actualBtts == null) {
+      const hg = r.actual_home_goals;
+      const ag = r.actual_away_goals;
+      if (hg == null || ag == null) continue;
+      actualBtts = hg > 0 && ag > 0;
+    }
+
+    const y: 0 | 1 = actualBtts ? 1 : 0;
+    sumBrier += brierScore(p, y);
+    n += 1;
+  }
+
+  return n > 0 ? sumBrier / n : null;
+}
+
+/**
+ * Extract a sim_stats percentile summary for a given side+metric.
+ * Returns null if missing.
+ */
+function extractPctSummary(
+  simStats: unknown,
+  side: "home" | "away",
+  metric: string,
+): PercentileSummary | null {
+  if (!simStats || typeof simStats !== "object") return null;
+  const stats = simStats as Record<string, unknown>;
+  const sideData = stats[side];
+  if (!sideData || typeof sideData !== "object") return null;
+  const metricData = (sideData as Record<string, unknown>)[metric];
+  if (!metricData || typeof metricData !== "object") return null;
+  const m = metricData as Record<string, unknown>;
+  const p10 = m.p10 == null ? null : Number(m.p10);
+  const p50 = m.p50 == null ? null : Number(m.p50);
+  const p90 = m.p90 == null ? null : Number(m.p90);
+  if (
+    p10 == null || !Number.isFinite(p10) ||
+    p50 == null || !Number.isFinite(p50) ||
+    p90 == null || !Number.isFinite(p90)
+  ) {
+    return null;
+  }
+  return { p10, p50, p90 };
+}
+
+/**
+ * Generic helper: compute mean CRPS for a count metric across rows.
+ * Returns null if no rows have both sim_stats distribution and actual value.
+ *
+ * @param rows - resolved sim rows with secondary fields
+ * @param simMetric - key in sim_stats (e.g. "corners", "cards", "shots_on_target")
+ * @param getActual - function to extract total actual count from a row (e.g. corners_home + corners_away)
+ */
+function countCrpsMean(
+  rows: ResolvedSimRowSecondary[],
+  simMetric: string,
+  getActual: (r: ResolvedSimRowSecondary) => number | null,
+): number | null {
+  let sumCrps = 0;
+  let n = 0;
+
+  for (const r of rows) {
+    const actual = getActual(r);
+    if (actual == null) continue;
+
+    // We sum CRPS for home and away sides separately, then average.
+    // This gives a per-team-perspective CRPS that aligns with what sim produces.
+    const homePerc = extractPctSummary(r.sim_stats, "home", simMetric);
+    const awayPerc = extractPctSummary(r.sim_stats, "away", simMetric);
+
+    // At least one side must be available to contribute.
+    if (homePerc == null && awayPerc == null) continue;
+
+    // For total metric: use combined home+away.
+    // Build a synthetic "total" percentile by summing the two side distributions.
+    // Simple approximation: p10_total ≈ p10_home + p10_away (convolution lower bound).
+    // This is an approximation; for precise CRPS we'd need the joint distribution.
+    // Since we only have marginals, this is the standard practice for separable stats.
+    const totalPerc = combineSidePercentiles(homePerc, awayPerc);
+    if (totalPerc == null) continue;
+
+    const c = crpsFromPercentiles(totalPerc, actual);
+    if (c == null) continue;
+
+    sumCrps += c;
+    n += 1;
+  }
+
+  return n > 0 ? sumCrps / n : null;
+}
+
+/**
+ * Combine two side percentile summaries into a total by summing percentiles.
+ * If one side is null, uses only the available side.
+ * Returns null if both are null.
+ *
+ * Note: sum of percentiles is an approximation (exact only for independent
+ * distributions with symmetric shapes). For overdispersed count distributions
+ * (NB), this underestimates the variance at extreme percentiles. Acceptable
+ * for calibration monitoring purposes.
+ */
+function combineSidePercentiles(
+  home: PercentileSummary | null,
+  away: PercentileSummary | null,
+): PercentileSummary | null {
+  if (home == null && away == null) return null;
+  if (home == null) return away;
+  if (away == null) return home;
+  return {
+    p10: (home.p10 ?? 0) + (away.p10 ?? 0),
+    p50: (home.p50 ?? 0) + (away.p50 ?? 0),
+    p90: (home.p90 ?? 0) + (away.p90 ?? 0),
+  };
+}
+
+/**
+ * Mean CRPS for corners (home + away total) vs sim_stats.home.corners + sim_stats.away.corners.
+ * Returns null if no rows have both actual corners and sim_stats corners distribution.
+ *
+ * KNOWN LIMITATION (Wave G investigation, 2026-05-25):
+ * The choistats recent-results widget does NOT return corners/SOT/cards for the
+ * reconciled fixture directly (only homeGoalsFt/awayGoalsFt/homeReds/awayReds).
+ * actual_corners_home/away will be NULL until an alternate data source is wired.
+ */
+export function cornersCrps(rows: ResolvedSimRowSecondary[]): number | null {
+  return countCrpsMean(
+    rows,
+    "corners",
+    (r) => {
+      const h = r.actual_corners_home;
+      const a = r.actual_corners_away;
+      if (h == null || a == null) return null;
+      return h + a;
+    },
+  );
+}
+
+/**
+ * Mean CRPS for cards (home + away total) vs sim_stats.*.cards distribution.
+ * See cornersCrps for the known data availability limitation.
+ */
+export function cardsCrps(rows: ResolvedSimRowSecondary[]): number | null {
+  return countCrpsMean(
+    rows,
+    "cards",
+    (r) => {
+      const h = r.actual_cards_home;
+      const a = r.actual_cards_away;
+      if (h == null || a == null) return null;
+      return h + a;
+    },
+  );
+}
+
+/**
+ * Mean CRPS for shots-on-target (home + away total) vs sim_stats.*.shots_on_target.
+ * See cornersCrps for the known data availability limitation.
+ */
+export function sotCrps(rows: ResolvedSimRowSecondary[]): number | null {
+  return countCrpsMean(
+    rows,
+    "shots_on_target",
+    (r) => {
+      const h = r.actual_sot_home;
+      const a = r.actual_sot_away;
+      if (h == null || a == null) return null;
+      return h + a;
+    },
+  );
 }

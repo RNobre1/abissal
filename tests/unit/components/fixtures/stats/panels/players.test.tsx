@@ -180,18 +180,94 @@ describe("<Players />", () => {
       <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
     );
     expect(container.textContent).toContain("Minutos jogados");
-    expect(container.textContent).toContain("Decisivo /90min");
+    // Default criterion=goals → label é "gols/90"
+    expect(container.textContent).toContain("gols/90");
     expect(screen.getByRole("button", { name: /como ler/i })).toBeInTheDocument();
   });
 
-  it("scatter desenha linhas de mediana (quadrantes) + rótulo titular decisivo", () => {
+  it("scatter desenha linhas de mediana (quadrantes) + rótulo titular por critério", () => {
     const { container } = render(
       <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
     );
     // recharts <ReferenceLine> renderiza <line class="recharts-reference-line-line">
     const refs = container.querySelectorAll("line.recharts-reference-line-line");
     expect(refs.length).toBeGreaterThanOrEqual(2);
+    // Default criterion=goals → "titular decisivo"
     expect(container.textContent).toContain("titular decisivo");
+  });
+});
+
+// ── U.6: scatter respeita critério ativo ──────────────────────────────────────
+
+describe("U.6 — scatter Y axis segue criterion ativo", () => {
+  it("default (goals): scatter renderiza (recharts monta o SVG)", () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    // recharts renderiza <g class="recharts-scatter"> por side
+    const groups = container.querySelectorAll("g.recharts-scatter");
+    expect(groups.length).toBeGreaterThanOrEqual(2);
+  });
+
+  it("ao trocar para 'cards', Y-axis label muda para cartões/90", async () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    // Antes: label goals/90
+    expect(container.textContent).toMatch(/gols\/90/i);
+
+    const chip = screen.getByRole("button", { name: /^cards$/i });
+    await act(async () => { fireEvent.click(chip); });
+
+    // Depois: label cartões/90
+    expect(container.textContent).toMatch(/cartões\/90/i);
+    expect(container.textContent).not.toMatch(/gols\/90/i);
+  });
+
+  it("ao trocar para 'sot', Y-axis label muda para chutes/90", async () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    const chip = screen.getByRole("button", { name: /^sot$/i });
+    await act(async () => { fireEvent.click(chip); });
+
+    expect(container.textContent).toMatch(/chutes\/90/i);
+  });
+
+  it("ao trocar para 'assists', Y-axis label muda para assist\/90", async () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    const chip = screen.getByRole("button", { name: /^assists$/i });
+    await act(async () => { fireEvent.click(chip); });
+
+    expect(container.textContent).toMatch(/assist\/90/i);
+  });
+
+  it("ao trocar para 'first_cards', Y-axis label muda para 1º cartão\/90", async () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    const chip = screen.getByRole("button", { name: /first cards/i });
+    await act(async () => { fireEvent.click(chip); });
+
+    expect(container.textContent).toMatch(/1º cartão\/90/i);
+  });
+
+  it("ao trocar criterion, scatter permanece montado e scatter groups presentes", async () => {
+    const { container } = render(
+      <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
+    );
+    // Antes: scatter está montado
+    expect(container.querySelectorAll("g.recharts-scatter").length).toBeGreaterThanOrEqual(2);
+
+    const chip = screen.getByRole("button", { name: /^cards$/i });
+    await act(async () => { fireEvent.click(chip); });
+
+    // Depois: scatter ainda montado (não desmontou)
+    expect(container.querySelectorAll("g.recharts-scatter").length).toBeGreaterThanOrEqual(2);
+    // Título do label mudou → comportamento visual diferente
+    expect(container.textContent).toContain("cartões/90");
   });
 });
 

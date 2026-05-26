@@ -5,6 +5,8 @@ import { logoutAction } from "@/app/(auth)/login/actions";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { KeyboardHelpModal } from "@/components/keyboard-help-modal";
+import { getDraftSlip } from "@/lib/bet-slip/actions";
+import { BetSlipProvider } from "@/components/bet-slip/bet-slip-provider";
 
 const NAV_GROUPS: Array<{
   label: string;
@@ -18,6 +20,7 @@ const NAV_GROUPS: Array<{
       { href: "/houses", label: "casas" },
       { href: "/transactions", label: "transações" },
       { href: "/bets", label: "apostas" },
+      { href: "/bilhete", label: "bilhete" },
       { href: "/forecast", label: "previsão" },
     ],
   },
@@ -35,6 +38,7 @@ const NAV_GROUPS: Array<{
       { href: "/audit", label: "auditoria" },
       { href: "/logs", label: "logs IA" },
       { href: "/llm-observability", label: "observability IA" },
+      { href: "/admin/telemetry", label: "telemetria" },
     ],
   },
 ];
@@ -62,6 +66,20 @@ export default async function DashboardLayout({
     (claims.user_metadata?.display_name as string | undefined) ??
     (claims.email as string | undefined)?.split("@")[0] ??
     "you";
+
+  // Bet slip — fetch draft slip + houses for FAB/drawer (graceful degradation on error)
+  const [draftSlip, housesResult] = await Promise.all([
+    getDraftSlip().catch(() => null),
+    Promise.resolve(
+      supabase
+        .from("houses")
+        .select("id, name")
+        .is("archived_at", null)
+        .order("name"),
+    )
+      .then((res: { data: Array<{ id: string; name: string }> | null }) => res.data ?? [])
+      .catch(() => [] as Array<{ id: string; name: string }>),
+  ]);
 
   return (
     <div className="flex min-h-screen flex-col lg:flex-row">
@@ -120,6 +138,9 @@ export default async function DashboardLayout({
 
       {/* Global keyboard shortcuts help modal — open with ? */}
       <KeyboardHelpModal />
+
+      {/* Bet slip FAB + Drawer — always-visible when draft slip has legs */}
+      <BetSlipProvider initialSlip={draftSlip} houses={housesResult} />
     </div>
   );
 }
