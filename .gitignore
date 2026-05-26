@@ -39,6 +39,8 @@ yarn-error.log*
 /test-results
 /blob-report
 /playwright/.cache
+# E2E user-provided fixture images (real bet slip screenshots — not committed)
+tests/e2e/fixtures/superbet-real.png
 
 # Supabase local artifacts
 /supabase/.branches
