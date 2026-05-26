@@ -24,7 +24,11 @@ import {
   type RealizedBetRow,
 } from "@/lib/calibracao/ai-reco-metrics";
 import { ClvPanel } from "./_components/clv-panel";
+import { summarizeClv } from "@/lib/calibracao/clv-metrics";
 import type { ClvSample, ClvMarket } from "@/lib/calibracao/clv-metrics";
+import { SummaryMetricCards } from "@/components/calibracao/summary-cards";
+import { ClvGauge } from "@/components/calibracao/clv-gauge";
+import { ReliabilityDiagram } from "@/components/calibracao/reliability-diagram";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -363,6 +367,10 @@ export default async function CalibracaoPage() {
       ? realizedRoi.betCount / aiRecoRoi.betCount
       : null;
 
+  // CLV_TARGET constants (matches ClvPanel)
+  const CLV_TARGET_PCT = 0.015; // 1.5% as proportion
+  const CLV_TARGET_N = 300;
+
   // ── CLV tracking (tarefa A1): JOIN ai_recommendations × closing_odds.
   // Lê só escalares — odd_captured (taken), league, e o JOIN traz odd_close.
   // Filtra `verdict='bet'` no SQL pra não trazer skips inúteis.
@@ -432,6 +440,12 @@ export default async function CalibracaoPage() {
   } catch (err) {
     clvQueryError = err instanceof Error ? err.message : "erro desconhecido";
   }
+
+  // Summary cards data — computed here so the server component can pass
+  // typed props to SummaryMetricCards.
+  // clvSummary.mean is in % (e.g. 1.5 = 1.5%), convert to proportion for SummaryMetricCards.
+  const clvSummary = summarizeClv(clvSamples);
+  const clvMeanProp = clvSummary.mean != null ? clvSummary.mean / 100 : null;
 
   const resolvedSims: ResolvedSimRow[] = simRows
     .filter((r) => r.status === "resolved")
@@ -577,20 +591,24 @@ export default async function CalibracaoPage() {
 
         {simBrier.resolved > 0 && (
           <>
+            {/* U.3 — ReliabilityDiagram SVG (substitui SimReliabilityTable) */}
             <section className="mt-10" data-section="sim-reliability">
               <h3 className="mb-4 text-base font-semibold">
                 reliability (probabilidade prevista vs frequência observada)
               </h3>
-              <SimReliabilityTable
-                bins={relHome}
-                labelMetric="vitória mandante"
-              />
-              <div className="mt-4">
-                <SimReliabilityTable
-                  bins={relOver}
-                  labelMetric="over 2.5 gols"
-                />
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2">
+                <ReliabilityDiagram bins={relHome} labelMetric="vitória mandante" />
+                <ReliabilityDiagram bins={relOver} labelMetric="over 2.5 gols" />
               </div>
+              <details className="mt-4">
+                <summary className="cursor-pointer select-none py-2 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+                  tabela de dados (reliability)
+                </summary>
+                <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                  <SimReliabilityTable bins={relHome} labelMetric="vitória mandante" />
+                  <SimReliabilityTable bins={relOver} labelMetric="over 2.5 gols" />
+                </div>
+              </details>
             </section>
             <section className="mt-10" data-section="sim-brier-time">
               <h3 className="mb-4 text-base font-semibold">
@@ -629,6 +647,25 @@ export default async function CalibracaoPage() {
           </p>
         </header>
 
+        {/* U.3 — 3 summary cards grandes no topo */}
+        <div className="mb-8" data-section="summary-metric-cards">
+          <SummaryMetricCards
+            brier={{ value: aiRecoBrier.brier, target: 0.25, label: "Brier estimado" }}
+            roi={{ value: aiRecoRoi.roiPerUnit, target: 0.0, label: "ROI" }}
+            clv={{ value: clvMeanProp, target: CLV_TARGET_PCT, label: "CLV médio" }}
+          />
+        </div>
+
+        {/* U.3 — CLV gauge (progresso coleta de amostras) */}
+        <div className="mb-8" data-section="clv-gauge-top">
+          <ClvGauge
+            betCount={clvSummary.n}
+            targetCount={CLV_TARGET_N}
+            clvPct={clvMeanProp ?? 0}
+            targetClvPct={CLV_TARGET_PCT}
+          />
+        </div>
+
         {aiRecoQueryError && (
           <p
             className="card mb-6 p-4 text-sm"
@@ -639,81 +676,85 @@ export default async function CalibracaoPage() {
           </p>
         )}
 
-        <div data-section="ai-reco-roi">
-          <AiRecoRoiCards summary={aiRecoRoi} />
-        </div>
+        <details className="mt-4">
+          <summary className="cursor-pointer select-none py-2 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+            detalhes técnicos — ROI, Brier, por liga/confidence
+          </summary>
+          <div className="mt-4 flex flex-col gap-10">
+            <div data-section="ai-reco-roi">
+              <h3 className="mb-4 text-base font-semibold">ROI e P/L (unidades hipotéticas)</h3>
+              <AiRecoRoiCards summary={aiRecoRoi} />
+            </div>
 
-        <div className="mt-10" data-section="ai-reco-brier">
-          <h3 className="mb-4 text-base font-semibold">
-            brier do prob_estimated (vs resultado real)
-          </h3>
-          <AiRecoBrierCard brier={aiRecoBrier} />
-        </div>
+            <div data-section="ai-reco-brier">
+              <h3 className="mb-4 text-base font-semibold">
+                brier do prob_estimated (vs resultado real)
+              </h3>
+              <AiRecoBrierCard brier={aiRecoBrier} />
+            </div>
 
-        <div className="mt-10" data-section="ai-reco-by-league">
-          <h3 className="mb-4 text-base font-semibold">
-            por liga (top 5 por volume)
-          </h3>
-          <AiRecoByLeagueTable rows={aiRecoByLeague} />
-        </div>
+            <div data-section="ai-reco-by-league">
+              <h3 className="mb-4 text-base font-semibold">
+                por liga (top 5 por volume)
+              </h3>
+              <AiRecoByLeagueTable rows={aiRecoByLeague} />
+            </div>
 
-        <div className="mt-10" data-section="ai-reco-by-confidence">
-          <h3 className="mb-4 text-base font-semibold">
-            por confidence (sanity: alto deve ter WR &gt; medio &gt; baixo)
-          </h3>
-          <AiRecoByConfidenceTable rows={aiRecoByConfidence} />
-        </div>
+            <div data-section="ai-reco-by-confidence">
+              <h3 className="mb-4 text-base font-semibold">
+                por confidence (sanity: alto deve ter WR &gt; medio &gt; baixo)
+              </h3>
+              <AiRecoByConfidenceTable rows={aiRecoByConfidence} />
+            </div>
+          </div>
+        </details>
 
-        {/* A2 — ROI realizado (bets vinculadas a recos via 0025).
-            Distingue P/L "no papel" (todas as recos resolvidas) do P/L
-            real (só bets que o Pilot apostou de fato). Penetração mostra
-            quantas das recos resolvidas viraram bet. */}
-        <div className="mt-12 border-t border-[var(--color-line-subtle)] pt-10">
-          <header className="mb-6">
-            <span className="label">A2 · ROI realizado</span>
-            <h3 className="mt-2 text-base font-semibold">
-              bets vinculadas a recos IA (apostas reais)
-            </h3>
-            <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
+        {/* A2 — ROI realizado (bets vinculadas a recos via 0025). */}
+        <details className="mt-12 border-t border-[var(--color-line-subtle)] pt-10">
+          <summary className="cursor-pointer select-none py-2 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+            A2 · ROI realizado — bets vinculadas a recos IA (apostas reais)
+          </summary>
+          <div className="mt-6">
+            <p className="mb-6 text-sm text-[var(--color-ink-muted)]">
               só conta bets criadas via &ldquo;✅ Apostei&rdquo; no AiRecoPanel
               (`bets.ai_recommendation_id IS NOT NULL`). Compare com o ROI
               hipotético acima — o gap mostra quanto da estratégia ficou
               no papel.
             </p>
-          </header>
 
-          {realizedQueryError && (
-            <p
-              className="card mb-6 p-4 text-sm"
-              style={{ color: "var(--color-vermelho)" }}
-              role="alert"
-            >
-              falha ao ler bets realizadas: {realizedQueryError}
-            </p>
-          )}
+            {realizedQueryError && (
+              <p
+                className="card mb-6 p-4 text-sm"
+                style={{ color: "var(--color-vermelho)" }}
+                role="alert"
+              >
+                falha ao ler bets realizadas: {realizedQueryError}
+              </p>
+            )}
 
-          <div data-section="realized-roi">
-            <RealizedRoiCards
-              summary={realizedRoi}
-              penetration={realizedPenetration}
-              totalRecoBets={aiRecoRoi.betCount}
-            />
+            <div data-section="realized-roi">
+              <RealizedRoiCards
+                summary={realizedRoi}
+                penetration={realizedPenetration}
+                totalRecoBets={aiRecoRoi.betCount}
+              />
+            </div>
+
+            <div className="mt-10" data-section="realized-roi-by-league">
+              <h3 className="mb-4 text-base font-semibold">
+                por liga (top 5 por volume)
+              </h3>
+              <RealizedRoiByLeagueTable rows={realizedByLeague} />
+            </div>
+
+            <div className="mt-10" data-section="realized-roi-by-confidence">
+              <h3 className="mb-4 text-base font-semibold">
+                por confidence (do reco IA)
+              </h3>
+              <RealizedRoiByConfidenceTable rows={realizedByConfidence} />
+            </div>
           </div>
-
-          <div className="mt-10" data-section="realized-roi-by-league">
-            <h3 className="mb-4 text-base font-semibold">
-              por liga (top 5 por volume)
-            </h3>
-            <RealizedRoiByLeagueTable rows={realizedByLeague} />
-          </div>
-
-          <div className="mt-10" data-section="realized-roi-by-confidence">
-            <h3 className="mb-4 text-base font-semibold">
-              por confidence (do reco IA)
-            </h3>
-            <RealizedRoiByConfidenceTable rows={realizedByConfidence} />
-          </div>
-        </div>
+        </details>
       </section>
 
       {/* Tarefa A1 — CLV (Closing Line Value).
