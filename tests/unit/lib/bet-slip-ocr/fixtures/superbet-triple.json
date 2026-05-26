@@ -1,0 +1,21 @@
+{
+  "id": "chatcmpl-mock-superbet-triple",
+  "object": "chat.completion",
+  "created": 1716750000,
+  "model": "google/gemini-2.5-flash",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "{\"legs\":[{\"home\":\"Flamengo\",\"away\":\"Palmeiras\",\"market\":\"1X2\",\"side\":\"Casa\",\"odd_taken\":2.10,\"league\":\"Brasileirão Série A\",\"kickoff_iso\":\"2026-05-26T22:00:00Z\"},{\"home\":\"Arsenal\",\"away\":\"Chelsea\",\"market\":\"Over/Under 2.5 Gols\",\"side\":\"Over\",\"odd_taken\":1.85,\"league\":\"Premier League\",\"kickoff_iso\":\"2026-05-26T15:00:00Z\"},{\"home\":\"Real Madrid\",\"away\":\"Barcelona\",\"market\":\"BTTS\",\"side\":\"Sim\",\"odd_taken\":1.70,\"league\":\"La Liga\",\"kickoff_iso\":\"2026-05-26T19:00:00Z\"}],\"stake_total\":50.00,\"odd_combined\":6.68,\"house_detected\":\"superbet\"}"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 1200,
+    "completion_tokens": 180,
+    "total_tokens": 1380
+  }
+}
