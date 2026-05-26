@@ -232,6 +232,61 @@
 
 ---
 
+## WAVE N — Aposta por foto (BACKLOG · pós UX overhaul · 2026-05-25)
+
+> **Origem**: Pilot 2026-05-25 noite — "minha maior preguiça é registrar minha aposta". Casas têm UIs diferentes (Superbet, Bet365, Betano, etc); registro manual via Wave M reduz fricção mas exige digitar odds, mercado, side.
+
+### Hipótese de produto
+
+OCR + LLM parser sobre screenshot de cupom de aposta da casa → pré-preenche modal `Apostei` ou `BetSlipDrawer` (Wave M) com legs, odds, stake e potencial retorno. User confirma antes do commit.
+
+### Arquitetura proposta
+
+1. **Upload**: input `<input type="file" accept="image/*" capture>` no FAB do bilhete OU rota dedicada `/apostei/foto`
+2. **Vision LLM**: enviar imagem + prompt estruturado pro DeepSeek Vision (via OpenRouter) OU Gemini 2.0 Flash (mais barato e melhor em OCR de cupons). Outputs: `{ legs: [{ home, away, market, side, odd_taken, league?, kickoff? }], stake_total, odd_combined, house_detected }`
+3. **Fuzzy match**: comparar `home/away` extraídos com fixtures.home_team/away_team em janela [hoje-2d, hoje+4d] via trigram similarity (`pg_trgm` extension). Auto-link `fixture_id` quando confiança ≥ 85%.
+4. **Modal de confirmação**: mostra legs parseadas com edit inline; flag legs sem fixture_id match (manual override); commit chama `commitSlip` da Wave M.
+5. **Telemetria** (Wave T): `bilhete_foto_uploaded`, `bilhete_foto_parsed_success`, `bilhete_foto_legs_corrected` (user editou X legs), `bilhete_foto_committed`.
+
+### Cobertura prevista por casa
+
+| Casa | Probabilidade OCR ok | Notas |
+|---|---|---|
+| Superbet (screenshot Pilot) | Alta (90%) | Layout limpo, fonte legível, estrutura `time / mercado / odd` clara |
+| Bet365 | Média (75%) | Dense, muitas badges, mas fonte ok |
+| Betano | Alta (85%) | Cards estilizados, contraste alto |
+| Estrela | Média (70%) | Layout denso mobile |
+| Sportingbet/PixBet/etc | Variável | Avaliar por amostra real |
+
+Caso OCR falhe: fallback gracioso pro fluxo manual atual.
+
+### Custo estimado
+
+- Gemini 2.0 Flash: ~$0.0005/imagem (input 1k tokens equiv + ~500 output tokens)
+- DeepSeek Vision: ~$0.001/imagem
+- 10 bilhetes/mês × $0.001 = **$0.01/mês** — desprezível
+
+### TDD
+
+- Fixture suite: 5-10 screenshots reais (de várias casas, anonimizadas) commitados em `tests/fixtures/bet-slips/`
+- Unit test do parser: mock LLM response → asserta legs estruturadas corretas
+- Integration: subir imagem → matcher acha fixture → cria draft slip
+- E2E: upload foto Superbet do Pilot → confirma 3 legs → commit cria 1 bet kind='multiple'
+
+### Esforço · risco · gate
+
+- **Esforço**: M-L (8-12h) — depende de quanto a fuzzy match falha (cleaner home_team mapping pode ser meio caminho)
+- **Risco**: médio — depende da qualidade do vision LLM em PT-BR (validar primeiro com a screenshot Superbet do Pilot como caso de regressão)
+- **Gate de entrada**: só depois de Wave M (`bet_slips` operacional) + Wave U mergeada (UX core estável). Telemetria de Wave M vai dizer se fricção do registro manual realmente justifica investimento.
+
+### Não-decidido (aberto)
+
+- Vision LLM: DeepSeek vs Gemini vs Claude Haiku 4.5 Vision — comparar custo × acurácia em 10 amostras antes de fechar
+- Onde upload aparece: FAB do bilhete? Botão dedicado em `/bilhete`? Atalho de teclado (Power)?
+- Multi-foto (cupom grande que rola): defer V2
+
+---
+
 ## Não fazer agora (perigo)
 
 - **Automação de placement de aposta** — Bet365/Betano detectam e limitam contas com padrão IA em 60-90 dias. Mantém decision-support manual. (CEO + Sharp)
