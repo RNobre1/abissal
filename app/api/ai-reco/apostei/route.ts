@@ -320,6 +320,21 @@ export async function POST(request: Request): Promise<Response> {
     // can re-link manually if needed. We never lose the financial record.
   }
 
+  // Patch bet_selections.odd_taken — persiste a odd real apostada pelo Pilot
+  // (migration 0030). Necessário para CLV correto: CLV = (odd_taken / odd_close - 1) * 100.
+  // odd_taken pode diferir de ai_recommendations.odd_captured (o modelo calcula
+  // com a odd capturada; o Pilot pode ter apostado numa odd diferente).
+  // Non-fatal: se a tabela ainda não tem a coluna (pré-migration), o UPDATE
+  // retorna erro silencioso. O bet já está persistido no ledger.
+  try {
+    await supabase
+      .from("bet_selections")
+      .update({ odd_taken: Number(effectiveOdd.toFixed(4)) })
+      .eq("bet_id", betId);
+  } catch {
+    // Pre-migration 0030 fallback: silently ignore.
+  }
+
   // Mark feedback as 'bet' (audit / loop antigo)
   await upsertBetFeedback(supabase, parsed.aiRecommendationId);
 

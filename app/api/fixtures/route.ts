@@ -27,16 +27,29 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const supabase = createAdminClient();
     const fixtures = await fixturesForBrtDay(date, supabase);
-    return jsonResponse(fixtures, 200);
+    return jsonResponse(fixtures, 200, {
+      // Wave C perf: allow CDN/edge to cache fixture lists for 5 minutes
+      // (scraper runs daily, so stale data within the BRT day is acceptable).
+      // s-maxage=300: shared cache TTL; stale-while-revalidate=600: serve
+      // stale while revalidating up to 10 minutes.
+      "cache-control": "public, s-maxage=300, stale-while-revalidate=600",
+    });
   } catch (err) {
     const message = err instanceof Error ? err.message : "internal error";
     return jsonResponse({ error: message }, 500);
   }
 }
 
-function jsonResponse(body: unknown, status: number): Response {
+function jsonResponse(
+  body: unknown,
+  status: number,
+  extraHeaders?: Record<string, string>,
+): Response {
   return new Response(JSON.stringify(body), {
     status,
-    headers: { "content-type": "application/json; charset=utf-8" },
+    headers: {
+      "content-type": "application/json; charset=utf-8",
+      ...extraHeaders,
+    },
   });
 }

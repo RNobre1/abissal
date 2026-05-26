@@ -4,6 +4,7 @@ import { fmt } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import type { Database } from "@/lib/supabase/types";
 import { buildBetsFilter, STATUS_FILTERS } from "./filter-helpers";
+import { BetsSelectFilters } from "./bets-select-filters";
 
 type BetStatus = Database["public"]["Enums"]["bet_status"];
 type BetKind = Database["public"]["Enums"]["bet_kind"];
@@ -206,59 +207,14 @@ export default async function BetsPage({
         })}
       </nav>
 
-      {/* League + Market filters */}
-      {(availableLeagues.length > 0 || availableMarkets.length > 0) && (
-        <div className="mb-6 flex flex-wrap gap-3">
-          {availableLeagues.length > 0 && (
-            <div className="flex items-center gap-2">
-              <label
-                htmlFor="league-filter"
-                className="num text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-muted)]"
-              >
-                liga
-              </label>
-              <select
-                id="league-filter"
-                value={betsFilter.league ?? ""}
-                onChange={(e) => {
-                  // client-side redirect via form GET
-                }}
-                className="rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-vermelho)]"
-              >
-                <option value="">todas</option>
-                {availableLeagues.map((lg) => (
-                  <option key={lg} value={lg}>
-                    {lg}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-          {availableMarkets.length > 0 && (
-            <div className="flex items-center gap-2">
-              <label
-                htmlFor="market-filter"
-                className="num text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-muted)]"
-              >
-                mercado
-              </label>
-              <select
-                id="market-filter"
-                value={betsFilter.marketId ?? ""}
-                onChange={() => {}}
-                className="rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-vermelho)]"
-              >
-                <option value="">todos</option>
-                {availableMarkets.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-        </div>
-      )}
+      {/* League + Market filters — client component para router.push funcionar */}
+      <BetsSelectFilters
+        availableLeagues={availableLeagues}
+        availableMarkets={availableMarkets}
+        currentLeague={betsFilter.league}
+        currentMarketId={betsFilter.marketId}
+        baseHref={buildHref({})}
+      />
 
       {/* Active filter chips */}
       {(houseFilter || betsFilter.league || selectedMarket) && (

@@ -67,7 +67,7 @@ module AdamStats
       def select_pending(conn)
         conn.exec_params(
           "SELECT id, home_team, away_team, kickoff_utc, fixture_id, " \
-          "       p_home, p_draw, p_away, p_over_25 " \
+          "       p_home, p_draw, p_away, p_over_25, p_btts " \
           "FROM fixture_simulations " \
           "WHERE status = 'pending' " \
           "  AND kickoff_utc IS NOT NULL " \
@@ -111,16 +111,25 @@ module AdamStats
           correct_winner = score_winner(row, home_goals, away_goals)
           correct_ou     = score_over_under(row, home_goals, away_goals)
 
+          # BTTS: trivially derivable from goals. Always available when FT.
+          # Note: actual_corners_*/actual_cards_*/actual_sot_* remain NULL —
+          # choistats recent-results widget does not expose these for the
+          # reconciled fixture (only homeGoalsFt/awayGoalsFt/homeReds/awayReds).
+          # See CLAUDE.md Wave G investigation (2026-05-25).
+          actual_btts = home_goals.positive? && away_goals.positive?
+
           conn.exec_params(
             "UPDATE fixture_simulations SET " \
             "  actual_home_goals   = $1, " \
             "  actual_away_goals   = $2, " \
+            "  actual_btts         = $3, " \
             "  actual_resolved_at  = now(), " \
-            "  correct_winner      = $3, " \
-            "  correct_over_under  = $4, " \
-            "  status              = $5 " \
-            "WHERE id = $6",
-            [home_goals, away_goals, correct_winner, correct_ou, 'resolved', row['id'].to_i]
+            "  correct_winner      = $4, " \
+            "  correct_over_under  = $5, " \
+            "  status              = $6 " \
+            "WHERE id = $7",
+            [home_goals, away_goals, actual_btts,
+             correct_winner, correct_ou, 'resolved', row['id'].to_i]
           )
           stats[:resolved] += 1
         elsif stale

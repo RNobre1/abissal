@@ -52,11 +52,13 @@ interface AiRecoPanelProps {
    */
   linkedBet?: LinkedBetSummary | null;
   /**
-   * A2 — Valor de 1 unit em BRL (stake = units_final × unitValue). Default
-   * 1.0 (placeholder até bankroll_settings entrar). Pilot ajusta direto
-   * no campo do modal se quiser stake diferente.
+   * A2 — Stake default em BRL já calculada pelo caller (SSR) via
+   * `computeDefaultStake(units_final, bankrollSettings)`. Default 0 →
+   * o Pilot digita o valor manualmente.
+   *
+   * Substitui o `unitValue` placeholder anterior (fix #1: defaultStake=0 bug).
    */
-  unitValue?: number;
+  defaultStake?: number;
 }
 
 function fmtNumber(v: number | null, digits = 1): string | null {
@@ -124,7 +126,7 @@ export function AiRecoPanel({
   feedback,
   houses = [],
   linkedBet = null,
-  unitValue = 1.0,
+  defaultStake = 0,
 }: AiRecoPanelProps) {
   if (reco === null) {
     return (
@@ -174,14 +176,15 @@ export function AiRecoPanel({
           existingDecisions={existingDecisions(feedback)}
           houses={houses}
           defaultOdd={reco.odd_captured ?? null}
-          defaultStake={
-            reco.units_final != null && reco.units_final > 0
-              ? reco.units_final * unitValue
-              : 0
-          }
+          defaultStake={defaultStake}
           market={reco.market}
           side={reco.side}
           linkedBet={linkedBet}
+          fixtureId={fixtureId}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          league={reco.league}
+          kickoffUtc={reco.kickoff_utc}
         />
       </section>
     );
@@ -270,14 +273,15 @@ export function AiRecoPanel({
         existingDecisions={existingDecisions(feedback)}
         houses={houses}
         defaultOdd={reco.odd_captured ?? null}
-        defaultStake={
-          reco.units_final != null && reco.units_final > 0
-            ? reco.units_final * unitValue
-            : 0
-        }
+        defaultStake={defaultStake}
         market={reco.market}
         side={reco.side}
         linkedBet={linkedBet}
+        fixtureId={fixtureId}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        league={reco.league}
+        kickoffUtc={reco.kickoff_utc}
       />
     </section>
   );

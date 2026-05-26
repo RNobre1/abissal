@@ -28,18 +28,29 @@ interface ResolvedRow {
   p_draw: number | null;
   p_away: number | null;
   p_over_25: number | null;
+  p_btts: number | null;
   actual_home_goals: number | null;
   actual_away_goals: number | null;
+  actual_btts: boolean | null;
 }
 
-type Metric = "1x2-home" | "1x2-draw" | "1x2-away" | "over25";
+// Binary metrics suitable for isotonic calibration (PAV).
+// COUNT metrics (corners, cards, SOT) are evaluated via CRPS — see sim-reliability.ts.
+// Rationale: isotonic regression calibrates P(event) → observed frequency, which
+// requires a binary outcome. Count distributions need CRPS/CORP decomposition.
+type Metric = "1x2-home" | "1x2-draw" | "1x2-away" | "over25" | "btts";
 
-function observedFor(metric: Metric, hg: number, ag: number): 0 | 1 {
+function observedFor(metric: Metric, hg: number, ag: number, row: ResolvedRow): 0 | 1 {
   switch (metric) {
     case "1x2-home": return hg > ag ? 1 : 0;
     case "1x2-draw": return hg === ag ? 1 : 0;
     case "1x2-away": return hg < ag ? 1 : 0;
     case "over25": return hg + ag > 2.5 ? 1 : 0;
+    case "btts": {
+      // Prefer actual_btts column; fall back to deriving from goals.
+      if (row.actual_btts != null) return row.actual_btts ? 1 : 0;
+      return hg > 0 && ag > 0 ? 1 : 0;
+    }
   }
 }
 
@@ -49,6 +60,7 @@ function predFor(metric: Metric, r: ResolvedRow): number | null {
     case "1x2-draw": return r.p_draw;
     case "1x2-away": return r.p_away;
     case "over25": return r.p_over_25;
+    case "btts": return r.p_btts;
   }
 }
 
@@ -58,7 +70,7 @@ async function main() {
   const c = supabase as unknown as { from: (t: string) => any };
   const { data, error } = await c
     .from("fixture_simulations")
-    .select("model_version, p_home, p_draw, p_away, p_over_25, actual_home_goals, actual_away_goals")
+    .select("model_version, p_home, p_draw, p_away, p_over_25, p_btts, actual_home_goals, actual_away_goals, actual_btts")
     .eq("status", "resolved")
     .order("actual_resolved_at", { ascending: false })
     .limit(5000);
@@ -80,7 +92,7 @@ async function main() {
     byVersion.set(r.model_version, list);
   }
 
-  const metrics: Metric[] = ["1x2-home", "1x2-draw", "1x2-away", "over25"];
+  const metrics: Metric[] = ["1x2-home", "1x2-draw", "1x2-away", "over25", "btts"];
   for (const [version, rowsV] of byVersion.entries()) {
     for (const metric of metrics) {
       const pairs: Array<[number, number]> = [];
@@ -88,7 +100,7 @@ async function main() {
         const p = predFor(metric, r);
         if (p == null || !Number.isFinite(p)) continue;
         if (r.actual_home_goals == null || r.actual_away_goals == null) continue;
-        pairs.push([p, observedFor(metric, r.actual_home_goals, r.actual_away_goals)]);
+        pairs.push([p, observedFor(metric, r.actual_home_goals, r.actual_away_goals, r)]);
       }
       if (pairs.length < 30) {
         console.log(`[skip] ${version} ${metric}: only ${pairs.length} samples (need ≥30)`);
