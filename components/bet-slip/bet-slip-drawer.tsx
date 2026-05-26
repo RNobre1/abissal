@@ -17,6 +17,7 @@
 
 import Link from "next/link";
 import type { Conflict, SlipLeg } from "@/lib/bet-slip/compute";
+import { BetSlipPhotoImport } from "./bet-slip-photo-import";
 
 interface HouseOption {
   id: string;
@@ -37,6 +38,7 @@ interface BetSlipDrawerProps {
   houses: HouseOption[];
   onCommit: (houseId: string) => void;
   onCancel: () => void;
+  onLegsAdded?: () => void;
 }
 
 function fmtOdd(v: number): string {
@@ -61,6 +63,7 @@ export function BetSlipDrawer({
   houses,
   onCommit,
   onCancel,
+  onLegsAdded,
 }: BetSlipDrawerProps) {
   function handleStakeInput(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
@@ -88,6 +91,9 @@ export function BetSlipDrawer({
           <span className="num label text-[var(--color-ink-muted)] tabular-nums">
             {legs.length} {legs.length === 1 ? "seleção" : "seleções"}
           </span>
+          {onLegsAdded ? (
+            <BetSlipPhotoImport onLegsAdded={onLegsAdded} />
+          ) : null}
           <button
             type="button"
             aria-label="Fechar bilhete"
