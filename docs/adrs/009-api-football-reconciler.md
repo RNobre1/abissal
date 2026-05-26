@@ -1,7 +1,58 @@
 # ADR-009: API-Football como fonte única para actuals de corners/cards/SOT
 
 **Data:** 2026-05-26
-**Status:** Aceito
+**Status:** REVERTED 2026-05-26 (mesmo dia)
+
+## Reversão (2026-05-26 tarde)
+
+PR #12 deployado e validado em prod via scrape disparado. Resultado: **0 sucessos
+em 1130 tentativas de reconciliação**. Investigação systematic-debugging revelou
+root cause crítico que não foi pego em dev:
+
+> Plano Free do API-Football **só dá acesso a seasons 2022-2024**. Endpoint
+> `/fixtures?league=X&season=2026` retorna `{'plan': 'Free plans do not have
+> access to this season, try from 2022 to 2024.'}`. **Nenhum dado atual é
+> acessível com free tier**.
+
+Por que não pegamos em dev:
+- Smoke inicial usou fixture histórica (215662, season 2022-2024) — passou
+- Tests RSpec usavam WebMock — não hit API real
+- ADR-009 v0 não validou seasons recentes
+
+Pilot decidiu reverter completamente. Reavaliar em ~1 mês quando:
+- API-Football liberar seasons 2025+ no free tier (improvável)
+- OU upgrade pra PRO ($19/mês — desbloqueia tudo)
+- OU outra source (FBref scraping, Football-Data.co.uk pra ligas cobertas)
+
+### O que ficou em prod (intencional)
+
+- **Migration 0036**: `fixture_simulations.actual_data_source` (column nullable) +
+  `actuals_fixture_mapping` (table vazia). Schema dead-but-benign — não machuca.
+  Reverter custaria migration 0038 com DROP COLUMN — instabilidade desnecessária.
+- **API_FOOTBALL_* GitHub Secrets**: mantidos pra snapshot infra semanal
+  (12 reqs/sem, dentro do free tier mesmo agora).
+- **Snapshot cron** (`api-football-snapshot.yml`): mantido, útil pra detectar
+  quando seasons 2026 ficarem acessíveis no free.
+
+### O que foi deletado
+
+- `scripts/scraper/lib/scraper/actuals/` (5 arquivos: client, parser, resolver,
+  league_ids, reconciler)
+- `scripts/scraper/spec/scraper/actuals*` (specs)
+- Invocação do `ActualsReconciler` no `orchestrator.rb`
+- 3 envs `API_FOOTBALL_*` no `scrape-daily.yml`
+
+### Lição
+
+Smoke testing rasos (1 curl em endpoint feliz) não substitui exploration de
+limitações de plano free. Próxima integração com API paga: testar TODOS os
+endpoints+params relevantes contra dados ATUAIS antes de codar reconciler.
+
+---
+
+## Decisão original (mantida pra histórico)
+
+**Data:** 2026-05-26
 **Contexto:** Wave O+E+P+R (PR #11) expandiu a IA para emitir recomendações em
 corners-over/under, cards-over/under e sot-over/under. Wave G (PR #5) adicionou
 as colunas `actual_corners_home/away`, `actual_cards_home/away`,
