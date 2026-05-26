@@ -7,38 +7,20 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  CONFIDENCE_MIN,
+  type MatchInput,
+  type MatchResult,
+  type MatchedFixture,
+} from "./match-fixture-types";
 
-// ── Public types ──────────────────────────────────────────────────────────────
-
-export interface MatchInput {
-  home: string;
-  away: string;
-  kickoffIso?: string | null; // ISO 8601 — janela de busca centrada nele se presente
-  league?: string | null; // não usado pra match, só pra logging/observability
-}
-
-export interface MatchedFixture {
-  fixture_id: number;
-  home_team: string; // do DB (canônico)
-  away_team: string; // do DB
-  league: string | null;
-  country: string | null;
-  kickoff_utc: string;
-  confidence: number; // 0.0 a 1.0 — avg(similarity(home, $1), similarity(away, $2))
-}
-
-export interface MatchResult {
-  best: MatchedFixture | null; // null se nenhum candidato passou no threshold MIN
-  candidates: MatchedFixture[]; // top 3 ordenados por confidence DESC (mesmo se best=null)
-}
-
-// ── Constants ─────────────────────────────────────────────────────────────────
-
-/** Confidence ≥ AUTO_LINK → auto-linka sem prompt manual */
-export const CONFIDENCE_AUTO_LINK = 0.85;
-
-/** Confidence < MIN → não exibe como candidato (best=null, candidates=[]) */
-export const CONFIDENCE_MIN = 0.4;
+export {
+  CONFIDENCE_AUTO_LINK,
+  CONFIDENCE_MIN,
+  type MatchInput,
+  type MatchResult,
+  type MatchedFixture,
+} from "./match-fixture-types";
 
 // ── RPC row shape (retorno do Postgres) ───────────────────────────────────────
 

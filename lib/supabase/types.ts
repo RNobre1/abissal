@@ -1459,6 +1459,18 @@ export type Database = {
     }
     Functions: {
       generate_balance_snapshots: { Args: { p_date?: string }; Returns: number }
+      match_fixture_fuzzy: {
+        Args: { p_home: string; p_away: string; p_kickoff?: string | null }
+        Returns: {
+          id: number
+          home_team: string
+          away_team: string
+          league: string | null
+          country: string | null
+          kickoff_utc: string
+          confidence: number
+        }[]
+      }
       house_balance: {
         Args: { p_house_id: string; p_user_id: string }
         Returns: {
