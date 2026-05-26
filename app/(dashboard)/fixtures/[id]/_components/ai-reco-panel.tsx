@@ -182,6 +182,11 @@ export function AiRecoPanel({
           market={reco.market}
           side={reco.side}
           linkedBet={linkedBet}
+          fixtureId={fixtureId}
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          league={reco.league}
+          kickoffUtc={reco.kickoff_utc}
         />
       </section>
     );
@@ -260,6 +265,11 @@ export function AiRecoPanel({
         market={reco.market}
         side={reco.side}
         linkedBet={linkedBet}
+        fixtureId={fixtureId}
+        homeTeam={homeTeam}
+        awayTeam={awayTeam}
+        league={reco.league}
+        kickoffUtc={reco.kickoff_utc}
       />
     </section>
   );
