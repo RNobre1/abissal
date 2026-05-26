@@ -49,6 +49,7 @@ import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
 import { getFeedbackForReco } from "@/lib/ai-reco/feedback-repository";
 import { computeDefaultStake, DEFAULT_BANKROLL } from "@/lib/ai-reco/stake-calculator";
+import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 import { SimulationPanel } from "./_components/simulation-panel";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
 import { AiRecoPanel } from "./_components/ai-reco-panel";
@@ -320,17 +321,6 @@ function readAvgsSampleSize(
     home: pick(avgs?.home_overall) ?? pick(avgs?.home_home),
     away: pick(avgs?.away_overall) ?? pick(avgs?.away_away),
   };
-}
-
-/**
- * Parses the choistats numeric id from a fixture `source_url`. Same regex
- * as Ruby `fixture_api_id` / TS sim repository — `/fixture/(\d+)` matches
- * anywhere in the URL and ignores any trailing slug.
- */
-function parseChoistatsId(sourceUrl: string | null): number | null {
-  if (!sourceUrl) return null;
-  const m = sourceUrl.match(/\/fixture\/(\d+)/);
-  return m ? Number(m[1]) : null;
 }
 
 /**

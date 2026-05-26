@@ -553,7 +553,10 @@ describe("StatsPage — pre-game simulation panel", () => {
     expect(pos & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it("renderiza SIM recolhido por default (toggle visível, body do conteúdo ausente)", async () => {
+  it("renderiza SIM recolhido por default (toggle visível, body oculto via @container CSS)", async () => {
+    // Wave C: SimulationDisclosure usa @container CSS (não useSyncExternalStore).
+    // O body está no DOM mas oculto pela classe `@[768px]/card:hidden`. O teste
+    // verifica aria-hidden e classe CSS em vez de ausência do nó DOM.
     mockState.fixtureRow = makeRow({ detail_json: makeDetail() as unknown });
     mockState.simRow = simRow();
 
@@ -562,8 +565,11 @@ describe("StatsPage — pre-game simulation panel", () => {
 
     const toggle = panel.querySelector('button[data-sim-toggle]');
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
-    // Conteúdo do body (placar provável) NÃO está visível com SIM recolhido.
-    expect(panel.querySelector("[data-probable-score]")).toBeNull();
+    // Wave C: região sempre no DOM — verificar aria-hidden + classe @container.
+    const region = panel.querySelector("[data-sim-region]") as HTMLElement | null;
+    expect(region, "data-sim-region deve existir").not.toBeNull();
+    expect(region?.getAttribute("aria-hidden")).toBe("true");
+    expect(region?.className).toContain("@[768px]/card:hidden");
   });
 
   it("renders the probable score and the 1X2/over/BTTS probability bars", async () => {
@@ -952,7 +958,11 @@ describe("SimulationPanel — chrome prop", () => {
 });
 
 describe("SimulationDisclosure", () => {
-  it("renderiza recolhido por default no desktop (só casca + toggle, sem body)", () => {
+  it("renderiza recolhido por default no desktop (só casca + toggle, sem body visível)", () => {
+    // Wave C: SimulationDisclosure usa @container CSS em vez de useSyncExternalStore.
+    // O conteúdo está SEMPRE no DOM (sem hidratação mismatch), oculto por classe
+    // CSS `@[768px]/card:hidden` no desktop. O teste verifica a classe e o
+    // aria-hidden, não a ausência do nó DOM.
     const { container } = render(
       <SimulationDisclosure>
         <p data-testid="sim-body">corpo</p>
@@ -974,7 +984,12 @@ describe("SimulationDisclosure", () => {
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     expect(toggle?.textContent?.toLowerCase()).toContain("ver");
 
-    expect(container.querySelector('[data-testid="sim-body"]')).toBeNull();
+    // Wave C: conteúdo sempre no DOM (CSS oculta) — verificar aria-hidden e classe.
+    const region = container.querySelector("[data-sim-region]") as HTMLElement | null;
+    expect(region, "region deve existir no DOM").not.toBeNull();
+    expect(region?.getAttribute("aria-hidden")).toBe("true");
+    // Classe @[768px]/card:hidden sinaliza hidden no desktop via @container.
+    expect(region?.className).toContain("@[768px]/card:hidden");
 
     // Garantia adicional: visualmente "Monte Carlo" vem ANTES do toggle no header.
     const header = container.querySelector("header") as HTMLElement;
@@ -991,7 +1006,7 @@ describe("SimulationDisclosure", () => {
     ).toBeTruthy(); // toggle vem DEPOIS de "Monte Carlo"
   });
 
-  it("expande ao clicar no toggle (aria-expanded=true, body montado, label muda)", () => {
+  it("expande ao clicar no toggle (aria-expanded=true, region visível, label muda)", () => {
     const { container } = render(
       <SimulationDisclosure>
         <p data-testid="sim-body">corpo</p>
@@ -1005,7 +1020,12 @@ describe("SimulationDisclosure", () => {
 
     expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(toggle.textContent?.toLowerCase()).toContain("ocultar");
+    // sim-body sempre no DOM (Wave C CSS approach).
     expect(container.querySelector('[data-testid="sim-body"]')).not.toBeNull();
+    // Região agora aria-hidden=false e classe @[768px]/card:block.
+    const region = container.querySelector("[data-sim-region]") as HTMLElement | null;
+    expect(region?.getAttribute("aria-hidden")).toBe("false");
+    expect(region?.className).toContain("@[768px]/card:block");
   });
 
   it("a região controlada referencia o id correto via aria-controls", () => {

@@ -5,6 +5,13 @@
  *
  * Height is configurable so the placeholder matches the resolved panel
  * dimension, preventing layout shift when the real content hydrates.
+ *
+ * Wave C: shimmer moved from inline `style={}` + `<style>` tag to
+ * `.animate-shimmer` CSS class defined in `globals.css`. The keyframes now
+ * participate in the global `prefers-reduced-motion: reduce` reset
+ * (`animation-duration: 0.01ms !important`), which was silently bypassed
+ * by inline styles. The `motion-reduce:animate-none` Tailwind class adds
+ * an explicit opt-out at the component level as well.
  */
 
 interface PanelSkeletonProps {
@@ -33,22 +40,15 @@ export function PanelSkeleton({
         gridColumn: colSpan,
       }}
     >
+      {/*
+       * Shimmer layer: `.animate-shimmer` defined in globals.css (Wave C).
+       * `motion-reduce:animate-none` adds an explicit component-level opt-out
+       * in addition to the global `prefers-reduced-motion` reset.
+       */}
       <div
         aria-hidden
-        className="absolute inset-0"
-        style={{
-          backgroundImage:
-            "linear-gradient(110deg, transparent 30%, rgba(255,255,255,0.04) 50%, transparent 70%)",
-          backgroundSize: "200% 100%",
-          animation: "stats-shimmer 1.4s ease-in-out infinite",
-        }}
+        className="animate-shimmer motion-reduce:animate-none absolute inset-0"
       />
-      <style>{`
-        @keyframes stats-shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-      `}</style>
       <span className="sr-only">{label}</span>
     </div>
   );
