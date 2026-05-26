@@ -23,10 +23,8 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FeedbackButtons } from "./feedback-buttons";
-import {
-  ApostaiModal,
-  type ApostaiHouseOption,
-} from "./apostei-modal";
+import type { ApostaiHouseOption } from "./apostei-modal";
+import { AposteiBottomSheet } from "./apostei-bottom-sheet";
 
 export interface LinkedBetSummary {
   id: string;
@@ -134,31 +132,31 @@ export function AiRecoActions({
         existingDecisions={existingDecisions}
         onOpenApostei={() => setModalOpen(true)}
       />
-      {modalOpen ? (
-        <ApostaiModal
-          aiRecommendationId={aiRecommendationId}
-          houses={houses}
-          defaultOdd={defaultOdd}
-          defaultStake={defaultStake}
-          market={market}
-          side={side}
-          onCancel={() => setModalOpen(false)}
-          onSuccess={(betId) => {
-            setOptimisticLinked({
-              id: betId,
-              total_stake: 0, // Vai ser substituído no refresh()
-              total_odds: defaultOdd ?? 0,
-              house_name:
-                houses.find((h) => h.id === houses[0]?.id)?.name ?? null,
-              status: "pending",
-            });
-            setModalOpen(false);
-            startTransition(() => {
-              router.refresh();
-            });
-          }}
-        />
-      ) : null}
+      <AposteiBottomSheet
+        aiRecommendationId={aiRecommendationId}
+        houses={houses}
+        defaultOdd={defaultOdd}
+        defaultStake={defaultStake}
+        market={market}
+        side={side}
+        open={modalOpen}
+        onOpenChange={(v) => setModalOpen(v)}
+        onCancel={() => setModalOpen(false)}
+        onSuccess={(betId) => {
+          setOptimisticLinked({
+            id: betId,
+            total_stake: 0, // Vai ser substituído no refresh()
+            total_odds: defaultOdd ?? 0,
+            house_name:
+              houses.find((h) => h.id === houses[0]?.id)?.name ?? null,
+            status: "pending",
+          });
+          setModalOpen(false);
+          startTransition(() => {
+            router.refresh();
+          });
+        }}
+      />
     </div>
   );
 }
