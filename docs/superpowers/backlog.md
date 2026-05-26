@@ -232,6 +232,94 @@
 
 ---
 
+## WAVE O+E+P — Expansão de mercados (corners, cards, SOT, players) — 2026-05-26
+
+> **Origem**: Pilot 2026-05-26 ao perceber que IA só analisa 1x2/over25/btts. Sim Monte Carlo JÁ modela 7 métricas por time (goals · sot · cards · fouls · corners · tackles · offsides) com p10/p50/p90, mas o recommender descarta tudo exceto goals. Wave G (2026-05-25 noite) já preparou colunas `actual_corners_home/away`, `actual_cards_*`, `actual_sot_*` em `fixture_simulations` — só falta popular + emitir bets.
+>
+> **Gate**: dispara após A+B+C (Pipeline Health + IC95% + 3 charts MVP) mergear em prod.
+
+### Por que importa
+
+1. **Mais data de calibração** — Pilot disse: "teremos mais dados do desempenho dele". 7 dimensões × CRPS = signal much more rich pra detectar onde IA tem edge real.
+2. **Mais oportunidades** — escanteios e cartões têm **vig menor** que 1x2 (mercados secundários, bookies dão margem maior) — onde sharps moram.
+3. **Sim já faz o trabalho** — desperdício atual. `sim_stats.home.corners.p50 = 8.2 ± 2.1` está no DB, ninguém olha.
+
+### Escopo dividido em 3 sub-waves (paralelizáveis após gate)
+
+#### W-O (Odds) — Captura de odds dos mercados novos
+
+- Investigação prévia: choistats expõe odds de corners/cards/SOT? Inspeção empírica do payload `widget/fixtures/{id}` é o primeiro passo.
+- Se choistats fornece: estender `lib/fixtures/parser.ts` + `lib/fixtures/repository.ts` pra extrair e persistir em `market_anchor` (hoje só `{ Result: 1x2 }`).
+- Se não fornece: **avaliar fontes alternativas** — Pinnacle API (paga, ~$15/mês), Bet365 scraping (complicado), Sportingbet via Cloudflare Worker proxy.
+- Persistência: estender `fixture_simulations.market_anchor jsonb` pra incluir `Corners`, `Cards`, `SOT` com odds por threshold (over 9.5, over 10.5, etc).
+- Decisão de produto: começar com **over/under corners** (mais líquido) e **over/under cards** antes de player props.
+- Esforço: M-L (8-12h dependendo da fonte)
+- Risco: bloqueio externo (choistats pode não ter; alternativas custam)
+
+#### W-E (Edge calculator estendido)
+
+- `lib/ai-reco/edge-calculator.ts`: estender union `export type Market = "1x2" | "over25" | "btts" | "corners-over-95" | "corners-over-105" | "cards-over-25" | "cards-over-35" | "sot-over-95" | ...`
+- Cada mercado:
+  - **Prob predicta**: derivar de `sim_stats.home.corners.distribution` (precisa amostras Monte Carlo, não só p10/p50/p90 — pode exigir extender sim pra serializar samples por métrica)
+  - **Odds**: do `market_anchor` estendido (W-O)
+  - **Edge**: `prob_calibrated × odd - 1`
+- Migration `0035_model_calibration_metrics.sql`: adicionar `'corners-over-95'`, `'cards-over-25'`, etc ao enum de `metric` (já estendido pra `'btts'` em 0031)
+- Isotonic calibration: rodar `fit-isotonic.ts` pra cada novo mercado quando n≥30 (provavelmente vai demorar meses pra ter sample).
+- Edge candidates por jogo saltam de ~4-6 → ~15-25. Recommender pode ficar mais lento. Pre-filter agressivo (`edge ≥ 10%` antes de chamar IA).
+- Esforço: L (10-14h)
+- Test plan: unit tests pra cada market (edge calc · CRPS reconciler · isotonic fit) + integration test com sim_stats real.
+
+#### W-P (Prompt da IA estendido)
+
+- `lib/ai-reco/prompts.ts`: prompt atual do DeepSeek R1 lista só 3 mercados. Estender pra incluir:
+  - Lista de mercados disponíveis (1x2, over25, btts, corners-{over9.5,over10.5}, cards-{over2.5,over3.5}, sot-{over9.5,over10.5,over11.5})
+  - Heurísticas de contexto: corners em ligas com pressing alto vs baixo · cards em jogos de rivalidade
+  - Side-perspective novos: "over corners home" vs "under cards away"
+- Edge_table_snapshot persistido inclui todos os candidatos novos (debug retroativo).
+- Custo: prompt vai ficar maior → ~2x tokens input. DeepSeek R1 é barato (~$0.0018/call); 4 × tokens = ~$0.007/call. Aceitável.
+- Esforço: M (4-6h)
+- Test: snapshot tests do prompt rendering + parsing da resposta.
+
+#### W-R (Reconciler estendido — dependência de W-O+G)
+
+- `simulation_reconciler.rb` (Ruby): após W-O capturar odds, pull dos placares finais de corners/cards/sot via choistats (Wave G já confirmou: choistats NÃO fornece esses dados além de placar+cartões vermelhos).
+- **Bloqueio externo conhecido**: fixture detail page só tem `homeCorners` quando arquivado em `recent_results` (histórico), não no jogo atual reconciliado. **Mitigação**: SofaScore API ou Footystats — investigar custo e cobertura.
+- Sem reconciler estendido, CRPS de contagens implementado na Wave G fica dormant.
+- Esforço: M (4-6h se source alternativa OK; XL se precisar reverse-engineering)
+- Risco alto: pode bloquear todo W-O+E se nenhuma fonte fornece actuals.
+
+### Ordem de execução pós-gate
+
+1. **W-O primeiro** (investigação inicial: choistats expõe odds desses mercados?). Se NÃO, decisão de produto: pagar Pinnacle API ou parar wave inteira.
+2. **Em paralelo (após W-O confirmar dados)**: W-E + W-P + W-R
+3. **Validation gate**: smoke E2E — pelo menos 1 reco real em corners gerada + reconciliada com actual.
+
+### Critério de sucesso
+
+- ≥3 mercados novos emitindo recos diárias
+- Edge_table_snapshot mostra ≥15 candidatos/jogo (vs ~6 hoje)
+- 30d depois: Brier por mercado disponível em `/calibracao` (já preparado pela Wave G granular)
+- ROI por mercado novo mostrado no Pipeline Health Card (Wave A da brainstorm calibração)
+
+### Risco e contingência
+
+- **Risco principal**: actuals indisponíveis externamente. Sim só, sem reconciliation = bets sem feedback loop = calibração quebrada.
+- **Contingência**: começar com mercados onde temos actuals naturais — **cards** via `homeReds`/`homeYellows` no choistats recent_results (que Wave G já validou existir parcialmente). Corners/SOT defer até source alternativa achada.
+
+### Esforço total
+
+- W-O: 8-12h
+- W-E: 10-14h
+- W-P: 4-6h
+- W-R: 4-12h (depende de source)
+- Total: **26-44h wall-clock** com /auto paralelo
+
+### Why não fazer antes da Wave A+B+C (brainstorm calibracao)
+
+A+B+C entrega visibilidade do que JÁ existe. Sem isso, expandir mercados é amplificar fluxo cego — Pilot vai ter 4x mais recos sem ferramenta pra dizer se valem ou são ruído. Pipeline Health Card vai detectar quando W-E gerar recos sem actuals correspondentes (silenciamento que aconteceu hoje com goals).
+
+---
+
 ## WAVE N — Aposta por foto (BACKLOG · pós UX overhaul · 2026-05-25)
 
 > **Origem**: Pilot 2026-05-25 noite — "minha maior preguiça é registrar minha aposta". Casas têm UIs diferentes (Superbet, Bet365, Betano, etc); registro manual via Wave M reduz fricção mas exige digitar odds, mercado, side.
