@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { brtDayWindowUtc, toIsoUtc, trimKoTime } from "./time";
 import type { FixtureDTO } from "./types";
 import { badgesFromSlugs } from "./badges";
+import { parseChoistatsId } from "./choistats-id";
 
 const FIXTURE_COLUMNS =
   "id, match_date, ko_time, home_team, away_team, league, country, source_url, kickoff_utc, " +
@@ -97,19 +98,6 @@ async function fetchBadgeView(
     // View missing / transient error → no badges, no realce. Never crash.
   }
   return map;
-}
-
-/**
- * Parses the choistats numeric id from a `fixtures.source_url`. Mirrors the
- * Ruby producer / TS reco-repository / simulation-repository convention:
- * `/fixture/(\d+)` anywhere in the URL, trailing slug ignored. Returns null
- * when absent so the caller can degrade gracefully (no ai_has_bet for that
- * fixture).
- */
-function parseChoistatsId(sourceUrl: string | null): number | null {
-  if (!sourceUrl) return null;
-  const m = sourceUrl.match(/\/fixture\/(\d+)/);
-  return m ? Number(m[1]) : null;
 }
 
 /**
