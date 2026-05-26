@@ -91,22 +91,22 @@ export async function POST(request: Request): Promise<Response> {
     payload: e.payload ?? null,
   }));
 
-  // Do NOT await — fire-and-forget
+  // Await insert antes de retornar 204.
+  //
+  // Original intent: fire-and-forget pra não bloquear o client. Mas em
+  // Cloudflare Workers (OpenNext) o handler termina assim que a Response
+  // é retornada e MATA todas as promises pendentes — então `.then()` sem
+  // await descartava o insert silenciosamente (validado empiricamente
+  // 2026-05-25 noite: endpoint retornava 204, mas 0 rows em prod).
+  //
+  // Insert no Supabase pooler leva ~50-100ms — aceitável.
+  // Erros do DB são logados mas NÃO propagam pro client (retorna 204 sempre).
   try {
     const supabase = createAdminClient() as AnySupabase;
-    supabase
-      .from("ui_telemetry")
-      .insert(rows)
-      .then(
-        ({ error }: { error: { message: string } | null }) => {
-          if (error) {
-            console.error("[telemetry] insert failed:", error.message);
-          }
-        },
-        (err: unknown) => {
-          console.error("[telemetry] insert error:", err);
-        },
-      );
+    const { error } = await supabase.from("ui_telemetry").insert(rows);
+    if (error) {
+      console.error("[telemetry] insert failed:", error.message);
+    }
   } catch (err) {
     console.error("[telemetry] unexpected error:", err);
   }
