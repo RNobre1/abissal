@@ -33,6 +33,13 @@ import {
   PipelineHealthCard,
   type PipelineHealthData,
 } from "@/components/calibracao/pipeline-health-card";
+import { BrierTimeChart } from "@/components/calibracao/brier-time-chart";
+import { RoiCumulativeChart, type RoiBet } from "@/components/calibracao/roi-cumulative-chart";
+import {
+  ConfidenceBarsChart,
+  type ConfidenceSummary as ConfidenceChartRow,
+} from "@/components/calibracao/confidence-bars";
+import { wilsonInterval } from "@/lib/calibracao/wilson-ic";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -215,6 +222,7 @@ export default async function CalibracaoPage() {
 
     // Recos pending pós-KO (3h de grace para evitar falsos alarmes)
     try {
+      // eslint-disable-next-line react-hooks/purity
       const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
       const { count } = await admin
         .from("ai_recommendations")
@@ -413,7 +421,7 @@ export default async function CalibracaoPage() {
     const { data, error } = await admin
       .from("bets")
       .select(
-        "id, ai_recommendation_id, house_id, total_stake, total_odds, status, actual_return, ai_recommendations(league, confidence)",
+        "id, ai_recommendation_id, house_id, total_stake, total_odds, status, actual_return, placed_at, ai_recommendations(league, confidence)",
       )
       .not("ai_recommendation_id", "is", null)
       .order("placed_at", { ascending: false })
@@ -460,6 +468,40 @@ export default async function CalibracaoPage() {
     aiRecoRoi.betCount > 0
       ? realizedRoi.betCount / aiRecoRoi.betCount
       : null;
+
+  // ── Chart C.2: ROI cumulativo — extrai placed_at + pl_units das bets já carregadas
+  const roiBetsForChart: RoiBet[] = ((
+    realizedBetRows as unknown as Array<RealizedBetRow & { placed_at?: string }>
+  ))
+    .filter((r): r is RealizedBetRow & { placed_at: string } =>
+      r.placed_at !== undefined &&
+      r.placed_at !== null &&
+      (r.status === "won" || r.status === "lost" || r.status === "void")
+    )
+    .map((r) => {
+      const stake = Number(r.total_stake);
+      const odd = Number(r.total_odds);
+      let plUnits = 0;
+      if (r.status === "won") plUnits = stake * (odd - 1);
+      else if (r.status === "lost") plUnits = -stake;
+      return { id: r.id, placedAt: r.placed_at, plUnits };
+    });
+
+  // ── Chart C.3: ConfidenceBars — converte ConfidenceRow → ConfidenceChartRow com IC
+  const confidenceChartRows: ConfidenceChartRow[] = aiRecoByConfidence
+    .filter((r): r is typeof r & { confidence: "alto" | "medio" | "baixo" } =>
+      r.confidence === "alto" || r.confidence === "medio" || r.confidence === "baixo"
+    )
+    .map((r) => {
+      const wins = r.won;
+      const n = r.bets;
+      const roiPct = n > 0 ? (r.totalPl / n) * 100 : 0;
+      // Wilson IC para win rate, converted to ROI proxy
+      const ic = n > 0 ? wilsonInterval(wins, n) : { lo: 0, hi: 1, center: 0.5 };
+      const icLo = (ic.lo * 2 - 1) * 100; // win rate → rough ROI scale
+      const icHi = (ic.hi * 2 - 1) * 100;
+      return { confidence: r.confidence, n, roiPct, icLo, icHi };
+    });
 
   // CLV_TARGET constants (matches ClvPanel)
   const CLV_TARGET_PCT = 0.015; // 1.5% as proportion
@@ -712,7 +754,16 @@ export default async function CalibracaoPage() {
               <h3 className="mb-4 text-base font-semibold">
                 brier ao longo do tempo (por semana ISO)
               </h3>
-              <SimBrierTimeTable buckets={brierTime} />
+              {/* C.1: BrierTimeChart substitui visualmente a tabela; tabela mantida como peer */}
+              <BrierTimeChart data={brierTime} tableHref="#sim-brier-time-table" />
+              <details id="sim-brier-time-table" className="mt-4">
+                <summary className="cursor-pointer select-none py-2 text-sm text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]">
+                  tabela de dados (brier ao longo do tempo)
+                </summary>
+                <div className="mt-4">
+                  <SimBrierTimeTable buckets={brierTime} />
+                </div>
+              </details>
             </section>
             <section className="mt-10" data-section="sim-market-deviation">
               <h3 className="mb-4 text-base font-semibold">
@@ -802,6 +853,12 @@ export default async function CalibracaoPage() {
               <h3 className="mb-4 text-base font-semibold">
                 por confidence (sanity: alto deve ter WR &gt; medio &gt; baixo)
               </h3>
+              {/* C.3: ConfidenceBarsChart visual + tabela peer */}
+              {confidenceChartRows.length > 0 && (
+                <div className="mb-6">
+                  <ConfidenceBarsChart data={confidenceChartRows} />
+                </div>
+              )}
               <AiRecoByConfidenceTable rows={aiRecoByConfidence} />
             </div>
           </div>
@@ -837,6 +894,16 @@ export default async function CalibracaoPage() {
                 totalRecoBets={aiRecoRoi.betCount}
               />
             </div>
+
+            {/* C.2: ROI cumulativo visual */}
+            {roiBetsForChart.length > 0 && (
+              <div className="mt-10" data-section="roi-cumulative-chart">
+                <h3 className="mb-4 text-base font-semibold">
+                  ROI cumulativo (apostas reais)
+                </h3>
+                <RoiCumulativeChart bets={roiBetsForChart} />
+              </div>
+            )}
 
             <div className="mt-10" data-section="realized-roi-by-league">
               <h3 className="mb-4 text-base font-semibold">

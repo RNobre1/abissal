@@ -171,8 +171,9 @@ describe("CalibracaoPage", () => {
       },
     ];
     render(await CalibracaoPage());
-    // Deve mostrar algum número de pendentes
-    expect(screen.getByText(/pendente/i)).toBeInTheDocument();
+    // Deve mostrar algum número de pendentes (pode aparecer em mais de um elemento)
+    const pendentes = screen.getAllByText(/pendente/i);
+    expect(pendentes.length).toBeGreaterThan(0);
   });
 
   it("breakdown por modelo visível quando há predições", async () => {
