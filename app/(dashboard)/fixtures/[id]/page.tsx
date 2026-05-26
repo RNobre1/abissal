@@ -9,7 +9,7 @@ import type {
   OddsSummary,
   RefereeRecord,
 } from "@/lib/fixtures/stats/detail-json-types";
-import { StatsLayout, type PanelSlot } from "@/components/fixtures/stats/stats-layout";
+import { StatsLayout, renderPanelSlot, type PanelSlot } from "@/components/fixtures/stats/stats-layout";
 import { DecisionZone } from "@/components/fixtures/decision-zone";
 import { Hero, type HeroKpiBundle } from "@/components/fixtures/stats/hero";
 import {
@@ -295,7 +295,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
             />
           }
           reco={aiRecoPanel?.node ?? null}
-          momentum={momentumPanel?.node ?? null}
+          momentum={momentumPanel != null ? renderPanelSlot(momentumPanel) : null}
         />
       }
       panels={technicalPanels}

@@ -84,7 +84,7 @@ function efficiencyPer90(p: Player): number {
   return ((p.goals + p.assists) * 90) / p.minutes;
 }
 
-function criterionPer90(p: Player, criterion: PlayerRankingCriterion): number {
+function criterionPer90(p: PlayerRanked, criterion: PlayerRankingCriterion): number {
   if (p.minutes <= 0) return 0;
   switch (criterion) {
     case "goals":

@@ -200,18 +200,6 @@ describe("<Players />", () => {
 // ── U.6: scatter respeita critério ativo ──────────────────────────────────────
 
 describe("U.6 — scatter Y axis segue criterion ativo", () => {
-  // Helper: lê os dots Y de um <Scatter> recharts (cada dot = <circle> dentro de
-  // g.recharts-scatter; posição vem do attr `cy`). Não precisa ser exacto — só
-  // confirma que o conjunto de values muda ao trocar de criterion.
-  function getScatterDotCy(container: Element, scatterIdx = 0): string[] {
-    const groups = container.querySelectorAll("g.recharts-scatter");
-    const g = groups[scatterIdx];
-    if (!g) return [];
-    return Array.from(g.querySelectorAll("circle")).map(
-      (el) => el.getAttribute("cy") ?? "",
-    );
-  }
-
   it("default (goals): scatter renderiza (recharts monta o SVG)", () => {
     const { container } = render(
       <Players homeTeam="Tot" awayTeam="Lee" home={HOME_PLAYERS} away={AWAY_PLAYERS} width={400} height={240} />,
