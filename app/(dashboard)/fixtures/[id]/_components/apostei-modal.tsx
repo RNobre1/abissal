@@ -169,6 +169,7 @@ export function ApostaiModal({
           value={oddStr}
           onChange={(e) => setOddStr(e.target.value)}
           disabled={submitting}
+          autoFocus
           className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-transparent px-2 py-1.5 text-[var(--color-ink)]"
         />
       </label>
@@ -196,15 +197,18 @@ export function ApostaiModal({
         <span className="text-[var(--color-ink-faint)]">(travado)</span>
       </div>
 
-      {error ? (
-        <span
-          role="alert"
-          data-apostei-error
-          className="label text-[var(--color-vermelho)]"
-        >
-          {error}
-        </span>
-      ) : null}
+      {/* aria-live="polite" garante que screen readers anunciem erros + confirmação de sucesso */}
+      <div aria-live="polite" aria-atomic="true">
+        {error ? (
+          <span
+            role="alert"
+            data-apostei-error
+            className="label text-[var(--color-vermelho)]"
+          >
+            {error}
+          </span>
+        ) : null}
+      </div>
 
       <div className="flex justify-end gap-2">
         <button
