@@ -28,7 +28,8 @@
  * o componente cliente apenas faz `fetch(...)` confiando no cookie do user.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useTelemetry } from "@/lib/telemetry";
 
 export interface ApostaiHouseOption {
   id: string;
@@ -45,6 +46,9 @@ interface ApostaiModalProps {
   side: string | null;
   onCancel: () => void;
   onSuccess: (betId: string) => void;
+  /** Timestamp (Date.now()) when the panel first became visible — used for elapsed_ms telemetry. */
+  panelVisibleAt?: number;
+  fixtureId?: number;
 }
 
 function formatBrl(v: number): string {
@@ -64,7 +68,10 @@ export function ApostaiModal({
   side,
   onCancel,
   onSuccess,
+  panelVisibleAt,
+  fixtureId,
 }: ApostaiModalProps) {
+  const track = useTelemetry();
   const [houseId, setHouseId] = useState<string>(houses[0]?.id ?? "");
   const [oddStr, setOddStr] = useState<string>(
     defaultOdd && defaultOdd > 1 ? defaultOdd.toFixed(2) : "",
@@ -72,6 +79,33 @@ export function ApostaiModal({
   const [stakeStr, setStakeStr] = useState<string>(formatBrl(defaultStake));
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [openedAt] = useState(() => Date.now());
+
+  // Track modal open + stake_zero flag
+  useEffect(() => {
+    const elapsed = panelVisibleAt ? Date.now() - panelVisibleAt : undefined;
+    track("apostei_modal_open", {
+      ai_recommendation_id: aiRecommendationId,
+      ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+      ...(elapsed !== undefined && { elapsed_ms: elapsed }),
+    });
+    if (defaultStake === 0) {
+      track("apostei_modal_stake_zero", {
+        ai_recommendation_id: aiRecommendationId,
+        ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleCancel(): void {
+    track("apostei_modal_cancel", {
+      ai_recommendation_id: aiRecommendationId,
+      ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+      elapsed_ms: Date.now() - openedAt,
+    });
+    onCancel();
+  }
 
   async function handleConfirm(): Promise<void> {
     setError(null);
@@ -110,6 +144,11 @@ export function ApostaiModal({
         | { betId?: string }
         | null;
       if (body?.betId) {
+        track("apostei_modal_confirm", {
+          ai_recommendation_id: aiRecommendationId,
+          ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+          elapsed_ms: Date.now() - openedAt,
+        });
         onSuccess(body.betId);
       } else {
         setError("resposta inesperada do servidor");
@@ -210,7 +249,7 @@ export function ApostaiModal({
         <button
           type="button"
           data-apostei-cancel
-          onClick={onCancel}
+          onClick={handleCancel}
           disabled={submitting}
           className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-1.5 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
         >

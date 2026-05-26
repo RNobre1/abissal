@@ -26,8 +26,9 @@
  * feedback atualizado (caso futuras leituras dependam dele).
  */
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { useTelemetry } from "@/lib/telemetry";
 
 type Decision = "agree" | "disagree" | "bet" | "no_bet";
 
@@ -63,6 +64,9 @@ export function FeedbackButtons({
   existingDecisions = [],
   onOpenApostei,
 }: FeedbackButtonsProps) {
+  const track = useTelemetry();
+  const mountedAtRef = useRef<number>(0);
+  useEffect(() => { mountedAtRef.current = Date.now(); }, []);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [submittingDecision, setSubmittingDecision] = useState<Decision | null>(
@@ -82,6 +86,15 @@ export function FeedbackButtons({
       onOpenApostei();
       return;
     }
+    // Telemetria: feedback_button_click com tempo desde montagem do painel
+    // eslint-disable-next-line react-hooks/purity
+    const now = Date.now();
+    const elapsedMs = mountedAtRef.current > 0 ? now - mountedAtRef.current : undefined;
+    track("feedback_button_click", {
+      ai_recommendation_id: aiRecommendationId,
+      panel_id: decision,
+      ...(elapsedMs !== undefined && { elapsed_ms: elapsedMs }),
+    });
     setError(null);
     setSubmittingDecision(decision);
     try {

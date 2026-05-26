@@ -16,8 +16,9 @@
  * again later. This is acceptable for the launch window.
  */
 
-import { useState, useTransition } from "react";
+import { useState, useTransition, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useTelemetry } from "@/lib/telemetry";
 
 interface OnDemandButtonProps {
   fixtureId: number;
@@ -30,6 +31,8 @@ export function OnDemandButton({
   homeTeam,
   awayTeam,
 }: OnDemandButtonProps) {
+  const track = useTelemetry();
+  const clickedAtRef = useRef<number | null>(null);
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [submitting, setSubmitting] = useState(false);
@@ -39,6 +42,8 @@ export function OnDemandButton({
 
   async function handleClick() {
     setError(null);
+    clickedAtRef.current = Date.now();
+    track("ondemand_button_click", { fixture_id: fixtureId });
     setSubmitting(true);
     try {
       const res = await fetch("/api/ai-reco/compute", {
@@ -55,6 +60,10 @@ export function OnDemandButton({
         );
         return;
       }
+      track("ondemand_response_received", {
+        fixture_id: fixtureId,
+        elapsed_ms: clickedAtRef.current ? Date.now() - clickedAtRef.current : undefined,
+      });
       startTransition(() => {
         router.refresh();
       });
