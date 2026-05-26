@@ -29,6 +29,10 @@ import type { ClvSample, ClvMarket } from "@/lib/calibracao/clv-metrics";
 import { SummaryMetricCards } from "@/components/calibracao/summary-cards";
 import { ClvGauge } from "@/components/calibracao/clv-gauge";
 import { ReliabilityDiagram } from "@/components/calibracao/reliability-diagram";
+import {
+  PipelineHealthCard,
+  type PipelineHealthData,
+} from "@/components/calibracao/pipeline-health-card";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -156,6 +160,96 @@ function summarizeSimulationBrier(rows: SimRow[]): SimBrierSummary {
 export default async function CalibracaoPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin = createAdminClient() as unknown as { from: (t: string) => any };
+
+  // ── Pipeline Health: queries paralelas, degradam graciosamente ──────────────
+  const pipelineHealth = await (async (): Promise<PipelineHealthData> => {
+    let lastScrapeAt: string | null = null;
+    let simsToday = 0;
+    let lastReconciledAt: string | null = null;
+    let recoPendingPastKickoff = 0;
+    let topLeagues: PipelineHealthData["topLeagues"] = [];
+
+    // Fonte do scrape: max(scraped_at) de fixtures
+    try {
+      const { data } = await admin
+        .from("fixtures")
+        .select("scraped_at")
+        .order("scraped_at", { ascending: false })
+        .limit(1)
+        .single();
+      lastScrapeAt = (data as { scraped_at: string } | null)?.scraped_at ?? null;
+    } catch {
+      /* degrada graciosamente */
+    }
+
+    // Sims criadas hoje BRT (UTC-3 fixo)
+    try {
+      const todayBrtStart = new Date();
+      todayBrtStart.setUTCHours(todayBrtStart.getUTCHours() + 3);
+      todayBrtStart.setUTCHours(0, 0, 0, 0);
+      todayBrtStart.setUTCHours(todayBrtStart.getUTCHours() - 3);
+
+      const { count } = await admin
+        .from("fixture_simulations")
+        .select("id", { count: "exact", head: true })
+        .gte("created_at", todayBrtStart.toISOString());
+      simsToday = count ?? 0;
+    } catch {
+      /* degrada graciosamente */
+    }
+
+    // Último reconcile: max(resolved_at) das recos resolvidas
+    try {
+      const { data } = await admin
+        .from("ai_recommendations")
+        .select("resolved_at")
+        .eq("status", "resolved")
+        .not("resolved_at", "is", null)
+        .order("resolved_at", { ascending: false })
+        .limit(1)
+        .single();
+      lastReconciledAt = (data as { resolved_at: string } | null)?.resolved_at ?? null;
+    } catch {
+      /* degrada graciosamente */
+    }
+
+    // Recos pending pós-KO (3h de grace para evitar falsos alarmes)
+    try {
+      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const { count } = await admin
+        .from("ai_recommendations")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "pending")
+        .lt("kickoff_utc", threeHoursAgo);
+      recoPendingPastKickoff = count ?? 0;
+    } catch {
+      /* degrada graciosamente */
+    }
+
+    // Top 5 ligas por volume de recos resolvidas (agrupamento em memória —
+    // Supabase não suporta GROUP BY nativo no SDK sem RPC)
+    try {
+      const { data } = await admin
+        .from("ai_recommendations")
+        .select("league")
+        .eq("status", "resolved")
+        .not("league", "is", null)
+        .limit(2000);
+      const counts = new Map<string, number>();
+      for (const r of (data ?? []) as { league: string }[]) {
+        if (r.league) counts.set(r.league, (counts.get(r.league) ?? 0) + 1);
+      }
+      topLeagues = Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([league, count]) => ({ league, count }));
+    } catch {
+      /* degrada graciosamente */
+    }
+
+    return { lastScrapeAt, simsToday, lastReconciledAt, recoPendingPastKickoff, topLeagues };
+  })();
+
   let rows: PredRow[] = [];
   let queryError: string | null = null;
   try {
@@ -502,6 +596,10 @@ export default async function CalibracaoPage() {
           predições do fixture-copilot vs. resultado real (placar final via choistats).
         </p>
       </header>
+
+      {/* Pipeline Health Card — ANTES das métricas. Detecta scrape quebrado,
+          sims zeradas, reconciler parado ou recos travadas em 5s. */}
+      <PipelineHealthCard data={pipelineHealth} />
 
       {queryError && (
         <p
