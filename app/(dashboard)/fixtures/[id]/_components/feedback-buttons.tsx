@@ -19,6 +19,11 @@
  * "agree" + "bet" ao mesmo tempo. Cada decision tem sua própria linha em
  * `ai_reco_feedback`.
  *
+ * Wave C: `useOptimistic` (React 19) substitui o padrão "só atualiza após
+ * fetch resolver". Clique → estado salvo aparece imediatamente (sem
+ * latência visual). Rollback automático no catch — se a rede falhar, o
+ * botão volta ao estado anterior, sem inconsistência.
+ *
  * O comentário (opcional) é shared entre todos os botões — o último upsert
  * "vence" para o decision específico.
  *
@@ -26,7 +31,7 @@
  * feedback atualizado (caso futuras leituras dependam dele).
  */
 
-import { useState, useTransition, useRef, useEffect } from "react";
+import { useState, useOptimistic, useTransition, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useTelemetry } from "@/lib/telemetry";
 
@@ -52,7 +57,7 @@ interface ButtonConfig {
   testId: string;
 }
 
-const BUTTONS: ButtonConfig[] = [
+const FEEDBACK_BUTTONS: ButtonConfig[] = [
   { decision: "agree", label: "Concordo", icon: "👍", testId: "agree" },
   { decision: "disagree", label: "Discordo", icon: "👎", testId: "disagree" },
   { decision: "bet", label: "Apostei", icon: "✅", testId: "bet" },
@@ -74,8 +79,25 @@ export function FeedbackButtons({
   );
   const [comment, setComment] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
+
+  // Confirmed (server-persisted) saved decisions.
   const [saved, setSaved] = useState<Set<Decision>>(
     () => new Set(existingDecisions),
+  );
+
+  /**
+   * Wave C — useOptimistic: optimisticSaved is the UI-facing set.
+   * On click: addOptimistic(decision) immediately flips the button to "saved".
+   * On success: setSaved confirms → optimistic collapses into real state.
+   * On failure: setSaved not called → React discards optimistic → rollback.
+   */
+  const [optimisticSaved, addOptimistic] = useOptimistic(
+    saved,
+    (prevSaved: Set<Decision>, optimisticDecision: Decision) => {
+      const next = new Set(prevSaved);
+      next.add(optimisticDecision);
+      return next;
+    },
   );
 
   async function send(decision: Decision) {
@@ -97,39 +119,47 @@ export function FeedbackButtons({
     });
     setError(null);
     setSubmittingDecision(decision);
-    try {
-      const res = await fetch("/api/ai-reco/feedback", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          aiRecommendationId,
-          userDecision: decision,
-          comment: comment.trim().length > 0 ? comment.trim() : undefined,
-        }),
-      });
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        setError(
-          text && text.length < 200
-            ? `falha (${res.status}): ${text}`
-            : `falha (${res.status})`,
-        );
-        return;
-      }
-      setSaved((prev) => {
-        const next = new Set(prev);
-        next.add(decision);
-        return next;
-      });
-      startTransition(() => {
+
+    startTransition(async () => {
+      // Optimistic update — visible immediately.
+      addOptimistic(decision);
+
+      try {
+        const res = await fetch("/api/ai-reco/feedback", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            aiRecommendationId,
+            userDecision: decision,
+            comment: comment.trim().length > 0 ? comment.trim() : undefined,
+          }),
+        });
+        if (!res.ok) {
+          const text = await res.text().catch(() => "");
+          setError(
+            text && text.length < 200
+              ? `falha (${res.status}): ${text}`
+              : `falha (${res.status})`,
+          );
+          // Do NOT call setSaved — rollback happens automatically because
+          // the optimistic state is NOT committed to the real `saved` state.
+          return;
+        }
+        // Commit: update the real state so the optimistic collapses into it.
+        setSaved((prev) => {
+          const next = new Set(prev);
+          next.add(decision);
+          return next;
+        });
         router.refresh();
-      });
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "erro de rede";
-      setError(msg);
-    } finally {
-      setSubmittingDecision(null);
-    }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : "erro de rede";
+        setError(msg);
+        // Rollback: setSaved not called → optimistic discarded by React.
+      } finally {
+        setSubmittingDecision(null);
+      }
+    });
   }
 
   const anyBusy = pending || submittingDecision !== null;
@@ -144,14 +174,14 @@ export function FeedbackButtons({
         Loop de feedback (opcional):
       </div>
       <div className="flex flex-wrap gap-2" role="group" aria-label="feedback IA">
-        {BUTTONS.map((b) => {
-          const isSaved = saved.has(b.decision);
+        {FEEDBACK_BUTTONS.map((b) => {
+          const isSaved = optimisticSaved.has(b.decision);
           const isSubmitting = submittingDecision === b.decision;
           return (
             <button
               key={b.decision}
               type="button"
-              data-feedback-button={b.decision}
+              data-feedback-button={b.testId}
               data-feedback-saved={isSaved ? "true" : "false"}
               aria-pressed={isSaved}
               aria-busy={isSubmitting}

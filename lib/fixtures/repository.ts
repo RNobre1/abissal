@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { brtDayWindowUtc, toIsoUtc, trimKoTime } from "./time";
 import type { FixtureDTO } from "./types";
 import { badgesFromSlugs } from "./badges";
+import { parseChoistatsId } from "./choistats-id";
 
 const FIXTURE_COLUMNS =
   "id, match_date, ko_time, home_team, away_team, league, country, source_url, kickoff_utc, " +
@@ -100,19 +101,6 @@ async function fetchBadgeView(
 }
 
 /**
- * Parses the choistats numeric id from a `fixtures.source_url`. Mirrors the
- * Ruby producer / TS reco-repository / simulation-repository convention:
- * `/fixture/(\d+)` anywhere in the URL, trailing slug ignored. Returns null
- * when absent so the caller can degrade gracefully (no ai_has_bet for that
- * fixture).
- */
-function parseChoistatsId(sourceUrl: string | null): number | null {
-  if (!sourceUrl) return null;
-  const m = sourceUrl.match(/\/fixture\/(\d+)/);
-  return m ? Number(m[1]) : null;
-}
-
-/**
  * Wave 4: returns a Set of choistats ids that have an active `verdict='bet'`
  * recommendation in `ai_recommendations` with kickoff still in the future.
  * Scalar-only select (just `fixture_id`). Degrades to an empty Set on
@@ -181,16 +169,15 @@ export async function fixturesForBrtDay(
   const rows = (data ?? []) as CompactFixtureRow[];
   const sorted = [...rows].sort(compareFixtures);
 
-  const signalMap = await fetchBadgeView(
-    supabase,
-    sorted.map((r) => r.id),
-    BADGE_VIEW_SCALAR,
-  );
-
   const choistatsIds = sorted
     .map((r) => parseChoistatsId(r.source_url))
     .filter((v): v is number => v !== null);
-  const aiBetIds = await fetchAiBetIds(supabase, choistatsIds);
+
+  // fetchBadgeView and fetchAiBetIds are independent — run in parallel.
+  const [signalMap, aiBetIds] = await Promise.all([
+    fetchBadgeView(supabase, sorted.map((r) => r.id), BADGE_VIEW_SCALAR),
+    fetchAiBetIds(supabase, choistatsIds),
+  ]);
 
   return sorted.map((row) => {
     const dto = toDto(row);
@@ -252,16 +239,15 @@ export async function fixturesWithBadgesForDashboard(
   const rows = (data ?? []) as CompactFixtureRow[];
   const sorted = [...rows].sort(compareFixtures);
 
-  const badgeMap = await fetchBadgeView(
-    supabase,
-    sorted.map((r) => r.id),
-    BADGE_VIEW_FULL,
-  );
-
   const choistatsIds = sorted
     .map((r) => parseChoistatsId(r.source_url))
     .filter((v): v is number => v !== null);
-  const aiBetIds = await fetchAiBetIds(supabase, choistatsIds);
+
+  // fetchBadgeView and fetchAiBetIds are independent — run in parallel.
+  const [badgeMap, aiBetIds] = await Promise.all([
+    fetchBadgeView(supabase, sorted.map((r) => r.id), BADGE_VIEW_FULL),
+    fetchAiBetIds(supabase, choistatsIds),
+  ]);
 
   return sorted.map((row) => {
     const dto = toDto(row);

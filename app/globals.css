@@ -197,3 +197,33 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* ============================================================
+   Skeleton shimmer — Wave C
+   Used by PanelSkeleton via class `animate-shimmer`.
+   Extracted from inline <style> to globals so it participates in
+   the global prefers-reduced-motion reset above (vs. inline styles
+   which bypass the cascade).
+   ============================================================ */
+
+@keyframes shimmer {
+  0% {
+    background-position: 200% 0;
+  }
+  100% {
+    background-position: -200% 0;
+  }
+}
+
+@layer components {
+  .animate-shimmer {
+    background-image: linear-gradient(
+      110deg,
+      transparent 30%,
+      rgba(255, 255, 255, 0.04) 50%,
+      transparent 70%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 1.4s ease-in-out infinite;
+  }
+}
