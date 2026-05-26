@@ -106,7 +106,7 @@ describe("<AiRecoPanel> - state A (verdict=bet)", () => {
     expect(section!.getAttribute("data-ai-reco-verdict")).toBe("bet");
   });
 
-  it("shows the summary line, edge and units", () => {
+  it("shows the summary line, edge (renamed to Vantagem estimada) and units", () => {
     render(
       <AiRecoPanel
         reco={betReco()}
@@ -116,9 +116,11 @@ describe("<AiRecoPanel> - state A (verdict=bet)", () => {
       />,
     );
     expect(screen.getByText(/BTTS-sim/)).toBeInTheDocument();
-    expect(screen.getByText(/Edge 12/)).toBeInTheDocument();
-    expect(screen.getByText(/Kelly 1.8u/)).toBeInTheDocument();
-    expect(screen.getByText(/IA 1.5u/)).toBeInTheDocument();
+    // U.2: "Edge" → "Vantagem estimada"
+    expect(screen.getByText(/Vantagem estimada 12/)).toBeInTheDocument();
+    // U.2: "Aposta sugerida: R$ XX (Z unidades)" substituiu "Kelly → IA"
+    expect(screen.getByText(/Aposta sugerida/)).toBeInTheDocument();
+    expect(screen.getByText(/1\.5\s*unidades/i)).toBeInTheDocument();
   });
 
   it("shows the reduction reason when present", () => {
@@ -290,7 +292,8 @@ describe("<AiRecoPanel> - state B (verdict=skip)", () => {
         awayTeam="Tottenham"
       />,
     );
-    expect(screen.getByText(/Nenhum mercado com edge/)).toBeInTheDocument();
+    // U.2: "edge" → "vantagem estimada" no fallback
+    expect(screen.getByText(/Nenhum mercado com vantagem estimada/)).toBeInTheDocument();
   });
 
   it("does NOT render the bet card chrome (summary line / red flags / footer)", () => {
