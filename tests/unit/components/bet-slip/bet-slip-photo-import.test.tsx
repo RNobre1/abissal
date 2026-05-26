@@ -9,6 +9,13 @@
  *  5. Editar odd_taken inline → state local atualiza
  *  6. Click "Adicionar" → chama addLegToSlip (mock) N vezes, depois onLegsAdded
  *  7. Dropdown de fixture override aparece quando best === null OR confidence < 0.85
+ *
+ * Wave N4 — Telemetria (novos cenários):
+ *  8.  bilhete_foto_uploaded — disparado ao selecionar arquivo, antes da Server Action
+ *  9.  bilhete_foto_parsed_success — disparado quando parseBetSlipPhoto retorna ok:true
+ *  10. bilhete_foto_legs_corrected — disparado no click "Adicionar" com corrections_count
+ *  11. bilhete_foto_committed — disparado após addLegToSlip com sucesso para todas legs
+ *  12. bilhete_foto_failed — disparado em qualquer caminho de falha
  */
 
 import "@testing-library/jest-dom/vitest";
@@ -31,6 +38,13 @@ vi.mock("@/lib/bet-slip/actions", () => ({
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+}));
+
+// ── Telemetry mock (Wave N4) ───────────────────────────────────────────────────
+
+const mockTrack = vi.fn();
+vi.mock("@/lib/telemetry/use-telemetry", () => ({
+  useTelemetry: () => mockTrack,
 }));
 
 // ── Fixtures ───────────────────────────────────────────────────────────────────
@@ -160,6 +174,7 @@ function makeImageFile(type = "image/jpeg", size = 1024): File {
 describe("BetSlipPhotoImport", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockTrack.mockReset();
   });
 
   async function renderComponent() {
@@ -312,6 +327,143 @@ describe("BetSlipPhotoImport", () => {
 
     await waitFor(() => {
       expect(screen.getByText(/Selecione fixture/i)).toBeInTheDocument();
+    });
+  });
+
+  // ── Wave N4: Telemetria ──────────────────────────────────────────────────────
+
+  it("[N4] bilhete_foto_uploaded — dispara ao selecionar arquivo com payload correto", async () => {
+    mockParseBetSlipPhoto.mockResolvedValueOnce(PARSED_RESULT_OK);
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    const file = makeImageFile("image/jpeg", 2048);
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [file] } });
+    });
+
+    // Should fire BEFORE parseBetSlipPhoto resolves (synchronous first thing in handler)
+    const uploadCalls = mockTrack.mock.calls.filter(
+      (args) => (args as [string])[0] === "bilhete_foto_uploaded",
+    );
+    expect(uploadCalls).toHaveLength(1);
+    expect(uploadCalls[0][1]).toMatchObject({
+      file_size_kb: expect.any(Number),
+      file_type: "image/jpeg",
+    });
+  });
+
+  it("[N4] bilhete_foto_parsed_success — dispara quando action retorna ok:true", async () => {
+    mockParseBetSlipPhoto.mockResolvedValueOnce(PARSED_RESULT_OK);
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Flamengo/i)).toBeInTheDocument();
+    });
+
+    const parsedCalls = mockTrack.mock.calls.filter(
+      (args) => (args as [string])[0] === "bilhete_foto_parsed_success",
+    );
+    expect(parsedCalls).toHaveLength(1);
+    expect(parsedCalls[0][1]).toMatchObject({
+      legs_count: 1,
+      house_detected: "superbet",
+      legs_auto_linked: expect.any(Number),
+      legs_manual_needed: expect.any(Number),
+    });
+  });
+
+  it("[N4] bilhete_foto_committed — dispara após addLegToSlip com legs_added correto", async () => {
+    mockParseBetSlipPhoto.mockResolvedValueOnce(PARSED_RESULT_OK);
+    mockAddLegToSlip.mockResolvedValue({ slipId: 1, legId: 1 });
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: /adicionar/i })).toBeInTheDocument();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /adicionar/i }));
+    });
+
+    await waitFor(() => {
+      const committedCalls = mockTrack.mock.calls.filter(
+        (args) => (args as [string])[0] === "bilhete_foto_committed",
+      );
+      expect(committedCalls).toHaveLength(1);
+      expect(committedCalls[0][1]).toMatchObject({ legs_added: 1 });
+    });
+  });
+
+  it("[N4] bilhete_foto_legs_corrected — dispara no click confirmar com corrections_count", async () => {
+    mockParseBetSlipPhoto.mockResolvedValueOnce(PARSED_RESULT_OK);
+    mockAddLegToSlip.mockResolvedValue({ slipId: 1, legId: 1 });
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue("2.1")).toBeInTheDocument();
+    });
+
+    // Edit odd (counts as 1 correction)
+    const oddInput = screen.getByDisplayValue("2.1");
+    fireEvent.change(oddInput, { target: { value: "2.5" } });
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /adicionar/i }));
+    });
+
+    await waitFor(() => {
+      const correctedCalls = mockTrack.mock.calls.filter(
+        (args) => (args as [string])[0] === "bilhete_foto_legs_corrected",
+      );
+      expect(correctedCalls).toHaveLength(1);
+      expect(correctedCalls[0][1]).toMatchObject({ corrections_count: 1 });
+    });
+  });
+
+  it("[N4] bilhete_foto_failed — dispara quando parseBetSlipPhoto retorna ok:false", async () => {
+    mockParseBetSlipPhoto.mockResolvedValueOnce({
+      ok: false,
+      error: "Não consegui ler o cupom.",
+    });
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/Não consegui ler/i)).toBeInTheDocument();
+    });
+
+    const failedCalls = mockTrack.mock.calls.filter(
+      (args) => (args as [string])[0] === "bilhete_foto_failed",
+    );
+    expect(failedCalls).toHaveLength(1);
+    expect(failedCalls[0][1]).toMatchObject({
+      stage: "parse",
+      error_kind: expect.any(String),
     });
   });
 });

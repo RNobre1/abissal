@@ -1,12 +1,19 @@
 "use client";
 
 /**
- * BetSlipPhotoImport — Wave N3
+ * BetSlipPhotoImport — Wave N3 + N4 (telemetria)
  *
  * Botão "Importar foto" no header do drawer. Ao receber um arquivo:
  *  1. Envia para parseBetSlipPhoto (Server Action)
  *  2. Exibe UI de confirmação com edição inline das legs e badges de match
  *  3. Ao confirmar, chama addLegToSlip para cada leg e notifica via onLegsAdded
+ *
+ * Telemetria (Wave N4):
+ *  - bilhete_foto_uploaded   — quando user seleciona arquivo
+ *  - bilhete_foto_parsed_success — quando parseBetSlipPhoto retorna ok:true
+ *  - bilhete_foto_legs_corrected — no click "Adicionar", conta legs editadas
+ *  - bilhete_foto_committed  — após addLegToSlip com sucesso para todas as legs
+ *  - bilhete_foto_failed     — em qualquer caminho de falha (stage + error_kind)
  */
 
 import { useRef, useState } from "react";
@@ -15,6 +22,7 @@ import { parseBetSlipPhoto, type ParsedLegWithMatch } from "@/lib/bet-slip-ocr/p
 import { addLegToSlip } from "@/lib/bet-slip/actions";
 import { CONFIDENCE_AUTO_LINK } from "@/lib/bet-slip-ocr/match-fixture";
 import type { MatchedFixture } from "@/lib/bet-slip-ocr/match-fixture";
+import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -49,6 +57,10 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     house_detected: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Track which leg indices were edited during the confirmation step
+  const editedLegsRef = useRef<Set<number>>(new Set());
+
+  const track = useTelemetry();
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -62,6 +74,8 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
 
     // Reset input so same file can be re-selected if needed
     e.target.value = "";
+    // Reset edited legs tracking for fresh session
+    editedLegsRef.current = new Set();
 
     setState("uploading");
     setError(null);
@@ -69,14 +83,22 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     const fd = new FormData();
     fd.append("image", file);
 
-    console.debug("[bet-slip-photo] event:", "upload_started");
+    // N4: bilhete_foto_uploaded — before Server Action call
+    track("bilhete_foto_uploaded", {
+      file_size_kb: Math.round(file.size / 1024),
+      file_type: file.type,
+    });
 
     const result = await parseBetSlipPhoto(fd);
 
     if (!result.ok || !result.slip) {
       setState("error");
       setError(result.error ?? "Erro desconhecido ao processar imagem.");
-      console.debug("[bet-slip-photo] event:", "upload_error");
+      // N4: bilhete_foto_failed — parse stage
+      track("bilhete_foto_failed", {
+        stage: "parse",
+        error_kind: result.error ?? "unknown",
+      });
       return;
     }
 
@@ -87,6 +109,10 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
       fixtureOverride: null,
     }));
 
+    const legsAutoLinked = editableLegs.filter(
+      (leg) => leg.match.best !== null && leg.match.best.confidence >= CONFIDENCE_AUTO_LINK,
+    ).length;
+
     setLegs(editableLegs);
     setSlipMeta({
       stake_total: result.slip.stake_total,
@@ -94,16 +120,27 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
       house_detected: result.slip.house_detected,
     });
     setState("confirming");
-    console.debug("[bet-slip-photo] event:", "confirming", { legs: editableLegs.length });
+
+    // N4: bilhete_foto_parsed_success
+    track("bilhete_foto_parsed_success", {
+      legs_count: editableLegs.length,
+      house_detected: result.slip.house_detected ?? undefined,
+      legs_auto_linked: legsAutoLinked,
+      legs_manual_needed: editableLegs.length - legsAutoLinked,
+    });
   }
 
   function handleOddChange(idx: number, value: string) {
+    // Track this index as edited (for corrections_count at confirm time)
+    editedLegsRef.current.add(idx);
     setLegs((prev) =>
       prev.map((leg, i) => (i === idx ? { ...leg, odd_taken: value } : leg)),
     );
   }
 
   function handleFixtureOverride(idx: number, fixture: MatchedFixture | null | "manual") {
+    // Track this index as edited (fixture override = a correction)
+    editedLegsRef.current.add(idx);
     setLegs((prev) =>
       prev.map((leg, i) =>
         i === idx ? { ...leg, fixtureOverride: fixture } : leg,
@@ -113,8 +150,12 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
 
   async function handleConfirm() {
     setState("saving");
-    console.debug("[bet-slip-photo] event:", "saving_started", { count: legs.length });
 
+    const correctionsCount = editedLegsRef.current.size;
+    // N4: bilhete_foto_legs_corrected — emitted once per session, at confirm time
+    track("bilhete_foto_legs_corrected", { corrections_count: correctionsCount });
+
+    let legsAdded = 0;
     for (const leg of legs) {
       const oddNum = Number.parseFloat(leg.odd_taken);
       if (!Number.isFinite(oddNum) || oddNum <= 0) continue;
@@ -127,22 +168,34 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
             ? leg.fixtureOverride
             : leg.match.best;
 
-      await addLegToSlip({
-        fixture_id: resolvedFixture?.fixture_id ?? null,
-        home_team: resolvedFixture?.home_team ?? leg.parsed.home,
-        away_team: resolvedFixture?.away_team ?? leg.parsed.away,
-        market: leg.parsed.market,
-        side: leg.parsed.side,
-        odd_taken: oddNum,
-        league: resolvedFixture?.league ?? leg.parsed.league ?? null,
-        kickoff_utc: resolvedFixture?.kickoff_utc ?? leg.parsed.kickoff_iso ?? null,
-      });
+      try {
+        await addLegToSlip({
+          fixture_id: resolvedFixture?.fixture_id ?? null,
+          home_team: resolvedFixture?.home_team ?? leg.parsed.home,
+          away_team: resolvedFixture?.away_team ?? leg.parsed.away,
+          market: leg.parsed.market,
+          side: leg.parsed.side,
+          odd_taken: oddNum,
+          league: resolvedFixture?.league ?? leg.parsed.league ?? null,
+          kickoff_utc: resolvedFixture?.kickoff_utc ?? leg.parsed.kickoff_iso ?? null,
+        });
+        legsAdded++;
+      } catch (err) {
+        // N4: bilhete_foto_failed — commit stage
+        track("bilhete_foto_failed", {
+          stage: "commit",
+          error_kind: err instanceof Error ? err.message : String(err),
+        });
+      }
     }
 
-    console.debug("[bet-slip-photo] event:", "saving_done");
+    // N4: bilhete_foto_committed
+    track("bilhete_foto_committed", { legs_added: legsAdded });
+
     setState("idle");
     setLegs([]);
     setSlipMeta(null);
+    editedLegsRef.current = new Set();
     onLegsAdded();
   }
 
@@ -151,7 +204,7 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     setLegs([]);
     setSlipMeta(null);
     setError(null);
-    console.debug("[bet-slip-photo] event:", "discarded");
+    editedLegsRef.current = new Set();
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────
