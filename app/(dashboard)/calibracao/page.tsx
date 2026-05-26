@@ -748,9 +748,9 @@ export default async function CalibracaoPage() {
         {/* U.3 — 3 summary cards grandes no topo */}
         <div className="mb-8" data-section="summary-metric-cards">
           <SummaryMetricCards
-            brier={{ value: aiRecoBrier.brier, target: 0.25, label: "Brier estimado" }}
-            roi={{ value: aiRecoRoi.roiPerUnit, target: 0.0, label: "ROI" }}
-            clv={{ value: clvMeanProp, target: CLV_TARGET_PCT, label: "CLV médio" }}
+            brier={{ value: aiRecoBrier.brier, target: 0.25, label: "Brier estimado", n: aiRecoBrier.n }}
+            roi={{ value: aiRecoRoi.roiPerUnit, target: 0.0, label: "ROI", n: aiRecoRoi.betCount }}
+            clv={{ value: clvMeanProp, target: CLV_TARGET_PCT, label: "CLV médio", n: clvSummary.n }}
           />
         </div>
 
