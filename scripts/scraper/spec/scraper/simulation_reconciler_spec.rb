@@ -422,7 +422,7 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
       ScraperDBHelper.ensure_schema!
       DBHelper.apply_migration!('0018_fixture_simulations.sql')
       # Wave G: add secondary actual columns. Idempotent (ADD COLUMN IF NOT EXISTS).
-      DBHelper.apply_migration!('0028_actuals_secondary.sql')
+      DBHelper.apply_migration!('0029_actuals_secondary.sql')
     end
 
     before(:each) do
