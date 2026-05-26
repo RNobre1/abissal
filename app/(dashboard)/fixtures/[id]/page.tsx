@@ -48,6 +48,7 @@ import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-brows
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
 import { getFeedbackForReco } from "@/lib/ai-reco/feedback-repository";
+import { computeDefaultStake, DEFAULT_BANKROLL } from "@/lib/ai-reco/stake-calculator";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 import { SimulationPanel } from "./_components/simulation-panel";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
@@ -259,6 +260,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
   const linkedBet =
     aiReco !== null ? await fetchLinkedBet(aiReco.id, untyped) : null;
 
+  const bankrollSettings = await fetchBankrollSettings(untyped);
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
   const panels = buildPanels(
     detail,
@@ -270,6 +272,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
     row.id,
     aposteiHouses,
     linkedBet,
+    bankrollSettings,
   );
 
   return (
@@ -414,6 +417,44 @@ async function fetchLinkedBet(
   }
 }
 
+/**
+ * Lê a banca atual de `banca_snapshots` para calcular `unitValue` real.
+ * Fallback: `{ bankroll: DEFAULT_BANKROLL, units_per_bankroll: 1 }` quando
+ * a tabela não existe, está vazia ou há erro.
+ *
+ * Sem `bankroll_settings` table ainda (futuro ADR): usa 1% da banca por unit.
+ */
+async function fetchBankrollSettings(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  supabase: any,
+): Promise<{ bankroll: number; units_per_bankroll: number }> {
+  try {
+    const { data, error } = await supabase
+      .from("banca_snapshots")
+      .select("current_balance")
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (!error && data) {
+      const cb = (data as Record<string, unknown>).current_balance;
+      const balance =
+        typeof cb === "number" && Number.isFinite(cb) && cb > 0 ? cb : null;
+      const b = !balance
+        ? ((data as Record<string, unknown>).balance as number | undefined)
+        : null;
+      const bankroll =
+        balance ??
+        (typeof b === "number" && Number.isFinite(b) && b > 0 ? b : null);
+      if (bankroll) {
+        return { bankroll, units_per_bankroll: 1 };
+      }
+    }
+  } catch {
+    // degrade graciosamente
+  }
+  return { bankroll: DEFAULT_BANKROLL, units_per_bankroll: 1 };
+}
+
 function buildPanels(
   detail: DetailJson | null,
   homeTeam: string,
@@ -430,7 +471,14 @@ function buildPanels(
     house_name: string | null;
     status: string;
   } | null,
+  bankrollSettings: { bankroll: number; units_per_bankroll: number },
 ): PanelSlot[] {
+  // Computa stake default usando banca real do Pilot (fix #1: defaultStake=0 bug).
+  // computeDefaultStake retorna 0 quando units_final é null → sem fallback espúrio.
+  const defaultStake = aiReco
+    ? computeDefaultStake(aiReco.units_final, bankrollSettings)
+    : 0;
+
   const simDegraded = !sim || sim.status === "unsimulable";
   const simSlot: PanelSlot = {
     id: "SIM",
@@ -462,6 +510,7 @@ function buildPanels(
         feedback={aiFeedback}
         houses={aposteiHouses}
         linkedBet={linkedBet}
+        defaultStake={defaultStake}
       />
     ),
   };
