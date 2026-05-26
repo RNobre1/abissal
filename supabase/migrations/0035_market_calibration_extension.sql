@@ -40,7 +40,8 @@ COMMENT ON TABLE public.model_calibration IS
   'sot-over-75/95/105, sot-under-75/95/105. '
   'These rows are inserted by the calibration script when >= 30 resolved rows exist per metric.';
 
--- Healthcheck: confirm the table structure is as expected.
+-- Healthcheck: confirm the table structure matches what calibration code expects.
+-- Real schema (from migration 0019): metric/pairs/model_version/effective_from/effective_until/n.
 DO $$
 DECLARE
   col_count INT;
@@ -49,8 +50,8 @@ BEGIN
   FROM information_schema.columns
   WHERE table_schema = 'public'
     AND table_name = 'model_calibration'
-    AND column_name IN ('metric', 'x_values', 'y_values', 'trained_at');
-  IF col_count < 4 THEN
+    AND column_name IN ('metric', 'pairs', 'model_version', 'effective_from', 'n');
+  IF col_count < 5 THEN
     RAISE EXCEPTION '0035: model_calibration missing expected columns (found %)', col_count;
   END IF;
 END;
