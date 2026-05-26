@@ -27,6 +27,7 @@ import {
   commitSlip,
   cancelSlip,
 } from "@/lib/bet-slip/actions";
+import { BetSlipPhotoImport } from "@/components/bet-slip/bet-slip-photo-import";
 
 interface HouseOption {
   id: string;
@@ -77,14 +78,17 @@ export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProp
         </p>
         <p className="label text-[var(--color-ink-faint)]">
           Clique em <strong>+ bilhete</strong> em qualquer fixture para começar
-          a montar.
+          a montar, ou importe uma foto de cupom de outra casa.
         </p>
-        <Link
-          href="/fixtures"
-          className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] px-4 py-2 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
-        >
-          Ver fixtures
-        </Link>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/fixtures"
+            className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] px-4 py-2 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+          >
+            Ver fixtures
+          </Link>
+          <BetSlipPhotoImport onLegsAdded={() => router.refresh()} />
+        </div>
       </section>
     );
   }
