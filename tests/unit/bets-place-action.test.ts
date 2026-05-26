@@ -18,6 +18,12 @@ vi.mock("@/lib/supabase/server", () => ({
     }),
 }));
 
+// Wave F: mock disciplina-guard para evitar chamadas .from() no mock de Supabase acima
+// (que não possui esse método). Testes de guard ficam em lib/disciplina/__tests__/.
+vi.mock("@/lib/disciplina/disciplina-guard", () => ({
+  checkDisciplinaLimits: vi.fn().mockResolvedValue({ allowed: true }),
+}));
+
 // next/cache + next/navigation stubs
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/navigation", () => ({
