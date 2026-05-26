@@ -19,6 +19,8 @@
 import { test, expect, type Page } from "@playwright/test";
 import * as fs from "fs";
 import * as path from "path";
+import { createClient as createSupabaseClient } from "@supabase/supabase-js";
+import { createServerClient } from "@supabase/ssr";
 
 // ── Guard ─────────────────────────────────────────────────────────────────────
 
@@ -26,48 +28,65 @@ const LIVE_OCR = !!process.env.PLAYWRIGHT_LIVE_OCR;
 const REAL_SLIP_PATH = path.join(__dirname, "fixtures", "superbet-real.png");
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ?? "";
 const E2E_EMAIL = process.env.E2E_USER_EMAIL ?? "rafael@meteoradigital.io";
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? "http://localhost:3000";
 
-const authReady = SUPABASE_URL.length > 0 && SERVICE_ROLE_KEY.length > 0 && E2E_EMAIL.length > 0;
+const authReady = SUPABASE_URL.length > 0 && SERVICE_ROLE_KEY.length > 0 && ANON_KEY.length > 0 && E2E_EMAIL.length > 0;
 const fixtureExists = fs.existsSync(REAL_SLIP_PATH);
 
-// ── Auth helper (same as stub spec) ──────────────────────────────────────────
+// ── Auth helper (cookie injection — same strategy as stub spec) ──────────────
 
-async function authenticateViaAdminMagicLink(page: Page): Promise<boolean> {
+async function authenticateViaCookieInjection(page: Page): Promise<boolean> {
   if (!authReady) return false;
 
-  const res = await fetch(`${SUPABASE_URL}/auth/v1/admin/generate_link`, {
-    method: "POST",
-    headers: {
-      apikey: SERVICE_ROLE_KEY,
-      Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      type: "magiclink",
-      email: E2E_EMAIL,
-      options: { redirectTo: `${BASE_URL}/bilhete` },
-    }),
+  const adminClient = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
   });
 
-  if (!res.ok) return false;
+  const { data: genData, error: genErr } =
+    await adminClient.auth.admin.generateLink({ type: "magiclink", email: E2E_EMAIL });
+  if (genErr || !genData) return false;
 
-  const data = (await res.json()) as {
-    properties?: { action_link?: string };
-    action_link?: string;
-  };
+  const hashedToken = genData.properties.hashed_token;
+  if (!hashedToken) return false;
 
-  const actionLink = data.properties?.action_link ?? data.action_link ?? "";
-  if (!actionLink) return false;
+  const anonClient = createSupabaseClient(SUPABASE_URL, ANON_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
+  });
 
-  await page.goto(actionLink);
-  await page
-    .waitForURL(
-      (url) => url.hostname === "localhost" || url.hostname === "127.0.0.1",
-      { timeout: 15_000 },
-    )
-    .catch(() => undefined);
+  const { data: verifyData, error: verifyErr } = await anonClient.auth.verifyOtp({
+    token_hash: hashedToken,
+    type: "magiclink",
+  });
+  if (verifyErr || !verifyData.session) return false;
+
+  const { access_token, refresh_token } = verifyData.session;
+
+  const cookiesToInject: Array<{ name: string; value: string }> = [];
+  const ssrClient = createServerClient(SUPABASE_URL, ANON_KEY, {
+    cookies: {
+      getAll: () => [],
+      setAll: (cookies) => {
+        for (const c of cookies) cookiesToInject.push({ name: c.name, value: c.value });
+      },
+    },
+  });
+  await ssrClient.auth.setSession({ access_token, refresh_token });
+
+  if (cookiesToInject.length === 0) return false;
+
+  await page.context().addCookies(
+    cookiesToInject.map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: "localhost",
+      path: "/",
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax" as const,
+    })),
+  );
   return true;
 }
 
@@ -81,7 +100,7 @@ test.describe("bet-slip-photo · live OCR (real Gemini, costs ~$0.0015)", () => 
     test.skip(!fixtureExists, `Fixture image not found at ${REAL_SLIP_PATH} — place a real Superbet screenshot there`);
     test.skip(!authReady, "Needs SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL + E2E_USER_EMAIL");
 
-    const authed = await authenticateViaAdminMagicLink(page);
+    const authed = await authenticateViaCookieInjection(page);
     test.skip(!authed, "auth via magic-link failed");
 
     await page.goto("/bilhete");
