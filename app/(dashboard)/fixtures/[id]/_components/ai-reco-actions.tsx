@@ -27,6 +27,7 @@ import {
   ApostaiModal,
   type ApostaiHouseOption,
 } from "./apostei-modal";
+import { AddToSlipButton } from "@/components/bet-slip/add-to-slip-button";
 import { applyStakeJitter } from "@/lib/ai-reco/stake-jitter";
 
 export interface LinkedBetSummary {
@@ -62,6 +63,12 @@ interface AiRecoActionsProps {
    * estado "✓ Apostou …".
    */
   linkedBet: LinkedBetSummary | null;
+  /** Wave M: dados da fixture para o botão "+ bilhete" */
+  fixtureId?: number | null;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
+  league?: string | null;
+  kickoffUtc?: string | null;
 }
 
 function fmtBrl(v: number | string | null | undefined): string {
@@ -87,6 +94,11 @@ export function AiRecoActions({
   market,
   side,
   linkedBet,
+  fixtureId,
+  homeTeam,
+  awayTeam,
+  league,
+  kickoffUtc,
 }: AiRecoActionsProps) {
   const router = useRouter();
   const [_pending, startTransition] = useTransition();
@@ -152,6 +164,25 @@ export function AiRecoActions({
           setModalOpen(true);
         }}
       />
+
+      {/* Wave M — "+ bilhete" button alongside "Apostei agora" */}
+      {fixtureId != null && market && side && defaultOdd && defaultOdd > 1 ? (
+        <AddToSlipButton
+          input={{
+            ai_recommendation_id: aiRecommendationId,
+            fixture_id: fixtureId,
+            home_team: homeTeam ?? "—",
+            away_team: awayTeam ?? "—",
+            market: market,
+            side: side,
+            odd_taken: defaultOdd,
+            league: league ?? null,
+            kickoff_utc: kickoffUtc ?? null,
+          }}
+          ariaLabel={`${homeTeam} × ${awayTeam} — ${market}/${side}`}
+        />
+      ) : null}
+
       {modalOpen ? (
         <ApostaiModal
           aiRecommendationId={aiRecommendationId}
