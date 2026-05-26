@@ -103,6 +103,12 @@ export function BetSlipProvider({ initialSlip, houses }: BetSlipProviderProps) {
     router.refresh();
   }
 
+  function handleLegsAdded() {
+    startRefresh(() => {
+      router.refresh();
+    });
+  }
+
   if (legs.length === 0) return null;
 
   return (
@@ -128,6 +134,7 @@ export function BetSlipProvider({ initialSlip, houses }: BetSlipProviderProps) {
           houses={houses}
           onCommit={handleCommit}
           onCancel={handleCancel}
+          onLegsAdded={handleLegsAdded}
         />
       ) : null}
     </>

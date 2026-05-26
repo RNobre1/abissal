@@ -47,7 +47,7 @@ export interface CommitSlipResult extends ActionResult {
 
 export interface AddLegInput {
   ai_recommendation_id?: number | null;
-  fixture_id: number;
+  fixture_id: number | null;
   home_team: string;
   away_team: string;
   market: string;
