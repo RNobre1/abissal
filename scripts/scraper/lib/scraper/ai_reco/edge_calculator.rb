@@ -1,3 +1,5 @@
+require_relative 'dist_helpers'
+
 module AdamStats
   module Scraper
     module AiReco
@@ -5,7 +7,10 @@ module AdamStats
       # Specs paralelos: edge_calculator_spec.rb (Ruby) + edge-calculator.test.ts (TS).
       # Comportamento idêntico — mudanças devem ser sincronizadas.
       #
-      # Pra cada mercado relevante (1x2/over25/btts), calcula:
+      # Wave O+E (2026-05-26): adicionados mercados secundários corners/cards/SOT
+      # usando Poisson CDF aproximação (DistHelpers).
+      #
+      # Pra cada mercado relevante (1x2/over25/btts/corners/cards/sot), calcula:
       #   prob_blended = α · prob_calibrado + (1 − α) · prob_market_devigged
       #   edge_pct     = (prob_blended * odd - 1) * 100
       #   kelly fracionado (⅛ Kelly) = ((prob*odd - 1) / (odd - 1)) / 8
@@ -94,6 +99,94 @@ module AdamStats
               blended = blend(nao_p, mp, alpha)
               out << build_candidate('btts', 'nao', nao_p, nao_p, mp, blended,
                                      odds[:btts_nao], bankroll, kelly_fraction, alpha)
+            end
+          end
+
+          # ── Wave O+E: CORNERS (Poisson approx from sim_corners_total_mean) ──────────
+          # V1: mean used as Poisson mean. V2 TODO: proper CDF from MC samples.
+          if finite?(sim[:sim_corners_total_mean])
+            mean = sim[:sim_corners_total_mean].to_f
+            [
+              [8.5, :corners_over_85, :corners_under_85, '85'],
+              [9.5, :corners_over_95, :corners_under_95, '95'],
+              [10.5, :corners_over_105, :corners_under_105, '105']
+            ].each do |line, over_key, under_key, side_lbl|
+              if finite?(odds[over_key])
+                p = DistHelpers.poisson_prob_over(mean, line)
+                corners_devig = finite?(odds[under_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
+                mp = corners_devig && corners_devig[0]
+                cal = calibrate("corners-over-#{side_lbl}", p, isotonic_lookup)
+                blended = blend(cal, mp, alpha)
+                out << build_candidate('corners-over', side_lbl, p, cal, mp, blended,
+                                       odds[over_key], bankroll, kelly_fraction, alpha)
+              end
+              if finite?(odds[under_key])
+                p = DistHelpers.poisson_prob_under(mean, line)
+                corners_devig = finite?(odds[over_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
+                mp = corners_devig && corners_devig[1]
+                cal = calibrate("corners-under-#{side_lbl}", p, isotonic_lookup)
+                blended = blend(cal, mp, alpha)
+                out << build_candidate('corners-under', side_lbl, p, cal, mp, blended,
+                                       odds[under_key], bankroll, kelly_fraction, alpha)
+              end
+            end
+          end
+
+          # ── Wave O+E: CARDS (Poisson approx from sim_cards_total_mean) ──────────
+          if finite?(sim[:sim_cards_total_mean])
+            mean = sim[:sim_cards_total_mean].to_f
+            [
+              [3.5, :cards_over_35, :cards_under_35, '35'],
+              [4.5, :cards_over_45, :cards_under_45, '45'],
+              [5.5, :cards_over_55, :cards_under_55, '55']
+            ].each do |line, over_key, under_key, side_lbl|
+              if finite?(odds[over_key])
+                p = DistHelpers.poisson_prob_over(mean, line)
+                cards_devig = finite?(odds[under_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
+                mp = cards_devig && cards_devig[0]
+                cal = calibrate("cards-over-#{side_lbl}", p, isotonic_lookup)
+                blended = blend(cal, mp, alpha)
+                out << build_candidate('cards-over', side_lbl, p, cal, mp, blended,
+                                       odds[over_key], bankroll, kelly_fraction, alpha)
+              end
+              if finite?(odds[under_key])
+                p = DistHelpers.poisson_prob_under(mean, line)
+                cards_devig = finite?(odds[over_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
+                mp = cards_devig && cards_devig[1]
+                cal = calibrate("cards-under-#{side_lbl}", p, isotonic_lookup)
+                blended = blend(cal, mp, alpha)
+                out << build_candidate('cards-under', side_lbl, p, cal, mp, blended,
+                                       odds[under_key], bankroll, kelly_fraction, alpha)
+              end
+            end
+          end
+
+          # ── Wave O+E: SHOTS ON TARGET (Poisson approx from sim_sot_total_mean) ─
+          if finite?(sim[:sim_sot_total_mean])
+            mean = sim[:sim_sot_total_mean].to_f
+            [
+              [7.5, :sot_over_75, :sot_under_75, '75'],
+              [9.5, :sot_over_95, :sot_under_95, '95'],
+              [10.5, :sot_over_105, :sot_under_105, '105']
+            ].each do |line, over_key, under_key, side_lbl|
+              if finite?(odds[over_key])
+                p = DistHelpers.poisson_prob_over(mean, line)
+                sot_devig = finite?(odds[under_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
+                mp = sot_devig && sot_devig[0]
+                cal = calibrate("sot-over-#{side_lbl}", p, isotonic_lookup)
+                blended = blend(cal, mp, alpha)
+                out << build_candidate('sot-over', side_lbl, p, cal, mp, blended,
+                                       odds[over_key], bankroll, kelly_fraction, alpha)
+              end
+              if finite?(odds[under_key])
+                p = DistHelpers.poisson_prob_under(mean, line)
+                sot_devig = finite?(odds[over_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
+                mp = sot_devig && sot_devig[1]
+                cal = calibrate("sot-under-#{side_lbl}", p, isotonic_lookup)
+                blended = blend(cal, mp, alpha)
+                out << build_candidate('sot-under', side_lbl, p, cal, mp, blended,
+                                       odds[under_key], bankroll, kelly_fraction, alpha)
+              end
             end
           end
 

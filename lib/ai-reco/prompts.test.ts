@@ -78,4 +78,49 @@ describe("buildPrompt", () => {
     expect(system).toContain("market");
     expect(system).toContain("units_final");
   });
+
+  // ── Wave O+E: mercados secundários no prompt ───────────────────────────────
+
+  it("schema JSON inclui mercados secundários (corners, cards, sot)", () => {
+    const { system } = buildPrompt(baseInput);
+    expect(system).toContain("corners-over");
+    expect(system).toContain("cards-over");
+    expect(system).toContain("sot-over");
+  });
+
+  it("candidato corners-over aparece na edge table formatada", () => {
+    const inputWithCorners: PromptInput = {
+      ...baseInput,
+      candidates: [
+        { market: "corners-over", side: "95", prob_calibrated: 0.62, edge_pct: 17.5, kelly_units: 0.8, odd: 1.90 },
+      ],
+    };
+    const { user } = buildPrompt(inputWithCorners);
+    expect(user).toContain("corners-over");
+    expect(user).toContain("95");
+    expect(user).toMatch(/17\.5|17%/);
+  });
+
+  it("candidato cards-over aparece na edge table formatada", () => {
+    const inputWithCards: PromptInput = {
+      ...baseInput,
+      candidates: [
+        { market: "cards-over", side: "45", prob_calibrated: 0.58, edge_pct: 14.2, kelly_units: 0.6, odd: 1.85 },
+      ],
+    };
+    const { user } = buildPrompt(inputWithCards);
+    expect(user).toContain("cards-over");
+    expect(user).toContain("45");
+  });
+
+  it("heurísticas contextuais incluídas no system prompt (corners, cards, sot)", () => {
+    const { system } = buildPrompt(baseInput);
+    // Heurísticas devem guiar o R1 quando tomar decisões sobre mercados secundários
+    expect(system.toLowerCase()).toMatch(/corner|cantos/i);
+    expect(system.toLowerCase()).toMatch(/cart[aã]o|card/i);
+  });
+
+  it("PROMPT_VERSION bumpeado para prompt-v1.1 após Wave O+E", () => {
+    expect(PROMPT_VERSION).toBe("prompt-v1.1");
+  });
 });

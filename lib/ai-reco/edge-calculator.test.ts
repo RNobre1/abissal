@@ -311,4 +311,98 @@ describe("buildEdgeTable", () => {
     expect(home.prob_calibrated).toBeCloseTo(0.55, 3);
     expect(home.edge_pct).toBeCloseTo(15.5, 1);
   });
+
+  // ── Wave O+E: mercados secundários (corners, cards, SOT) ───────────────────
+
+  describe("mercados secundários — corners/cards/SOT", () => {
+    const simWithSecondary: SimInput = {
+      ...baseSim,
+      // Sim Monte Carlo projeta: home avg 5.8 corners + away avg 4.7 = 10.5 total (p50)
+      sim_corners_total_mean: 10.5,
+      // Sim: home avg 2.1 cards + away avg 2.2 = 4.3 total (p50)
+      sim_cards_total_mean: 4.3,
+      // Sim: home avg 3.8 SOT + away avg 2.9 = 6.7 total (p50)
+      sim_sot_total_mean: 6.7,
+    };
+
+    const oddsWithSecondary: OddsInput = {
+      ...baseOdds,
+      corners_over_95: 1.90,
+      corners_under_95: 1.90,
+      corners_over_105: 2.20,
+      corners_under_105: 1.65,
+      cards_over_45: 1.85,
+      cards_under_45: 1.95,
+      sot_over_75: 1.95,
+      sot_under_75: 1.85,
+    };
+
+    it("gera candidatos de corners quando sim_corners_total_mean e odds presentes", () => {
+      const out = buildEdgeTable(simWithSecondary, oddsWithSecondary, 1000);
+      const cornersCandidates = out.filter(c => c.market.startsWith("corners-"));
+      expect(cornersCandidates.length).toBeGreaterThanOrEqual(2); // over+under para pelo menos 1 linha
+    });
+
+    it("gera candidatos de cards quando sim_cards_total_mean e odds presentes", () => {
+      const out = buildEdgeTable(simWithSecondary, oddsWithSecondary, 1000);
+      const cardsCandidates = out.filter(c => c.market.startsWith("cards-"));
+      expect(cardsCandidates.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("gera candidatos de SOT quando sim_sot_total_mean e odds presentes", () => {
+      const out = buildEdgeTable(simWithSecondary, oddsWithSecondary, 1000);
+      const sotCandidates = out.filter(c => c.market.startsWith("sot-"));
+      expect(sotCandidates.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it("corners over 9.5 com mean=10.5: P(X>9.5|10.5) ≈ 0.603 → edge calculado via Poisson", () => {
+      const out = buildEdgeTable(simWithSecondary, oddsWithSecondary, 1000);
+      const over95 = out.find(c => c.market === "corners-over" && c.side === "95");
+      expect(over95).toBeDefined();
+      // P(X > 9.5 | lambda=10.5) ≈ 0.6029 (scipy reference)
+      expect(over95!.prob_estimated).toBeCloseTo(0.6029, 2);
+    });
+
+    it("cards under 4.5 com mean=4.3: P(X<=4|4.3) ≈ 0.557 → under side", () => {
+      const out = buildEdgeTable(simWithSecondary, oddsWithSecondary, 1000);
+      const under45 = out.find(c => c.market === "cards-under" && c.side === "45");
+      expect(under45).toBeDefined();
+      // P(X < 4.5 | lambda=4.3) = P(X <= 4) = poissonCDF(4.3, 4) ≈ 0.557
+      expect(under45!.prob_estimated).toBeGreaterThan(0.4);
+      expect(under45!.prob_estimated).toBeLessThan(0.7);
+    });
+
+    it("corners sem mean → nenhum candidato corners", () => {
+      const out = buildEdgeTable(baseSim, oddsWithSecondary, 1000);
+      const corners = out.filter(c => c.market.startsWith("corners-"));
+      expect(corners.length).toBe(0);
+    });
+
+    it("odds corners ausentes → nenhum candidato corners mesmo com mean", () => {
+      const out = buildEdgeTable(simWithSecondary, baseOdds, 1000);
+      const corners = out.filter(c => c.market.startsWith("corners-"));
+      expect(corners.length).toBe(0);
+    });
+
+    it("gera candidatos apenas onde as odds estão presentes (corners_over_95 apenas)", () => {
+      const partialOdds: OddsInput = {
+        ...baseOdds,
+        corners_over_95: 2.00,
+        // sem corners_under_95, sem corners_over_105, etc.
+      };
+      const out = buildEdgeTable(simWithSecondary, partialOdds, 1000);
+      const corners = out.filter(c => c.market.startsWith("corners-"));
+      expect(corners.length).toBe(1);
+      expect(corners[0].market).toBe("corners-over");
+      expect(corners[0].side).toBe("95");
+    });
+
+    it("edge calculado corretamente para corners-over 9.5 com odd 1.90", () => {
+      const out = buildEdgeTable(simWithSecondary, oddsWithSecondary, 1000);
+      const over95 = out.find(c => c.market === "corners-over" && c.side === "95");
+      expect(over95).toBeDefined();
+      // prob ≈ 0.6029, odd 1.90 → edge = (0.6029 * 1.90 - 1) * 100 ≈ +14.5%
+      expect(over95!.edge_pct).toBeCloseTo((0.6029 * 1.90 - 1) * 100, 0);
+    });
+  });
 });

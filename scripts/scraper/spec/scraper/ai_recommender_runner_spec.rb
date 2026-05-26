@@ -311,6 +311,81 @@ module AdamStats::Scraper
       end
     end
 
+    # ── Wave O+E: secondary stats extraction ────────────────────────────────────
+
+    describe 'extract_sim — secondary stats (Wave O+E)' do
+      let(:runner) { described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true) }
+
+      it 'extrai sim_corners_total_mean de sim_stats (home.p50 + away.p50)' do
+        sim_stats = {
+          'home' => { 'corners' => { 'p50' => 5.8 }, 'cards' => { 'p50' => 2.1 }, 'sot' => { 'p50' => 3.8 } },
+          'away' => { 'corners' => { 'p50' => 4.7 }, 'cards' => { 'p50' => 2.2 }, 'sot' => { 'p50' => 2.9 } }
+        }
+        row = { 'p_home' => '0.5', 'p_draw' => '0.25', 'p_away' => '0.25',
+                'p_over_25' => '0.6', 'p_btts' => '0.55',
+                'sim_stats' => JSON.generate(sim_stats) }
+        result = runner.send(:extract_sim, row)
+        expect(result[:sim_corners_total_mean]).to be_within(0.01).of(10.5)
+        expect(result[:sim_cards_total_mean]).to be_within(0.01).of(4.3)
+        expect(result[:sim_sot_total_mean]).to be_within(0.01).of(6.7)
+      end
+
+      it 'sim_corners_total_mean é nil quando sim_stats está vazio' do
+        row = { 'p_home' => '0.5', 'p_draw' => '0.25', 'p_away' => '0.25',
+                'p_over_25' => '0.6', 'p_btts' => '0.55',
+                'sim_stats' => '{}' }
+        result = runner.send(:extract_sim, row)
+        expect(result[:sim_corners_total_mean]).to be_nil
+      end
+    end
+
+    describe 'extract_odds — secondary market odds (Wave O+E)' do
+      let(:runner) { described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true) }
+
+      it 'extrai corners_over_95 e corners_under_95 do odds_summary' do
+        detail = {
+          'odds_summary' => {
+            'Result' => {
+              'A' => { 'decimal_odds' => 2.0 }, 'Draw' => { 'decimal_odds' => 3.5 }, 'B' => { 'decimal_odds' => 3.8 }
+            },
+            'Total Corners' => {
+              'Over 9.5' => { 'decimal_odds' => 1.90 },
+              'Under 9.5' => { 'decimal_odds' => 1.90 }
+            },
+            'Total Cards' => {
+              'Over 4.5' => { 'decimal_odds' => 1.85 }
+            },
+            'Total shots on target' => {
+              'Over 7.5' => { 'decimal_odds' => 1.95 },
+              'Under 7.5' => { 'decimal_odds' => 1.85 }
+            }
+          }
+        }
+        row = { 'home_team' => 'A', 'away_team' => 'B', 'detail_json' => JSON.generate(detail) }
+        result = runner.send(:extract_odds, row)
+        expect(result[:corners_over_95]).to be_within(0.01).of(1.90)
+        expect(result[:corners_under_95]).to be_within(0.01).of(1.90)
+        expect(result[:cards_over_45]).to be_within(0.01).of(1.85)
+        expect(result[:sot_over_75]).to be_within(0.01).of(1.95)
+        expect(result[:sot_under_75]).to be_within(0.01).of(1.85)
+      end
+
+      it 'retorna nil para market key ausente' do
+        detail = {
+          'odds_summary' => {
+            'Result' => {
+              'A' => { 'decimal_odds' => 2.0 }, 'Draw' => { 'decimal_odds' => 3.5 }, 'B' => { 'decimal_odds' => 3.8 }
+            }
+          }
+        }
+        row = { 'home_team' => 'A', 'away_team' => 'B', 'detail_json' => JSON.generate(detail) }
+        result = runner.send(:extract_odds, row)
+        expect(result[:corners_over_95]).to be_nil
+        expect(result[:cards_over_45]).to be_nil
+        expect(result[:sot_over_75]).to be_nil
+      end
+    end
+
     describe 'failure isolation' do
       it 'uma fixture com erro nao derruba o batch' do
         sims = [

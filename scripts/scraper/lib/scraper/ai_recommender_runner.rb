@@ -281,7 +281,33 @@ module AdamStats
         }
         return nil unless sim[:p_home] && sim[:p_draw] && sim[:p_away]
 
+        # Wave O+E: secondary stats from sim_stats jsonb.
+        # sim_stats shape: { "home" => { "corners" => { "p50" => N }, ... }, "away" => ... }
+        # We sum home p50 + away p50 to get total mean for Poisson approximation.
+        sim_stats = parse_json(row['sim_stats']) || {}
+        if sim_stats.is_a?(Hash)
+          sim[:sim_corners_total_mean] = secondary_stat_total_mean(sim_stats, 'corners')
+          sim[:sim_cards_total_mean]   = secondary_stat_total_mean(sim_stats, 'cards')
+          sim[:sim_sot_total_mean]     = secondary_stat_total_mean(sim_stats, 'sot')
+        end
+
         sim
+      rescue StandardError
+        nil
+      end
+
+      # Extracts home.metric.p50 + away.metric.p50 as total mean.
+      # Returns nil if either side is missing.
+      def secondary_stat_total_mean(sim_stats, metric)
+        home_node = sim_stats.dig('home', metric)
+        away_node = sim_stats.dig('away', metric)
+        return nil unless home_node.is_a?(Hash) && away_node.is_a?(Hash)
+
+        home_val = home_node['p50'] || home_node['mean']
+        away_val = away_node['p50'] || away_node['mean']
+        return nil unless home_val.is_a?(Numeric) && away_val.is_a?(Numeric)
+
+        (home_val + away_val).to_f
       rescue StandardError
         nil
       end
@@ -293,18 +319,23 @@ module AdamStats
         odds_root = detail['odds_summary'] || detail['odds'] || {}
         return nil unless odds_root.is_a?(Hash)
 
-        # Shape REAL do choistats (verificado empiricamente 2026-05-24):
+        # Shape REAL do choistats (verificado empiricamente 2026-05-24/2026-05-26):
         #   odds_summary:
         #     "Result":    { "<home_team_name>", "Draw", "<away_team_name>" }
         #     "BTTS":      { "Yes", "No" }
         #     "Match Goals Overs/Unders": { "Over 2.5", "Under 2.5", ... }
+        #     "Total Corners": { "Over 8.5", "Under 8.5", "Over 9.5", "Under 9.5", ... }
+        #     "Total Cards":   { "Over 4.5", "Over 5.5" }
+        #     "Total shots on target": { "Over 7.5", "Under 7.5", ... }
         #   Cada valor: { "bookmaker": "X", "decimal_odds": Float }
         #
-        # NOTA: 1X2 (Result) usa nome do time como key — precisa do row['home_team'] e
-        # row['away_team'] pra resolver.
-        result_market = odds_root['Result'] || {}
-        btts_market   = odds_root['BTTS'] || {}
-        mg_market     = odds_root['Match Goals Overs/Unders'] || {}
+        # NOTA: 1X2 (Result) usa nome do time como key.
+        result_market  = odds_root['Result'] || {}
+        btts_market    = odds_root['BTTS'] || {}
+        mg_market      = odds_root['Match Goals Overs/Unders'] || {}
+        corners_market = odds_root['Total Corners'] || {}
+        cards_market   = odds_root['Total Cards'] || {}
+        sot_market     = odds_root['Total shots on target'] || {}
 
         result = {
           home:     dig_decimal(result_market, row['home_team']),
@@ -313,9 +344,29 @@ module AdamStats
           over25:   dig_decimal(mg_market, 'Over 2.5'),
           under25:  dig_decimal(mg_market, 'Under 2.5'),
           btts_sim: dig_decimal(btts_market, 'Yes'),
-          btts_nao: dig_decimal(btts_market, 'No')
+          btts_nao: dig_decimal(btts_market, 'No'),
+          # Wave O+E — secondary market odds
+          corners_over_85:  dig_decimal(corners_market, 'Over 8.5'),
+          corners_under_85: dig_decimal(corners_market, 'Under 8.5'),
+          corners_over_95:  dig_decimal(corners_market, 'Over 9.5'),
+          corners_under_95: dig_decimal(corners_market, 'Under 9.5'),
+          corners_over_105:  dig_decimal(corners_market, 'Over 10.5'),
+          corners_under_105: dig_decimal(corners_market, 'Under 10.5'),
+          cards_over_35:  dig_decimal(cards_market, 'Over 3.5'),
+          cards_under_35: dig_decimal(cards_market, 'Under 3.5'),
+          cards_over_45:  dig_decimal(cards_market, 'Over 4.5'),
+          cards_under_45: dig_decimal(cards_market, 'Under 4.5'),
+          cards_over_55:  dig_decimal(cards_market, 'Over 5.5'),
+          cards_under_55: dig_decimal(cards_market, 'Under 5.5'),
+          sot_over_75:   dig_decimal(sot_market, 'Over 7.5'),
+          sot_under_75:  dig_decimal(sot_market, 'Under 7.5'),
+          sot_over_95:   dig_decimal(sot_market, 'Over 9.5'),
+          sot_under_95:  dig_decimal(sot_market, 'Under 9.5'),
+          sot_over_105:  dig_decimal(sot_market, 'Over 10.5'),
+          sot_under_105: dig_decimal(sot_market, 'Under 10.5')
         }
-        return nil if result.values.compact.empty?
+        # Only fail if primary odds (1x2) are completely absent
+        return nil if result.values_at(:home, :draw, :away).compact.empty?
 
         result
       rescue StandardError
