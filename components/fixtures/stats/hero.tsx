@@ -1,5 +1,3 @@
-"use client";
-
 import { countryToFlag } from "@/lib/fixtures/leagues";
 
 /**

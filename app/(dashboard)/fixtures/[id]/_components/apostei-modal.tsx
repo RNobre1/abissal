@@ -32,8 +32,9 @@
  * o componente cliente apenas faz `fetch(...)` confiando no cookie do user.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { shouldRequireThesis, thesisGateCopy } from "@/lib/disciplina/thesis-gate";
+import { useTelemetry } from "@/lib/telemetry";
 
 export interface ApostaiHouseOption {
   id: string;
@@ -52,6 +53,9 @@ interface ApostaiModalProps {
   onSuccess: (betId: string) => void;
   /** Drawdown das últimas 72h em % — passado pelo componente pai via server data. */
   drawdown3d?: number;
+  /** Timestamp (Date.now()) when the panel first became visible — used for elapsed_ms telemetry. */
+  panelVisibleAt?: number;
+  fixtureId?: number;
 }
 
 function formatBrl(v: number): string {
@@ -72,7 +76,10 @@ export function ApostaiModal({
   onCancel,
   onSuccess,
   drawdown3d = 0,
+  panelVisibleAt,
+  fixtureId,
 }: ApostaiModalProps) {
+  const track = useTelemetry();
   const [houseId, setHouseId] = useState<string>(houses[0]?.id ?? "");
   const [oddStr, setOddStr] = useState<string>(
     defaultOdd && defaultOdd > 1 ? defaultOdd.toFixed(2) : "",
@@ -81,11 +88,38 @@ export function ApostaiModal({
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [thesis, setThesis] = useState<string>("");
+  const [openedAt] = useState(() => Date.now());
 
   // Calcula hora BRT atual (UTC-3 fixo) para thesis gate
   const hourBrt = (new Date().getUTCHours() - 3 + 24) % 24;
   const thesisRequired = shouldRequireThesis({ hourBrt, drawdown3d });
   const thesisCopy = thesisRequired ? thesisGateCopy({ hourBrt, drawdown3d }) : "";
+
+  // Track modal open + stake_zero flag (Wave T telemetria)
+  useEffect(() => {
+    const elapsed = panelVisibleAt ? Date.now() - panelVisibleAt : undefined;
+    track("apostei_modal_open", {
+      ai_recommendation_id: aiRecommendationId,
+      ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+      ...(elapsed !== undefined && { elapsed_ms: elapsed }),
+    });
+    if (defaultStake === 0) {
+      track("apostei_modal_stake_zero", {
+        ai_recommendation_id: aiRecommendationId,
+        ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  function handleCancel(): void {
+    track("apostei_modal_cancel", {
+      ai_recommendation_id: aiRecommendationId,
+      ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+      elapsed_ms: Date.now() - openedAt,
+    });
+    onCancel();
+  }
 
   async function handleConfirm(): Promise<void> {
     setError(null);
@@ -130,6 +164,11 @@ export function ApostaiModal({
         | { betId?: string }
         | null;
       if (body?.betId) {
+        track("apostei_modal_confirm", {
+          ai_recommendation_id: aiRecommendationId,
+          ...(fixtureId !== undefined && { fixture_id: fixtureId }),
+          elapsed_ms: Date.now() - openedAt,
+        });
         onSuccess(body.betId);
       } else {
         setError("resposta inesperada do servidor");
@@ -189,6 +228,7 @@ export function ApostaiModal({
           value={oddStr}
           onChange={(e) => setOddStr(e.target.value)}
           disabled={submitting}
+          autoFocus
           className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-transparent px-2 py-1.5 text-[var(--color-ink)]"
         />
       </label>
@@ -241,21 +281,24 @@ export function ApostaiModal({
         </label>
       )}
 
-      {error ? (
-        <span
-          role="alert"
-          data-apostei-error
-          className="label text-[var(--color-vermelho)]"
-        >
-          {error}
-        </span>
-      ) : null}
+      {/* aria-live="polite" garante que screen readers anunciem erros + confirmação de sucesso (Wave B a11y) */}
+      <div aria-live="polite" aria-atomic="true">
+        {error ? (
+          <span
+            role="alert"
+            data-apostei-error
+            className="label text-[var(--color-vermelho)]"
+          >
+            {error}
+          </span>
+        ) : null}
+      </div>
 
       <div className="flex justify-end gap-2">
         <button
           type="button"
           data-apostei-cancel
-          onClick={onCancel}
+          onClick={handleCancel}
           disabled={submitting}
           className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-1.5 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
         >

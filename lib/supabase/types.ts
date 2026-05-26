@@ -179,6 +179,8 @@ export type Database = {
           league: string | null
           market_id: string | null
           odds: number
+          /** Odd efetivamente apostada pelo Pilot. Usada no CLV (migration 0030). */
+          odd_taken: number | null
           position_index: number
           selection_label: string
           sport_id: string | null
@@ -194,6 +196,8 @@ export type Database = {
           league?: string | null
           market_id?: string | null
           odds: number
+          /** Odd efetivamente apostada pelo Pilot. Usada no CLV (migration 0030). */
+          odd_taken?: number | null
           position_index?: number
           selection_label: string
           sport_id?: string | null
@@ -209,6 +213,8 @@ export type Database = {
           league?: string | null
           market_id?: string | null
           odds?: number
+          /** Odd efetivamente apostada pelo Pilot. Usada no CLV (migration 0030). */
+          odd_taken?: number | null
           position_index?: number
           selection_label?: string
           sport_id?: string | null

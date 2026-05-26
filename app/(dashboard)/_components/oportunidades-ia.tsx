@@ -1,5 +1,6 @@
 import { fetchTopOpportunities } from "@/lib/ai-reco/reco-repository";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { OportunidadeIaCard } from "@/components/oportunidades/oportunidade-ia-card";
 
 /**
  * OportunidadesIa — seção do dashboard "/" com as top 5 recomendações IA
@@ -50,19 +51,7 @@ export async function OportunidadesIa() {
       </header>
       <ul className="flex flex-col gap-2">
         {tops.map((r) => (
-          <li key={r.id}>
-            <a
-              href={`/fixtures/${r.fixture_id ?? ""}`}
-              className="flex items-baseline justify-between gap-3 rounded-[var(--radius-sm)] border border-transparent px-2 py-1 transition-colors hover:border-[var(--color-line)] hover:text-[var(--color-ink)]"
-            >
-              <span className="min-w-0 truncate text-sm text-[var(--color-ink)]">
-                {r.home_team} vs {r.away_team}
-              </span>
-              <span className="num shrink-0 text-sm tabular-nums text-[var(--color-ink-muted)]">
-                {r.summary_line ?? "—"}
-              </span>
-            </a>
-          </li>
+          <OportunidadeIaCard key={r.id} reco={r} />
         ))}
       </ul>
     </section>

@@ -58,13 +58,31 @@ vi.mock("@/app/(auth)/login/actions", () => ({
 const getUserMock = vi.fn();
 const getClaimsMock = vi.fn();
 
+// Mock houses query used by layout (Wave M BetSlipProvider)
+const mockHousesChain = {
+  select: vi.fn().mockReturnThis(),
+  is: vi.fn().mockReturnThis(),
+  order: vi.fn().mockResolvedValue({ data: [], error: null }),
+};
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     auth: {
       getUser: getUserMock,
       getClaims: getClaimsMock,
     },
+    from: vi.fn(() => mockHousesChain),
   })),
+}));
+
+// getDraftSlip uses createClient internally — stub it to avoid nested from() calls
+vi.mock("@/lib/bet-slip/actions", () => ({
+  getDraftSlip: vi.fn().mockResolvedValue(null),
+}));
+
+// BetSlipProvider is a Client Component — stub to null in this test
+vi.mock("@/components/bet-slip/bet-slip-provider", () => ({
+  BetSlipProvider: () => null,
 }));
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -23,10 +23,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { FeedbackButtons } from "./feedback-buttons";
-import {
-  ApostaiModal,
-  type ApostaiHouseOption,
-} from "./apostei-modal";
+import type { ApostaiHouseOption } from "./apostei-modal";
+import { AposteiBottomSheet } from "./apostei-bottom-sheet";
+import { AddToSlipButton } from "@/components/bet-slip/add-to-slip-button";
+import { applyStakeJitter } from "@/lib/ai-reco/stake-jitter";
 
 export interface LinkedBetSummary {
   id: string;
@@ -61,6 +61,12 @@ interface AiRecoActionsProps {
    * estado "✓ Apostou …".
    */
   linkedBet: LinkedBetSummary | null;
+  /** Wave M: dados da fixture para o botão "+ bilhete" */
+  fixtureId?: number | null;
+  homeTeam?: string | null;
+  awayTeam?: string | null;
+  league?: string | null;
+  kickoffUtc?: string | null;
 }
 
 function fmtBrl(v: number | string | null | undefined): string {
@@ -86,10 +92,19 @@ export function AiRecoActions({
   market,
   side,
   linkedBet,
+  fixtureId,
+  homeTeam,
+  awayTeam,
+  league,
+  kickoffUtc,
 }: AiRecoActionsProps) {
   const router = useRouter();
   const [_pending, startTransition] = useTransition();
   const [modalOpen, setModalOpen] = useState<boolean>(false);
+  // Stake com jitter ±10% calculada uma vez ao abrir o modal (seed = recoId +
+  // timestamp truncado ao minuto → diferente por sessão mas estável durante
+  // a interação). Salvo em state para não mudar ao re-render.
+  const [jitteredStake, setJitteredStake] = useState<number>(defaultStake);
   const [optimisticLinked, setOptimisticLinked] =
     useState<LinkedBetSummary | null>(null);
 
@@ -101,6 +116,8 @@ export function AiRecoActions({
     return (
       <div
         data-apostei-linked
+        aria-live="polite"
+        aria-atomic="true"
         className="label flex flex-wrap items-baseline gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-bg-soft,transparent)] px-3 py-2 text-[var(--color-ink)]"
       >
         <span className="font-semibold text-[var(--color-vermelho)]">
@@ -132,33 +149,64 @@ export function AiRecoActions({
       <FeedbackButtons
         aiRecommendationId={aiRecommendationId}
         existingDecisions={existingDecisions}
-        onOpenApostei={() => setModalOpen(true)}
+        onOpenApostei={() => {
+          // Aplica jitter ±10% na stake ao abrir o modal.
+          // Seed = recoId XOR minuto-atual → diferente por sessão mas
+          // estável enquanto o modal fica aberto.
+          if (defaultStake > 0) {
+            const minuteSeed = Math.floor(Date.now() / 60000);
+            setJitteredStake(
+              applyStakeJitter(defaultStake, aiRecommendationId ^ minuteSeed),
+            );
+          }
+          setModalOpen(true);
+        }}
       />
-      {modalOpen ? (
-        <ApostaiModal
-          aiRecommendationId={aiRecommendationId}
-          houses={houses}
-          defaultOdd={defaultOdd}
-          defaultStake={defaultStake}
-          market={market}
-          side={side}
-          onCancel={() => setModalOpen(false)}
-          onSuccess={(betId) => {
-            setOptimisticLinked({
-              id: betId,
-              total_stake: 0, // Vai ser substituído no refresh()
-              total_odds: defaultOdd ?? 0,
-              house_name:
-                houses.find((h) => h.id === houses[0]?.id)?.name ?? null,
-              status: "pending",
-            });
-            setModalOpen(false);
-            startTransition(() => {
-              router.refresh();
-            });
+      {/* Wave M — "+ bilhete" button alongside "Apostei agora" */}
+      {fixtureId != null && market && side && defaultOdd && defaultOdd > 1 ? (
+        <AddToSlipButton
+          input={{
+            ai_recommendation_id: aiRecommendationId,
+            fixture_id: fixtureId,
+            home_team: homeTeam ?? "—",
+            away_team: awayTeam ?? "—",
+            market: market,
+            side: side,
+            odd_taken: defaultOdd,
+            league: league ?? null,
+            kickoff_utc: kickoffUtc ?? null,
           }}
+          ariaLabel={`${homeTeam} × ${awayTeam} — ${market}/${side}`}
         />
       ) : null}
+
+      {/* Wave U — bottom sheet (substitui o ApostaiModal legacy);
+          Wave B jitter aplicado no stake antes de abrir o sheet. */}
+      <AposteiBottomSheet
+        aiRecommendationId={aiRecommendationId}
+        houses={houses}
+        defaultOdd={defaultOdd}
+        defaultStake={jitteredStake}
+        market={market}
+        side={side}
+        open={modalOpen}
+        onOpenChange={(v) => setModalOpen(v)}
+        onCancel={() => setModalOpen(false)}
+        onSuccess={(betId) => {
+          setOptimisticLinked({
+            id: betId,
+            total_stake: 0, // Vai ser substituído no refresh()
+            total_odds: defaultOdd ?? 0,
+            house_name:
+              houses.find((h) => h.id === houses[0]?.id)?.name ?? null,
+            status: "pending",
+          });
+          setModalOpen(false);
+          startTransition(() => {
+            router.refresh();
+          });
+        }}
+      />
     </div>
   );
 }

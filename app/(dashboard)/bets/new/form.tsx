@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState, useMemo, useState } from "react";
+import { useActionState, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { fmt } from "@/lib/format";
 import { placeBetAction, type PlaceBetState } from "../actions";
+import { useBetDraft, loadBetDraft, clearBetDraft, type BetDraft } from "@/hooks/use-bet-draft";
 
 const initial: PlaceBetState = {};
 
@@ -58,6 +59,26 @@ export function PlaceBetForm({
   );
   const [legs, setLegs] = useState<Leg[]>([emptyLeg()]);
   const [stake, setStake] = useState<string>(state.values?.total_stake ?? "");
+
+  // ── Autosave draft ──────────────────────────────────────────────────────────
+  // On first mount, restore from localStorage draft (if any and form is fresh).
+  useEffect(() => {
+    if (state.values) return; // form was already submitted with values — don't restore
+    const saved = loadBetDraft();
+    if (!saved) return;
+    if (saved.kind === "single" || saved.kind === "multiple") {
+      setKind(saved.kind as "single" | "multiple");
+    }
+    if (typeof saved.stake === "string") setStake(saved.stake);
+    if (Array.isArray(saved.legs) && saved.legs.length > 0) {
+      setLegs(saved.legs as Leg[]);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once on mount
+
+  const currentDraft: BetDraft = { kind, stake, legs };
+  useBetDraft(state.values ? null : currentDraft); // stop saving after successful submit
+  // ───────────────────────────────────────────────────────────────────────────
 
   function changeKind(next: "single" | "multiple") {
     setKind(next);
