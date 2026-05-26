@@ -20,8 +20,10 @@ import { useRef, useState } from "react";
 import { Camera } from "lucide-react";
 import { parseBetSlipPhoto, type ParsedLegWithMatch } from "@/lib/bet-slip-ocr/parse-photo-action";
 import { addLegToSlip } from "@/lib/bet-slip/actions";
-import { CONFIDENCE_AUTO_LINK } from "@/lib/bet-slip-ocr/match-fixture";
-import type { MatchedFixture } from "@/lib/bet-slip-ocr/match-fixture";
+import {
+  CONFIDENCE_AUTO_LINK,
+  type MatchedFixture,
+} from "@/lib/bet-slip-ocr/match-fixture-types";
 import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
