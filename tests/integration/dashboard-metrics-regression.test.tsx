@@ -136,7 +136,20 @@ function buildQueryBuilder(tableName: TableName) {
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     from: (table: TableName) => buildQueryBuilder(table),
+    auth: {
+      getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
+    },
   })),
+}));
+
+// Wave F: quiet mode é inerte neste teste de regressão de métricas
+vi.mock("@/lib/disciplina/quiet-mode", () => ({
+  isQuietModeActive: vi.fn().mockResolvedValue({ active: false }),
+}));
+
+// Wave F: QuietModeCard nunca é exibido (quiet mode inativo)
+vi.mock("@/components/disciplina/quiet-mode-card", () => ({
+  QuietModeCard: () => null,
 }));
 
 vi.mock("next/navigation", () => ({
@@ -309,6 +322,9 @@ describe("Dashboard — denominadores negativos (paridade com código original)"
     const { createClient } = await import("@/lib/supabase/server");
     (createClient as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
       from: (table: TableName) => buildNegativeQueryBuilder(table),
+      auth: {
+        getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
+      },
     });
 
     const element = await OverviewPage();

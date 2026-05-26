@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import type { Database, Json } from "@/lib/supabase/types";
+import { checkDisciplinaLimits } from "@/lib/disciplina/disciplina-guard";
 
 type BetKind = Database["public"]["Enums"]["bet_kind"];
 type BetStatus = Database["public"]["Enums"]["bet_status"];
@@ -48,6 +49,7 @@ const placeSchema = z.object({
   total_stake: numFromBR.pipe(z.number().positive("stake deve ser > 0")),
   placed_at: z.string().min(1, "informe quando"),
   note: z.string().max(500).optional(),
+  thesis: z.string().max(1000).optional(),
   selections: z.array(selectionSchema).min(1),
 });
 
@@ -86,6 +88,7 @@ export async function placeBetAction(
     total_stake: String(formData.get("total_stake") ?? ""),
     placed_at: String(formData.get("placed_at") ?? ""),
     note: String(formData.get("note") ?? ""),
+    thesis: formData.get("thesis") ? String(formData.get("thesis")) : undefined,
     selections: legs,
   };
 
@@ -118,6 +121,12 @@ export async function placeBetAction(
   } = await supabase.auth.getUser();
   if (!user) return { error: "sessão expirada" };
 
+  // Disciplina guard — validação server-side de limites antes de commitar aposta
+  const disciplinaCheck = await checkDisciplinaLimits(supabase, user.id);
+  if (!disciplinaCheck.allowed) {
+    return { error: disciplinaCheck.reason ?? "aposta bloqueada pelas configurações de disciplina" };
+  }
+
   const placedIso = new Date(data.placed_at).toISOString();
 
   const payload: Json = {
@@ -126,6 +135,7 @@ export async function placeBetAction(
     total_stake: data.total_stake,
     placed_at: placedIso,
     note: data.note ? data.note : null,
+    thesis: data.thesis ? data.thesis : null,
     selections: data.selections.map((s) => ({
       event_label: s.event_label,
       selection_label: s.selection_label,

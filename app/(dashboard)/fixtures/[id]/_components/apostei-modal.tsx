@@ -12,6 +12,8 @@
  *   │ Odd:     [2.10] (sugerido)    │
  *   │ Stake:   R$ [21,00] (= 1.5u)  │
  *   │ Mercado: 1x2 / home (locked)  │
+ *   │ [Thesis gate — se hora >= 22h │
+ *   │  ou drawdown >= 10%]          │
  *   │                                │
  *   │ [ Cancelar ]   [ Confirmar ]  │
  *   └────────────────────────────────┘
@@ -21,6 +23,8 @@
  * - Stake: editável (BRL); default = units_final × unit_value (1.0 default
  *   localmente — ajustável quando o usuário tiver `bankroll_settings`).
  * - Market/side: locked (vem da reco — Pilot discorda via outro botão).
+ * - Thesis gate: se `requireThesis=true`, exibe textarea obrigatório com
+ *   microcopy contextual antes de permitir confirmar.
  *
  * Confirmar → POST /api/ai-reco/apostei → onSuccess(betId) → fecha modal.
  *
@@ -29,6 +33,7 @@
  */
 
 import { useState, useEffect } from "react";
+import { shouldRequireThesis, thesisGateCopy } from "@/lib/disciplina/thesis-gate";
 import { useTelemetry } from "@/lib/telemetry";
 
 export interface ApostaiHouseOption {
@@ -46,6 +51,8 @@ interface ApostaiModalProps {
   side: string | null;
   onCancel: () => void;
   onSuccess: (betId: string) => void;
+  /** Drawdown das últimas 72h em % — passado pelo componente pai via server data. */
+  drawdown3d?: number;
   /** Timestamp (Date.now()) when the panel first became visible — used for elapsed_ms telemetry. */
   panelVisibleAt?: number;
   fixtureId?: number;
@@ -68,6 +75,7 @@ export function ApostaiModal({
   side,
   onCancel,
   onSuccess,
+  drawdown3d = 0,
   panelVisibleAt,
   fixtureId,
 }: ApostaiModalProps) {
@@ -79,9 +87,15 @@ export function ApostaiModal({
   const [stakeStr, setStakeStr] = useState<string>(formatBrl(defaultStake));
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [thesis, setThesis] = useState<string>("");
   const [openedAt] = useState(() => Date.now());
 
-  // Track modal open + stake_zero flag
+  // Calcula hora BRT atual (UTC-3 fixo) para thesis gate
+  const hourBrt = (new Date().getUTCHours() - 3 + 24) % 24;
+  const thesisRequired = shouldRequireThesis({ hourBrt, drawdown3d });
+  const thesisCopy = thesisRequired ? thesisGateCopy({ hourBrt, drawdown3d }) : "";
+
+  // Track modal open + stake_zero flag (Wave T telemetria)
   useEffect(() => {
     const elapsed = panelVisibleAt ? Date.now() - panelVisibleAt : undefined;
     track("apostei_modal_open", {
@@ -123,6 +137,11 @@ export function ApostaiModal({
       setError("selecione uma casa");
       return;
     }
+    // Thesis gate: obrigatório se condições ativas
+    if (thesisRequired && thesis.trim().length < 10) {
+      setError("informe sua tese em pelo menos 10 caracteres");
+      return;
+    }
     setSubmitting(true);
     try {
       const res = await fetch("/api/ai-reco/apostei", {
@@ -133,6 +152,7 @@ export function ApostaiModal({
           houseId,
           stake,
           odd,
+          thesis: thesis.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -236,7 +256,32 @@ export function ApostaiModal({
         <span className="text-[var(--color-ink-faint)]">(travado)</span>
       </div>
 
-      {/* aria-live="polite" garante que screen readers anunciem erros + confirmação de sucesso */}
+      {thesisRequired && (
+        <label className="flex flex-col gap-1">
+          <span
+            className="label"
+            style={{ color: "var(--color-vermelho)" }}
+          >
+            {thesisCopy}
+          </span>
+          <textarea
+            data-apostei-thesis
+            value={thesis}
+            onChange={(e) => setThesis(e.target.value)}
+            disabled={submitting}
+            rows={2}
+            minLength={10}
+            placeholder="minha tese em 1 frase..."
+            className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-transparent px-2 py-1.5 text-[var(--color-ink)] resize-none placeholder:text-[var(--color-ink-faint)]"
+            aria-required="true"
+          />
+          <span className="label text-[var(--color-ink-faint)]">
+            {thesis.trim().length}/10 chars mín.
+          </span>
+        </label>
+      )}
+
+      {/* aria-live="polite" garante que screen readers anunciem erros + confirmação de sucesso (Wave B a11y) */}
       <div aria-live="polite" aria-atomic="true">
         {error ? (
           <span

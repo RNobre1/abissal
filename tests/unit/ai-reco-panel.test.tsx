@@ -28,6 +28,13 @@ vi.mock(
   }),
 );
 
+// Wave F: thesis-gate desabilitado em testes para não tornar testes time-sensitive.
+// Testes de thesis-gate ficam em lib/disciplina/__tests__/thesis-gate.test.ts.
+vi.mock("@/lib/disciplina/thesis-gate", () => ({
+  shouldRequireThesis: () => false,
+  thesisGateCopy: () => "",
+}));
+
 // next/navigation router stub for FeedbackButtons (which calls router.refresh()).
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: () => {} }),
