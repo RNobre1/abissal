@@ -28,6 +28,10 @@ export type BetsFilter = {
   houseSlug?: string;
   league?: string;
   marketId?: string;
+  /** ISO date string, inclusive lower bound for placed_at */
+  dateFrom?: string;
+  /** ISO date string, inclusive upper bound for placed_at */
+  dateTo?: string;
 };
 
 export function buildBetsFilter(
@@ -43,5 +47,7 @@ export function buildBetsFilter(
     houseSlug: sp.house || undefined,
     league: sp.league || undefined,
     marketId: sp.market || undefined,
+    dateFrom: sp.from || undefined,
+    dateTo: sp.to || undefined,
   };
 }
