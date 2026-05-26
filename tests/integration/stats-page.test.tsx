@@ -94,6 +94,12 @@ const mockClient = {
   from: (table: string) => {
     if (table === "fixture_simulations") return buildNullSideBuilder();
     if (table === "ai_recommendations") return buildNullSideBuilder();
+    // Wave B: banca_snapshots (bankroll fetch), houses, bets (linked bet) degrade to
+    // null without clobbering lastTable/lastEq — same pattern as side tables above.
+    if (table === "banca_snapshots") return buildNullSideBuilder();
+    if (table === "houses") return buildNullSideBuilder();
+    if (table === "bets") return buildNullSideBuilder();
+    if (table === "ai_reco_feedback") return buildNullSideBuilder();
     mockState.lastTable = table;
     return buildQueryBuilder();
   },

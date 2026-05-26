@@ -592,6 +592,7 @@ describe('<AiRecoPanel> "Apostei" modal flow (A2)', () => {
         awayTeam="Tottenham"
         feedback={[]}
         houses={houses}
+        defaultStake={21.0}
       />,
     );
     fireEvent.click(

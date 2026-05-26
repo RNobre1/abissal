@@ -37,6 +37,7 @@ const NAV_GROUPS: Array<{
       { href: "/audit", label: "auditoria" },
       { href: "/logs", label: "logs IA" },
       { href: "/llm-observability", label: "observability IA" },
+      { href: "/admin/telemetry", label: "telemetria" },
     ],
   },
 ];

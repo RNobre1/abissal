@@ -28,6 +28,7 @@ import {
   type ApostaiHouseOption,
 } from "./apostei-modal";
 import { AddToSlipButton } from "@/components/bet-slip/add-to-slip-button";
+import { applyStakeJitter } from "@/lib/ai-reco/stake-jitter";
 
 export interface LinkedBetSummary {
   id: string;
@@ -102,6 +103,10 @@ export function AiRecoActions({
   const router = useRouter();
   const [_pending, startTransition] = useTransition();
   const [modalOpen, setModalOpen] = useState<boolean>(false);
+  // Stake com jitter ±10% calculada uma vez ao abrir o modal (seed = recoId +
+  // timestamp truncado ao minuto → diferente por sessão mas estável durante
+  // a interação). Salvo em state para não mudar ao re-render.
+  const [jitteredStake, setJitteredStake] = useState<number>(defaultStake);
   const [optimisticLinked, setOptimisticLinked] =
     useState<LinkedBetSummary | null>(null);
 
@@ -113,6 +118,8 @@ export function AiRecoActions({
     return (
       <div
         data-apostei-linked
+        aria-live="polite"
+        aria-atomic="true"
         className="label flex flex-wrap items-baseline gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-bg-soft,transparent)] px-3 py-2 text-[var(--color-ink)]"
       >
         <span className="font-semibold text-[var(--color-vermelho)]">
@@ -144,7 +151,18 @@ export function AiRecoActions({
       <FeedbackButtons
         aiRecommendationId={aiRecommendationId}
         existingDecisions={existingDecisions}
-        onOpenApostei={() => setModalOpen(true)}
+        onOpenApostei={() => {
+          // Aplica jitter ±10% na stake ao abrir o modal.
+          // Seed = recoId XOR minuto-atual → diferente por sessão mas
+          // estável enquanto o modal fica aberto.
+          if (defaultStake > 0) {
+            const minuteSeed = Math.floor(Date.now() / 60000);
+            setJitteredStake(
+              applyStakeJitter(defaultStake, aiRecommendationId ^ minuteSeed),
+            );
+          }
+          setModalOpen(true);
+        }}
       />
 
       {/* Wave M — "+ bilhete" button alongside "Apostei agora" */}
@@ -170,7 +188,7 @@ export function AiRecoActions({
           aiRecommendationId={aiRecommendationId}
           houses={houses}
           defaultOdd={defaultOdd}
-          defaultStake={defaultStake}
+          defaultStake={jitteredStake}
           market={market}
           side={side}
           onCancel={() => setModalOpen(false)}
