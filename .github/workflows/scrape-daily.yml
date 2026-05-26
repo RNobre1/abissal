@@ -58,4 +58,9 @@ jobs:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           AI_RECO_MODEL: ${{ vars.AI_RECO_MODEL }}
           AI_RECO_BANKROLL: ${{ vars.AI_RECO_BANKROLL }}
+          # Wave R (2026-05-26): ActualsReconciler popula actual_corners/cards/sot
+          # via API-Football. Sem API_FOOTBALL_KEY, reconciler skipa gracioso.
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+          API_FOOTBALL_BASE_URL: ${{ secrets.API_FOOTBALL_BASE_URL }}
+          API_FOOTBALL_DAILY_BUDGET: ${{ secrets.API_FOOTBALL_DAILY_BUDGET }}
         run: bundle exec bin/scrape
