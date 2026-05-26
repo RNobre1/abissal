@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { fmt } from "@/lib/format";
-import { computeStreaks } from "@/lib/banca/metrics";
+import { computeStreaks, carryForwardSeries } from "@/lib/banca/metrics";
+import { BankrollChart, type BankrollPoint } from "@/components/banca/bankroll-chart";
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Tipos das views
@@ -94,9 +95,45 @@ export default async function BancaPage() {
       .order("resolved_at", { ascending: false }),
   ]);
 
+  // Bankroll snapshots — optional, degrades gracefully when table absent
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let snapshotsQuery: { data: any[] | null; error: unknown } = { data: null, error: null };
+  try {
+    const from90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const snapshotChain = sbAny
+      .from("banca_snapshots")
+      .select("snapshot_date, balance");
+    if (typeof snapshotChain.gte === "function") {
+      snapshotsQuery = await snapshotChain
+        .gte("snapshot_date", from90)
+        .order("snapshot_date", { ascending: true })
+        .limit(90);
+    }
+  } catch {
+    // banca_snapshots not available in this environment — skip chart
+  }
+
   const houses = (houseViewQuery.data ?? []) as RoiByHouseRow[];
   const periods = (periodViewQuery.data ?? []) as RoiByPeriodRow[];
   const bets = (betsQuery.data ?? []) as BetKindRow[];
+
+  // Bankroll chart data
+  type SnapshotRow = { snapshot_date: string; balance: number };
+  const rawSnapshots = (snapshotsQuery?.data ?? []) as SnapshotRow[];
+  const snapshotPoints = rawSnapshots.map((s) => ({
+    date: s.snapshot_date,
+    balance: Number(s.balance),
+  }));
+  const today = new Date().toISOString().slice(0, 10);
+  const chartFrom90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const filledSnapshots = carryForwardSeries(snapshotPoints, chartFrom90, today);
+  // Compute drawdown
+  let peak = -Infinity;
+  const bankrollChartData: BankrollPoint[] = filledSnapshots.map((p) => {
+    if (p.balance > peak) peak = p.balance;
+    const drawdown = peak > -Infinity ? Math.max(0, peak - p.balance) : 0;
+    return { date: p.date, balance: p.balance, drawdown };
+  });
 
   const isEmpty = houses.length === 0 && bets.length === 0;
 
@@ -133,6 +170,20 @@ export default async function BancaPage() {
         <EmptyState />
       ) : (
         <>
+          {/* Bankroll ao longo do tempo */}
+          {bankrollChartData.length > 1 && (
+            <section className="mb-16">
+              <h2 className="label mb-4">bankroll ao longo do tempo (90d)</h2>
+              <div className="card p-4">
+                <BankrollChart
+                  data={bankrollChartData}
+                  showDrawdown
+                  height={260}
+                />
+              </div>
+            </section>
+          )}
+
           {/* P/L por casa */}
           <section className="mb-16">
             <h2 className="label mb-6">P/L por casa</h2>

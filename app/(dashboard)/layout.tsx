@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { logoutAction } from "@/app/(auth)/login/actions";
 import { CommandPalette } from "@/components/command-palette";
 import { MobileBottomNav } from "@/components/mobile-bottom-nav";
+import { KeyboardHelpModal } from "@/components/keyboard-help-modal";
 import { getDraftSlip } from "@/lib/bet-slip/actions";
 import { BetSlipProvider } from "@/components/bet-slip/bet-slip-provider";
 
@@ -134,6 +135,9 @@ export default async function DashboardLayout({
       <CommandPalette />
 
       <MobileBottomNav />
+
+      {/* Global keyboard shortcuts help modal — open with ? */}
+      <KeyboardHelpModal />
 
       {/* Bet slip FAB + Drawer — always-visible when draft slip has legs */}
       <BetSlipProvider initialSlip={draftSlip} houses={housesResult} />

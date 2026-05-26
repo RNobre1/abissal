@@ -49,7 +49,7 @@ function toneColor(tone: "ink" | "depth" | "vermelho" | "muted"): string {
 export default async function BetsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string; house?: string; league?: string; market?: string }>;
+  searchParams: Promise<{ status?: string; house?: string; league?: string; market?: string; from?: string; to?: string }>;
 }) {
   const sp = await searchParams;
   const supabase = await createClient();
@@ -111,6 +111,8 @@ export default async function BetsPage({
   if (betsFilter.statusValues.length > 0)
     betsQuery = betsQuery.in("status", betsFilter.statusValues);
   if (houseFilter) betsQuery = betsQuery.eq("house_id", houseFilter.id);
+  if (betsFilter.dateFrom) betsQuery = betsQuery.gte("placed_at", betsFilter.dateFrom);
+  if (betsFilter.dateTo) betsQuery = betsQuery.lte("placed_at", `${betsFilter.dateTo}T23:59:59Z`);
 
   const { data: bets } = await betsQuery;
   const rows = bets ?? [];
@@ -130,6 +132,8 @@ export default async function BetsPage({
       house: betsFilter.houseSlug,
       league: betsFilter.league,
       market: betsFilter.marketId,
+      from: betsFilter.dateFrom,
+      to: betsFilter.dateTo,
       ...overrides,
     };
     for (const [k, v] of Object.entries(merged)) {
@@ -137,6 +141,19 @@ export default async function BetsPage({
     }
     const qs = params.toString();
     return qs ? `/bets?${qs}` : "/bets";
+  }
+
+  function buildExportHref() {
+    const params = new URLSearchParams();
+    if (betsFilter.statusKey !== "all") params.set("status", betsFilter.statusKey);
+    if (betsFilter.houseSlug) params.set("house", betsFilter.houseSlug);
+    if (betsFilter.league) params.set("league", betsFilter.league);
+    if (betsFilter.marketId) params.set("market", betsFilter.marketId);
+    if (betsFilter.dateFrom) params.set("from", betsFilter.dateFrom);
+    if (betsFilter.dateTo) params.set("to", betsFilter.dateTo);
+    params.set("format", "csv");
+    params.set("bom", "1"); // BOM for Excel compatibility
+    return `/api/bets/export?${params.toString()}`;
   }
 
   const selectedMarket = availableMarkets.find((m) => m.id === betsFilter.marketId);
@@ -207,7 +224,78 @@ export default async function BetsPage({
         })}
       </nav>
 
-      {/* League + Market filters — client component para router.push funcionar */}
+      <div className="mb-4 flex flex-wrap items-end gap-4">
+        <form method="GET" action="/bets" className="flex flex-wrap items-end gap-3">
+          {/* Preserve current filters as hidden fields */}
+          {betsFilter.statusKey !== "all" && (
+            <input type="hidden" name="status" value={betsFilter.statusKey} />
+          )}
+          {betsFilter.houseSlug && (
+            <input type="hidden" name="house" value={betsFilter.houseSlug} />
+          )}
+          {betsFilter.league && (
+            <input type="hidden" name="league" value={betsFilter.league} />
+          )}
+          {betsFilter.marketId && (
+            <input type="hidden" name="market" value={betsFilter.marketId} />
+          )}
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="from-filter"
+              className="num text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-muted)]"
+            >
+              de
+            </label>
+            <input
+              id="from-filter"
+              type="date"
+              name="from"
+              defaultValue={betsFilter.dateFrom ?? ""}
+              className="num rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-vermelho)]"
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <label
+              htmlFor="to-filter"
+              className="num text-[10px] uppercase tracking-[0.18em] text-[var(--color-ink-muted)]"
+            >
+              até
+            </label>
+            <input
+              id="to-filter"
+              type="date"
+              name="to"
+              defaultValue={betsFilter.dateTo ?? ""}
+              className="num rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] outline-none focus:border-[var(--color-vermelho)]"
+            />
+          </div>
+          <button
+            type="submit"
+            className="num rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+          >
+            filtrar
+          </button>
+          {(betsFilter.dateFrom || betsFilter.dateTo) && (
+            <Link
+              href={buildHref({ from: undefined, to: undefined })}
+              className="num text-xs uppercase tracking-[0.18em] text-[var(--color-ink-muted)] underline hover:text-[var(--color-ink)]"
+            >
+              limpar datas
+            </Link>
+          )}
+        </form>
+
+        {/* CSV export — preserves all active filters */}
+        <a
+          href={buildExportHref()}
+          download
+          className="num ml-auto rounded-[var(--radius-sm)] border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-3 py-1.5 text-xs uppercase tracking-[0.18em] text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+        >
+          ↓ exportar CSV
+        </a>
+      </div>
+
+      {/* League + Market filters — client component para router.push funcionar (Wave B fix) */}
       <BetsSelectFilters
         availableLeagues={availableLeagues}
         availableMarkets={availableMarkets}
