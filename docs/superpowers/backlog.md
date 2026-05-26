@@ -260,11 +260,21 @@ OCR + LLM parser sobre screenshot de cupom de aposta da casa → pré-preenche m
 
 Caso OCR falhe: fallback gracioso pro fluxo manual atual.
 
-### Custo estimado
+### Custo estimado (atualizado 2026-05-25: Pilot pediu 2.5 Flash)
 
-- Gemini 2.0 Flash: ~$0.0005/imagem (input 1k tokens equiv + ~500 output tokens)
-- DeepSeek Vision: ~$0.001/imagem
-- 10 bilhetes/mês × $0.001 = **$0.01/mês** — desprezível
+| Modelo | Input $/M tok | Output $/M tok | Custo/imagem* | Qualidade OCR cupons |
+|---|---|---|---|---|
+| **Gemini 2.5 Flash** | $0.30 | $2.50 | ~$0.0015 | Alta — melhor em layouts densos/tabelas |
+| Gemini 2.5 Flash-Lite | $0.10 | $0.40 | ~$0.0005 | Média-alta — fallback econômico |
+| Gemini 2.0 Flash | $0.10 | $0.40 | ~$0.0005 | Média — base |
+| Claude Haiku 4.5 Vision | $1.00 | $5.00 | ~$0.004 | Alta — overkill no preço |
+| DeepSeek Vision | ~$0.30 | ~$1.00 | ~$0.001 | Não testado em PT-BR cupons |
+
+*Assume 1.2k tokens equiv input (imagem 1080×2400 + prompt) + 500 output tokens estruturados.
+
+**Decisão default: Gemini 2.5 Flash via OpenRouter.** 10 bilhetes/mês × $0.0015 = **$0.015/mês** — desprezível. Fallback automático pro 2.5 Flash-Lite se quota Gemini estourar. Thinking mode OFF (não precisa raciocinar em cima de uma imagem estruturada — só extrair).
+
+Validação inicial: rodar a screenshot Superbet do Pilot pelas 3 opções (2.5 Flash · 2.5 Flash-Lite · DeepSeek Vision), comparar accuracy nas 3 legs estruturadas + 1 live (Coritiba × Bahia X). Só fecha modelo padrão após esse benchmark de 1 caso.
 
 ### TDD
 
