@@ -89,6 +89,110 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
       expect(params).to include('resolved')
     end
 
+    # ── Wave G: BTTS reconciliation ──────────────────────────────────────────
+
+    it 'BTTS: actual_btts=true quando ambos times marcam (1-1)' do
+      row = pending_row(home: 'Arsenal', away: 'Chelsea')
+      updates_captured = []
+
+      db_conn = double('db_conn')
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/SELECT.*status.*=.*'pending'/im), anything)
+        .and_return(double('r', to_a: [row]))
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/UPDATE.*fixture_simulations/im), anything) do |_sql, params|
+          updates_captured << params
+          double('r', cmd_tuples: 1)
+        end
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget).and_return(finished_widget(home_goals: 1, away_goals: 1))
+
+      described_class.new(db_conn: db_conn, client: client, logger: logger).run
+
+      params = updates_captured.first
+      # actual_btts=true (1-1, both scored)
+      expect(params).to include(true)
+    end
+
+    it 'BTTS: actual_btts=false quando apenas um time marca (1-0)' do
+      row = pending_row
+      updates_captured = []
+
+      db_conn = double('db_conn')
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/SELECT.*status.*=.*'pending'/im), anything)
+        .and_return(double('r', to_a: [row]))
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/UPDATE.*fixture_simulations/im), anything) do |_sql, params|
+          updates_captured << params
+          double('r', cmd_tuples: 1)
+        end
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget).and_return(finished_widget(home_goals: 1, away_goals: 0))
+
+      described_class.new(db_conn: db_conn, client: client, logger: logger).run
+
+      params = updates_captured.first
+      # actual_btts=false (home=1, away=0 → away did not score)
+      # params order: [home_goals, away_goals, actual_btts, correct_winner, correct_ou, status, id]
+      # actual_btts should be false
+      expect(params).to include(false)
+    end
+
+    it 'BTTS: actual_btts=false em jogo sem gols (0-0)' do
+      row = pending_row(p_over_25: 0.2) # expect under
+      updates_captured = []
+
+      db_conn = double('db_conn')
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/SELECT.*status.*=.*'pending'/im), anything)
+        .and_return(double('r', to_a: [row]))
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/UPDATE.*fixture_simulations/im), anything) do |_sql, params|
+          updates_captured << params
+          double('r', cmd_tuples: 1)
+        end
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget).and_return(finished_widget(home_goals: 0, away_goals: 0))
+
+      described_class.new(db_conn: db_conn, client: client, logger: logger).run
+
+      # actual_btts=false (0-0, neither scored)
+      params = updates_captured.first
+      expect(params).to include(false)
+    end
+
+    it 'UPDATE SQL inclui actual_btts (7 params escalares + id = 8 no total)' do
+      row = pending_row
+      updates_captured = []
+      sqls_captured = []
+
+      db_conn = double('db_conn')
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/SELECT.*status.*=.*'pending'/im), anything)
+        .and_return(double('r', to_a: [row]))
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/UPDATE.*fixture_simulations/im), anything) do |sql, params|
+          sqls_captured << sql
+          updates_captured << params
+          double('r', cmd_tuples: 1)
+        end
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget).and_return(finished_widget(home_goals: 2, away_goals: 1))
+
+      described_class.new(db_conn: db_conn, client: client, logger: logger).run
+
+      sql = sqls_captured.first
+      params = updates_captured.first
+      expect(sql).to match(/actual_btts/i)
+      # home_goals, away_goals, actual_btts, correct_winner, correct_ou, status, id = 7 total
+      expect(params.length).to eq(7)
+    end
+
     it 'correct_winner=false quando argmax=home mas away vence (0-2)' do
       row = pending_row
       updates_captured = []
@@ -317,6 +421,8 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
       ENV['DATABASE_URL'] = DBHelper.test_url
       ScraperDBHelper.ensure_schema!
       DBHelper.apply_migration!('0018_fixture_simulations.sql')
+      # Wave G: add secondary actual columns. Idempotent (ADD COLUMN IF NOT EXISTS).
+      DBHelper.apply_migration!('0028_actuals_secondary.sql')
     end
 
     before(:each) do
@@ -363,6 +469,36 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
       expect(row['correct_winner']).to eq('t')      # argmax=home, home venceu
       expect(row['correct_over_under']).to eq('f')  # pred over (0.7), total=2 → under
       expect(row['actual_resolved_at']).not_to be_nil
+    end
+
+    it 'Wave G: actual_btts=true quando ambos marcam (1-1)' do
+      insert_sim(status: 'pending', kickoff: (Time.now.utc - 3600),
+                 p_home: 0.35, p_draw: 0.35, p_away: 0.30, p_over_25: 0.5)
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget)
+        .and_return(finished_widget(home_goals: 1, away_goals: 1))
+
+      AdamStats::Scraper::SimulationReconciler
+        .new(client: client, logger: logger).run
+
+      row = fetch_all.first
+      expect(row['status']).to eq('resolved')
+      expect(row['actual_btts']).to eq('t')  # 1-1 → both scored
+    end
+
+    it 'Wave G: actual_btts=false quando só home marca (2-0)' do
+      insert_sim(status: 'pending', kickoff: (Time.now.utc - 3600))
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget)
+        .and_return(finished_widget(home_goals: 2, away_goals: 0))
+
+      AdamStats::Scraper::SimulationReconciler
+        .new(client: client, logger: logger).run
+
+      row = fetch_all.first
+      expect(row['actual_btts']).to eq('f')
     end
 
     it 're-run após resolved é no-op (idempotente: SELECT só pega pending)' do
