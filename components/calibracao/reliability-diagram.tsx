@@ -4,11 +4,18 @@
  * U.3 spec: scatter + diagonal y=x (perfect calibration) + banda Wilson 95%
  * (binomial confidence). SVG puro (sem recharts) — controle total do layout.
  *
+ * B.2 spec:
+ *   - Wilson bars: strokeOpacity 0.35→0.75, width 2→6px (dominante visual)
+ *   - Pontos com n_bin < 30 → círculos abertos (fill=none) + stroke vermelho
+ *   - Pontos com n_bin ≥ 30 → círculos preenchidos (fill vermelho, opacity 0.8)
+ *
  * Eixo X = probabilidade prevista (média do bucket)
  * Eixo Y = frequência observada (acerto real no bucket)
  * Diagonal y=x = calibração perfeita
  * Pontos maiores = mais amostras (n)
  */
+
+const N_BIN_THRESHOLD = 30;
 
 interface Bin {
   range: [number, number];
@@ -106,7 +113,7 @@ export function ReliabilityDiagram({ bins, labelMetric }: ReliabilityDiagramProp
           strokeWidth={1.5}
         />
 
-        {/* Wilson 95% confidence bands */}
+        {/* Wilson 95% confidence bands — B.2: strokeOpacity 0.75 + width 6px (dominante) */}
         {validBins.map((b, i) => {
           const x = toX(b.predictedAvg!);
           const obs = b.observedFreq!;
@@ -114,20 +121,22 @@ export function ReliabilityDiagram({ bins, labelMetric }: ReliabilityDiagramProp
           return (
             <line
               key={`ci-${i}`}
+              data-ci-bar
               x1={x} y1={toY(lo)}
               x2={x} y2={toY(hi)}
               stroke="var(--color-vermelho)"
-              strokeOpacity={0.35}
-              strokeWidth={2}
+              strokeOpacity={0.75}
+              strokeWidth={6}
             />
           );
         })}
 
-        {/* Data points — radius proporcional a n */}
+        {/* Data points — B.2: círculo aberto quando n < 30, preenchido quando n ≥ 30 */}
         {validBins.map((b, i) => {
           const cx = toX(b.predictedAvg!);
           const cy = toY(b.observedFreq!);
           const r = 3 + (b.n / maxN) * 6;
+          const isLowN = b.n < N_BIN_THRESHOLD;
           return (
             <circle
               key={`dot-${i}`}
@@ -135,14 +144,16 @@ export function ReliabilityDiagram({ bins, labelMetric }: ReliabilityDiagramProp
               cx={cx}
               cy={cy}
               r={r}
-              fill="var(--color-vermelho)"
-              fillOpacity={0.8}
-              stroke="var(--color-surface-1)"
-              strokeWidth={1.5}
+              fill={isLowN ? "none" : "var(--color-vermelho)"}
+              fillOpacity={isLowN ? undefined : 0.8}
+              stroke="var(--color-vermelho)"
+              strokeWidth={isLowN ? 2 : 1.5}
+              strokeOpacity={isLowN ? 0.8 : undefined}
             >
               <title>
                 Previsto: {Math.round(b.predictedAvg! * 100)}% · Observado:{" "}
                 {Math.round(b.observedFreq! * 100)}% · n={b.n}
+                {isLowN ? " (n<30, incerto)" : ""}
               </title>
             </circle>
           );
@@ -168,7 +179,7 @@ export function ReliabilityDiagram({ bins, labelMetric }: ReliabilityDiagramProp
         </text>
       </svg>
       <p className="label text-[var(--color-ink-faint)]">
-        Diagonal = calibração perfeita. Pontos maiores = mais amostras. Barras = IC 95% Wilson.
+        Diagonal = calibração perfeita. Pontos maiores = mais amostras. Barras = IC 95% Wilson. Círculos abertos = n&lt;30.
       </p>
     </div>
   );

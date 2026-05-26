@@ -28,12 +28,12 @@ describe("<SummaryMetricCards />", () => {
     expect(screen.getByText(/CLV/i)).toBeInTheDocument();
   });
 
-  it("Brier abaixo do target → cor verde (badge 'ok')", () => {
+  it("Brier abaixo do target com n≥30 → cor verde (badge 'ok')", () => {
     const { container } = render(
       <SummaryMetricCards
-        brier={{ value: 0.21, target: 0.25, label: "Brier 1X2" }}
-        roi={{ value: 0.08, target: 0.0, label: "ROI" }}
-        clv={{ value: 0.008, target: 0.015, label: "CLV médio" }}
+        brier={{ value: 0.21, target: 0.25, label: "Brier 1X2", n: 50 }}
+        roi={{ value: 0.08, target: 0.0, label: "ROI", n: 50 }}
+        clv={{ value: 0.008, target: 0.015, label: "CLV médio", n: 50 }}
       />,
     );
     const brierCard = container.querySelector("[data-metric='brier']");
@@ -41,12 +41,12 @@ describe("<SummaryMetricCards />", () => {
     expect(brierCard!.getAttribute("data-status")).toBe("good");
   });
 
-  it("Brier acima do target → cor vermelha (badge 'warn')", () => {
+  it("Brier acima do target com n≥30 → cor vermelha (badge 'warn')", () => {
     const { container } = render(
       <SummaryMetricCards
-        brier={{ value: 0.30, target: 0.25, label: "Brier 1X2" }}
-        roi={{ value: -0.05, target: 0.0, label: "ROI" }}
-        clv={{ value: -0.01, target: 0.015, label: "CLV médio" }}
+        brier={{ value: 0.30, target: 0.25, label: "Brier 1X2", n: 50 }}
+        roi={{ value: -0.05, target: 0.0, label: "ROI", n: 50 }}
+        clv={{ value: -0.01, target: 0.015, label: "CLV médio", n: 50 }}
       />,
     );
     const brierCard = container.querySelector("[data-metric='brier']");
@@ -54,12 +54,12 @@ describe("<SummaryMetricCards />", () => {
     expect(brierCard!.getAttribute("data-status")).toBe("warn");
   });
 
-  it("ROI positivo → status good", () => {
+  it("ROI positivo com n≥30 → status good", () => {
     const { container } = render(
       <SummaryMetricCards
-        brier={{ value: 0.21, target: 0.25, label: "Brier 1X2" }}
-        roi={{ value: 0.08, target: 0.0, label: "ROI" }}
-        clv={{ value: 0.008, target: 0.015, label: "CLV médio" }}
+        brier={{ value: 0.21, target: 0.25, label: "Brier 1X2", n: 50 }}
+        roi={{ value: 0.08, target: 0.0, label: "ROI", n: 50 }}
+        clv={{ value: 0.008, target: 0.015, label: "CLV médio", n: 50 }}
       />,
     );
     const roiCard = container.querySelector("[data-metric='roi']");
