@@ -122,9 +122,16 @@ module AdamStats
         end
 
         def select_pending(conn)
+          # `country` não existe em `fixture_simulations` — vive em `fixtures`
+          # (adicionada em 0029_actuals_secondary apenas pra tabela fixtures).
+          # Lookup via subquery: fixtures.source_url contém o choistats fixture id
+          # no path `/fixture/{id}`, então casa com fs.fixture_id::text.
           conn.exec_params(
             "SELECT fs.id, fs.fixture_id, fs.home_team, fs.away_team, " \
-            "       fs.kickoff_utc, fs.league, fs.country " \
+            "       fs.kickoff_utc, fs.league, " \
+            "       (SELECT f.country FROM fixtures f " \
+            "          WHERE f.source_url LIKE '%/fixture/' || fs.fixture_id::text " \
+            "          LIMIT 1) AS country " \
             "FROM fixture_simulations fs " \
             "WHERE fs.actual_home_goals IS NOT NULL " \
             "  AND fs.actual_corners_home IS NULL " \
