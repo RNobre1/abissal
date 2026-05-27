@@ -36,14 +36,16 @@ export default async function BetBuilderPage({ searchParams }: BetBuilderPagePro
     name: h.name,
   }));
 
-  // Converte searchParams (Next 15+/16: Promise) em URLSearchParams pra passar
-  // ao BuilderForm. Caminho de pré-preenchimento via foto OCR (Worker C):
+  // searchParams (Next 16: Promise) → plain object pra serializar no boundary
+  // RSC→Client (URLSearchParams não é serializable, gera "l.get is not a
+  // function" em runtime). BuilderForm reconstrói URLSearchParams interno.
+  // Caminho de pré-preenchimento via foto OCR (Worker C):
   // /bilhete/builder?fixture_id=...&home=...&away=...&odd=...&stake=...&house=...&legs=<JSON encoded>
   const resolvedParams = await searchParams;
-  const initialParams = new URLSearchParams();
+  const initialParams: Record<string, string> = {};
   for (const [key, value] of Object.entries(resolvedParams)) {
-    if (typeof value === "string") initialParams.set(key, value);
-    else if (Array.isArray(value) && value[0]) initialParams.set(key, value[0]);
+    if (typeof value === "string") initialParams[key] = value;
+    else if (Array.isArray(value) && typeof value[0] === "string") initialParams[key] = value[0];
   }
 
   return (

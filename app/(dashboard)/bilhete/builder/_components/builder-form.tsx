@@ -27,8 +27,12 @@ interface Leg {
 
 export interface BuilderFormProps {
   houses: HouseOption[];
-  /** Query params for pre-filling (passed from Server Component or tests) */
-  initialParams?: URLSearchParams;
+  /**
+   * Query params for pre-filling. Plain object porque URLSearchParams não é
+   * serializável no boundary RSC→Client. Aceita ambos (testes passam
+   * URLSearchParams; produção via page.tsx passa Record).
+   */
+  initialParams?: URLSearchParams | Record<string, string>;
 }
 
 let _legCounter = 0;
@@ -68,7 +72,13 @@ export function BuilderForm({ houses, initialParams }: BuilderFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   // --- form state ---
-  const params = initialParams ?? new URLSearchParams();
+  // Normaliza initialParams (URLSearchParams | Record) pra URLSearchParams.
+  // Server Component só consegue serializar Record<string, string> através do
+  // RSC boundary — URLSearchParams quebra com "l.get is not a function".
+  const params: URLSearchParams =
+    initialParams instanceof URLSearchParams
+      ? initialParams
+      : new URLSearchParams(initialParams ?? {});
 
   const [houseId, setHouseId] = useState(
     params.get("house") ?? houses[0]?.id ?? "",
