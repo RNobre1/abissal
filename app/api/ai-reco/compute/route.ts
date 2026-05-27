@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { env } from "@/lib/env";
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   buildEdgeTable,
@@ -122,6 +123,20 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 },
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // 1b. Auth gate -- expensive LLM call; only the authenticated user can trigger
+  // ---------------------------------------------------------------------------
+  try {
+    const serverClient = (await createClient()) as AnySupabase;
+    const { data: { user } = { user: null } } = await serverClient.auth.getUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const { fixtureId } = parsed;
   // Choistats id (derivado de source_url) é o identificador usado em
   // ai_recommendations.fixture_id e fixture_simulations.fixture_id (id-space
