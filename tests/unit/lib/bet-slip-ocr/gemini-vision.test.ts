@@ -293,4 +293,93 @@ describe("parseBetSlipImage", () => {
     // Only 1 attempt — network errors do not trigger the validation-failure retry
     expect(vi.mocked(global.fetch)).toHaveBeenCalledTimes(1);
   });
+
+  it("bet builder: is_bet_builder true + legs com odd_taken null são aceitos", async () => {
+    const betBuilderResponse = {
+      id: "chatcmpl-bet-builder",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: JSON.stringify({
+              legs: [
+                {
+                  home: "Flamengo",
+                  away: "Palmeiras",
+                  market: "1X2",
+                  side: "Casa",
+                  odd_taken: null,
+                  league: "Brasileirão Série A",
+                  kickoff_iso: "2026-05-27T22:00:00Z",
+                },
+                {
+                  home: "Flamengo",
+                  away: "Palmeiras",
+                  market: "Over/Under 2.5 Gols",
+                  side: "Over",
+                  odd_taken: null,
+                  league: "Brasileirão Série A",
+                  kickoff_iso: "2026-05-27T22:00:00Z",
+                },
+              ],
+              stake_total: 15,
+              odd_combined: 3.75,
+              house_detected: "betano",
+              is_bet_builder: true,
+            }),
+          },
+          finish_reason: "stop",
+        },
+      ],
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(makeOkResponse(betBuilderResponse)));
+
+    const result = await parseBetSlipImage(makeMinimalPngBuffer());
+
+    expect(result.is_bet_builder).toBe(true);
+    expect(result.legs).toHaveLength(2);
+    expect(result.legs[0].odd_taken).toBeNull();
+    expect(result.legs[1].odd_taken).toBeNull();
+    expect(result.odd_combined).toBe(3.75);
+  });
+
+  it("bet builder ausente no JSON → is_bet_builder default false", async () => {
+    const normalResponse = {
+      id: "chatcmpl-normal",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: JSON.stringify({
+              legs: [
+                {
+                  home: "São Paulo",
+                  away: "Corinthians",
+                  market: "1X2",
+                  side: "Casa",
+                  odd_taken: 2.0,
+                  league: null,
+                  kickoff_iso: null,
+                },
+              ],
+              stake_total: 10,
+              odd_combined: 2.0,
+              house_detected: "bet365",
+              // is_bet_builder ausente — deve default false
+            }),
+          },
+          finish_reason: "stop",
+        },
+      ],
+    };
+
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(makeOkResponse(normalResponse)));
+
+    const result = await parseBetSlipImage(makeMinimalPngBuffer());
+
+    expect(result.is_bet_builder).toBe(false);
+  });
 });

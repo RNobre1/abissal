@@ -66,6 +66,7 @@ const PARSED_SLIP_FIXTURE: ParsedSlip = {
   stake_total: 50,
   odd_combined: 2.1,
   house_detected: "superbet",
+  is_bet_builder: false,
 };
 
 const MATCH_RESULT_FOUND: MatchResult = {
