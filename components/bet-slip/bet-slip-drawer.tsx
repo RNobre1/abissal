@@ -18,6 +18,7 @@
 import Link from "next/link";
 import type { Conflict, SlipLeg } from "@/lib/bet-slip/compute";
 import { BetSlipPhotoImport } from "./bet-slip-photo-import";
+import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 interface HouseOption {
   id: string;
@@ -65,6 +66,15 @@ export function BetSlipDrawer({
   onCancel,
   onLegsAdded,
 }: BetSlipDrawerProps) {
+  const track = useTelemetry();
+
+  function handleClose() {
+    if (legs.length >= 1) {
+      track("bilhete_drawer_abandoned", { leg_count: legs.length });
+    }
+    onClose();
+  }
+
   function handleStakeInput(e: React.ChangeEvent<HTMLInputElement>) {
     const raw = e.target.value;
     if (raw === "" || raw === "0") {
@@ -97,7 +107,7 @@ export function BetSlipDrawer({
           <button
             type="button"
             aria-label="Fechar bilhete"
-            onClick={onClose}
+            onClick={handleClose}
             className="label rounded-[var(--radius-sm)] px-2 py-1 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
           >
             ✕
