@@ -234,7 +234,7 @@ export function BuilderForm({ houses, initialParams }: BuilderFormProps) {
       </label>
 
       {/* ── Jogo (home + away + fuzzy search) ────────────────────────────── */}
-      <fieldset className="card flex flex-col gap-3 p-4">
+      <fieldset className="card flex min-w-0 flex-col gap-3 p-4">
         <legend className="label mb-1 text-[var(--color-ink-muted)]">
           Jogo
         </legend>
@@ -375,7 +375,7 @@ export function BuilderForm({ houses, initialParams }: BuilderFormProps) {
       </label>
 
       {/* ── Legs list ─────────────────────────────────────────────────────── */}
-      <fieldset className="card flex flex-col gap-3 p-4">
+      <fieldset className="card flex min-w-0 flex-col gap-3 p-4">
         <legend className="label mb-1 text-[var(--color-ink-muted)]">
           Condições ({legs.length})
         </legend>
