@@ -24,6 +24,7 @@ const KIND_LABEL: Record<BetKind, string> = {
   single: "simples",
   multiple: "múltipla",
   system: "sistema",
+  bet_builder: "bet builder",
 };
 
 function statusTone(s: BetStatus): "ink" | "depth" | "vermelho" | "muted" {
