@@ -183,8 +183,8 @@ describe("createBetBuilderAction — INSERT path", () => {
     // odd_taken must be null for bet_builder legs
     expect(selectionsPayload[0]?.odd_taken).toBeNull();
     expect(selectionsPayload[1]?.odd_taken).toBeNull();
-    // odds sentinel = 0 (combined odd lives in bets.total_odds)
-    expect(selectionsPayload[0]?.odds).toBe(0);
+    // odds must be odd_combined (satisfies CHECK > 1); not 0
+    expect(selectionsPayload[0]?.odds).toBe(5.5);
     // event_label and selection_label populated
     expect(String(selectionsPayload[0]?.event_label)).toContain("Flamengo");
     expect(String(selectionsPayload[0]?.selection_label)).toContain("Mais 10.5");
@@ -194,5 +194,44 @@ describe("createBetBuilderAction — INSERT path", () => {
     mockInsertSingle.mockResolvedValue({ data: null, error: { message: "db fail" } });
     const result = await createBetBuilderAction(makeValidInput());
     expect("error" in result).toBe(true);
+  });
+
+  // ── NEW: odds CHECK constraint + selError atomicity ───────────────────────
+
+  it("odds field passes the CHECK constraint (odds > 1) — stores odd_combined not 0", async () => {
+    try {
+      await createBetBuilderAction(makeValidInput());
+    } catch {
+      // redirect
+    }
+    const [selectionsPayload] = mockInsertSelections.mock.calls[0] as [
+      Array<Record<string, unknown>>,
+    ];
+    // odd_combined is 5.5 in makeValidInput; each selection must carry that value
+    expect(Number(selectionsPayload[0]?.odds)).toBeGreaterThan(1);
+    expect(selectionsPayload[0]?.odds).toBe(5.5);
+  });
+
+  it("selError DELETEs the bets row and returns error (atomicity)", async () => {
+    const mockDeleteEq = vi.fn().mockResolvedValue({ error: null });
+    const mockDelete = vi.fn(() => ({ eq: mockDeleteEq }));
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "bets") return { insert: mockInsert, delete: mockDelete };
+      if (table === "bet_selections")
+        return { insert: vi.fn().mockResolvedValue({ error: { message: "check_violation" } }) };
+      return { insert: vi.fn() };
+    });
+
+    const result = await createBetBuilderAction(makeValidInput());
+
+    expect("error" in result).toBe(true);
+    expect(mockDelete).toHaveBeenCalled();
+
+    // restore mock for other tests
+    mockFrom.mockImplementation((table: string) => {
+      if (table === "bets") return { insert: mockInsert };
+      if (table === "bet_selections") return { insert: mockInsertSelections };
+      return { insert: vi.fn() };
+    });
   });
 });
