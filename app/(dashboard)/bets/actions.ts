@@ -153,6 +153,24 @@ export async function placeBetAction(
 
   if (error) return { error: error.message };
 
+  // Patch bet_selections.odd_taken — persiste a odd real apostada pelo Pilot
+  // (migration 0030). Necessário para CLV correto: CLV = (odd_taken / odd_close - 1) * 100.
+  // Atualiza cada leg por position_index dentro do bet recém-criado.
+  // Non-fatal: se a coluna ainda não existir (pré-migration 0030), ignora silencioso.
+  try {
+    await Promise.all(
+      data.selections.map((sel, idx) =>
+        supabase
+          .from("bet_selections")
+          .update({ odd_taken: Number(sel.odds.toFixed(4)) })
+          .eq("bet_id", betId as string)
+          .eq("position_index", idx),
+      ),
+    );
+  } catch {
+    // Pre-migration 0030 fallback: silently ignore.
+  }
+
   revalidatePath("/bets");
   revalidatePath("/transactions");
   revalidatePath("/houses");

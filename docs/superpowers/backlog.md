@@ -46,15 +46,12 @@
 
 ### P2 — Lint `bets/new/form.tsx` (trava CI)
 
-**Gate:** resolver agora — `eslint` reclama de setState sync em useEffect (linha ~70).
-
-- Fix: lint check `useEffect` já tem `// eslint-disable-next-line` válido para o mount case
-- Verificar se há outro `useEffect` sem disable adicionado recentemente
+**Gate:** resolver agora — `eslint` reclama de setState sync em useEffect.
 
 ### P3 — Pendente Pilot (não é código)
 
 - Criar bot Telegram via @BotFather + `gh secret set TELEGRAM_BOT_TOKEN/CHAT_ID`
-- Login single-user: smoke E2E protegido aguarda spot-check manual com magic-link real
+- Login single-user: smoke E2E protegido aguarda spot-check manual
 - Pendência PAT Supabase: rotacionar service role key quando expirar
 
 ---
@@ -80,7 +77,7 @@
 
 ## WAVE O+E+P+R — Expansão mercados corners/cards/SOT
 
-**DEFERRED — arquivado em `docs/tasks/_archive/wave-oepr-deferred/`**  
+**DEFERRED — arquivado em `docs/tasks/_archive/wave-oepr-deferred/`**
 Gate de entrada: CLV médio ≥ +1.5% em ≥100 bets reais. Não mexer antes disso.
 
 ---

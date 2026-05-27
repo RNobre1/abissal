@@ -1,5 +1,5 @@
 /**
- * TDD — placeBetAction: sport_id, market_id, league persistence
+ * TDD — placeBetAction: sport_id, market_id, league persistence + odd_taken patch
  *
  * Tests the schema validation layer of placeBetAction. The Supabase client
  * is mocked so no real DB is needed.
@@ -9,12 +9,17 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 // ── Supabase mock — factory avoids hoisting TDZ issue ───────────────────────
 const mockRpc = vi.fn();
 const mockGetUser = vi.fn();
+const mockEq2 = vi.fn().mockResolvedValue({ error: null });
+const mockEq1 = vi.fn(() => ({ eq: mockEq2 }));
+const mockUpdate = vi.fn(() => ({ eq: mockEq1 }));
+const mockFrom = vi.fn(() => ({ update: mockUpdate }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () =>
     Promise.resolve({
       auth: { getUser: mockGetUser },
       rpc: mockRpc,
+      from: mockFrom,
     }),
 }));
 
@@ -65,6 +70,7 @@ describe("placeBetAction — sport_id / market_id / league", () => {
     vi.clearAllMocks();
     mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
     mockRpc.mockResolvedValue({ data: "bet-uuid-abc", error: null });
+    mockEq2.mockResolvedValue({ error: null });
   });
 
   it("passes sport_id, market_id, league to place_bet RPC payload", async () => {
@@ -129,5 +135,60 @@ describe("placeBetAction — sport_id / market_id / league", () => {
     mockRpc.mockResolvedValue({ data: null, error: { message: "DB error" } });
     const result = await placeBetAction({}, buildFormData());
     expect(result.error).toBe("DB error");
+  });
+});
+
+// ── odd_taken patch tests ─────────────────────────────────────────────────────
+describe("placeBetAction — odd_taken patch em bet_selections", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
+    mockRpc.mockResolvedValue({ data: "bet-uuid-abc", error: null });
+    mockEq2.mockResolvedValue({ error: null });
+  });
+
+  it("1 leg — atualiza bet_selections com odd_taken correto", async () => {
+    const fd = buildFormData({ odds: "1,85" });
+    try {
+      await placeBetAction({}, fd);
+    } catch {
+      // redirect throws — expected
+    }
+
+    // from("bet_selections") chamado exatamente 1x (1 leg)
+    expect(mockFrom).toHaveBeenCalledWith("bet_selections");
+    expect(mockUpdate).toHaveBeenCalledWith({ odd_taken: 1.85 });
+    // eq("bet_id", <betId>) → eq("position_index", 0)
+    expect(mockEq1).toHaveBeenCalledWith("bet_id", "bet-uuid-abc");
+    expect(mockEq2).toHaveBeenCalledWith("position_index", 0);
+  });
+
+  it("múltiplas legs — cada leg tem odd_taken e position_index correto", async () => {
+    const fd = buildFormData({
+      kind: "multiple",
+      event_label: ["Jogo A", "Jogo B"],
+      selection_label: ["sel A", "sel B"],
+      odds: ["1,50", "2,00"],
+      event_date: ["", ""],
+      sport_id: ["", ""],
+      market_id: ["", ""],
+      league: ["", ""],
+    });
+    try {
+      await placeBetAction({}, fd);
+    } catch {
+      // redirect
+    }
+
+    // from("bet_selections") chamado 2x (2 legs)
+    expect(mockFrom).toHaveBeenCalledTimes(2);
+
+    // Primeira leg: odd 1.50 → position_index 0
+    expect(mockUpdate.mock.calls[0]).toEqual([{ odd_taken: 1.5 }]);
+    expect(mockEq2.mock.calls[0]).toEqual(["position_index", 0]);
+
+    // Segunda leg: odd 2.00 → position_index 1
+    expect(mockUpdate.mock.calls[1]).toEqual([{ odd_taken: 2.0 }]);
+    expect(mockEq2.mock.calls[1]).toEqual(["position_index", 1]);
   });
 });
