@@ -51,6 +51,7 @@ export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProp
   const router = useRouter();
   const [slip, setSlip] = useState<BetSlip | null>(initialSlip);
   const [houseId, setHouseId] = useState<string>(houses[0]?.id ?? "");
+  const [isFreeBet, setIsFreeBet] = useState(false);
   const [removingId, setRemovingId] = useState<number | null>(null);
   const [committing, startCommitting] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -139,7 +140,7 @@ export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProp
     if (!slip || !houseId) return;
     setError(null);
     startCommitting(async () => {
-      const result = await commitSlip(slip.id, houseId);
+      const result = await commitSlip(slip.id, houseId, isFreeBet);
       if (result.error) {
         setError(result.error);
         return;
@@ -287,6 +288,21 @@ export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProp
               ))
             )}
           </select>
+        </label>
+
+        {/* Free bet checkbox */}
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={isFreeBet}
+            onChange={(e) => setIsFreeBet(e.target.checked)}
+            disabled={committing}
+            className="h-4 w-4 accent-[var(--color-vermelho)]"
+            aria-label="Aposta grátis (não desconta da banca)"
+          />
+          <span className="label text-[var(--color-ink-muted)]">
+            🎁 Aposta grátis (não desconta da banca)
+          </span>
         </label>
 
         {/* Error */}

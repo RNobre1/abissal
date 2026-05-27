@@ -59,6 +59,7 @@ export function PlaceBetForm({
   );
   const [legs, setLegs] = useState<Leg[]>([emptyLeg()]);
   const [stake, setStake] = useState<string>(state.values?.total_stake ?? "");
+  const [isFreeBet, setIsFreeBet] = useState(false);
 
   // ── Autosave draft ──────────────────────────────────────────────────────────
   // On first mount, restore from localStorage draft (if any and form is fresh).
@@ -172,6 +173,21 @@ export function PlaceBetForm({
           onChange={(e) => setStake(e.target.value)}
         />
       </Field>
+
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          name="is_free_bet"
+          value="true"
+          checked={isFreeBet}
+          onChange={(e) => setIsFreeBet(e.target.checked)}
+          className="h-4 w-4 accent-[var(--color-vermelho)]"
+          aria-label="Aposta grátis (não desconta da banca)"
+        />
+        <span className="label text-[var(--color-ink-muted)]">
+          🎁 Aposta grátis (não desconta da banca)
+        </span>
+      </label>
 
       <Field label="quando" htmlFor="placed_at">
         <Input
