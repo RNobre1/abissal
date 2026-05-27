@@ -13,6 +13,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { addLegToSlip, type AddLegInput } from "@/lib/bet-slip/actions";
+import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 interface AddToSlipButtonProps {
   input: AddLegInput;
@@ -23,6 +24,7 @@ interface AddToSlipButtonProps {
 
 export function AddToSlipButton({ input, ariaLabel, className }: AddToSlipButtonProps) {
   const router = useRouter();
+  const track = useTelemetry();
   const [pending, startTransition] = useTransition();
   const [added, setAdded] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -35,6 +37,11 @@ export function AddToSlipButton({ input, ariaLabel, className }: AddToSlipButton
         setError(result.error);
         return;
       }
+      track("bilhete_leg_added", {
+        fixture_id: input.fixture_id ?? undefined,
+        market: input.market,
+        side: input.side,
+      });
       setAdded(true);
       router.refresh();
     });

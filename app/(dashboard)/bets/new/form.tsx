@@ -66,6 +66,9 @@ export function PlaceBetForm({
     if (state.values) return; // form was already submitted with values — don't restore
     const saved = loadBetDraft();
     if (!saved) return;
+    // Intentional: mount-only draft restore. setState in useEffect([]) is safe here —
+    // runs exactly once, no external subscription, no infinite loop risk.
+    /* eslint-disable react-hooks/set-state-in-effect */
     if (saved.kind === "single" || saved.kind === "multiple") {
       setKind(saved.kind as "single" | "multiple");
     }
@@ -73,6 +76,7 @@ export function PlaceBetForm({
     if (Array.isArray(saved.legs) && saved.legs.length > 0) {
       setLegs(saved.legs as Leg[]);
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // run once on mount
 

@@ -13,6 +13,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { BetSlipFAB } from "./bet-slip-fab";
 import { BetSlipDrawer } from "./bet-slip-drawer";
+import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 import {
   computeOddCombined,
   computePotentialReturn,
@@ -39,6 +40,7 @@ interface BetSlipProviderProps {
 
 export function BetSlipProvider({ initialSlip, houses }: BetSlipProviderProps) {
   const router = useRouter();
+  const track = useTelemetry();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [slip, setSlip] = useState<BetSlip | null>(initialSlip);
   const [removingId, setRemovingId] = useState<number | null>(null);
@@ -89,6 +91,11 @@ export function BetSlipProvider({ initialSlip, houses }: BetSlipProviderProps) {
         alert(`Erro: ${result.error}`);
         return;
       }
+      track("bilhete_slip_committed", {
+        leg_count: legs.length,
+        odd_combined: oddCombined,
+        has_stake: stakeTotal != null,
+      });
       setSlip(null);
       setDrawerOpen(false);
       router.push(`/bets/${result.betId}`);
