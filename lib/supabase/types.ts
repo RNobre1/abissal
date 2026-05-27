@@ -663,6 +663,7 @@ export type Database = {
           expected_return: number
           house_id: string
           id: string
+          is_free_bet: boolean
           kind: Database["public"]["Enums"]["bet_kind"]
           note: string | null
           placed_at: string
@@ -682,6 +683,7 @@ export type Database = {
           expected_return: number
           house_id: string
           id?: string
+          is_free_bet?: boolean
           kind: Database["public"]["Enums"]["bet_kind"]
           note?: string | null
           placed_at?: string
@@ -701,6 +703,7 @@ export type Database = {
           expected_return?: number
           house_id?: string
           id?: string
+          is_free_bet?: boolean
           kind?: Database["public"]["Enums"]["bet_kind"]
           note?: string | null
           placed_at?: string

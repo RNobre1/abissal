@@ -250,6 +250,7 @@ export async function updateSlipStake(
 export async function commitSlip(
   slipId: number,
   houseId: string,
+  isFreeBet: boolean = false,
 ): Promise<CommitSlipResult> {
   const supabaseRaw = await createClient();
   const supabase = supabaseRaw as AnyClient;
@@ -312,6 +313,7 @@ export async function commitSlip(
       kind: "multiple",
       total_stake: slip.stake_total,
       placed_at: new Date().toISOString(),
+      is_free_bet: isFreeBet,
       selections,
     },
   });

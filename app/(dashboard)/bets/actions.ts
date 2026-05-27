@@ -50,6 +50,7 @@ const placeSchema = z.object({
   placed_at: z.string().min(1, "informe quando"),
   note: z.string().max(500).optional(),
   thesis: z.string().max(1000).optional(),
+  is_free_bet: z.boolean().default(false).optional(),
   selections: z.array(selectionSchema).min(1),
 });
 
@@ -89,6 +90,7 @@ export async function placeBetAction(
     placed_at: String(formData.get("placed_at") ?? ""),
     note: String(formData.get("note") ?? ""),
     thesis: formData.get("thesis") ? String(formData.get("thesis")) : undefined,
+    is_free_bet: formData.get("is_free_bet") === "true",
     selections: legs,
   };
 
@@ -136,6 +138,7 @@ export async function placeBetAction(
     placed_at: placedIso,
     note: data.note ? data.note : null,
     thesis: data.thesis ? data.thesis : null,
+    is_free_bet: data.is_free_bet ?? false,
     selections: data.selections.map((s) => ({
       event_label: s.event_label,
       selection_label: s.selection_label,
