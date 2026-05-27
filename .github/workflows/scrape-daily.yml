@@ -59,3 +59,15 @@ jobs:
           AI_RECO_MODEL: ${{ vars.AI_RECO_MODEL }}
           AI_RECO_BANKROLL: ${{ vars.AI_RECO_BANKROLL }}
         run: bundle exec bin/scrape
+
+      - name: Ping healthchecks (success)
+        if: success() && env.HEALTHCHECKS_URL != ''
+        env:
+          HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
+        run: curl -fsS --retry 3 "$HEALTHCHECKS_URL" || true
+
+      - name: Ping healthchecks (fail)
+        if: (failure() || cancelled()) && env.HEALTHCHECKS_URL != ''
+        env:
+          HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
+        run: curl -fsS --retry 3 "${HEALTHCHECKS_URL}/fail" || true
