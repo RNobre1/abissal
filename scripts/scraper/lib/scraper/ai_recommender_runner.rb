@@ -487,8 +487,19 @@ module AdamStats
         nil
       end
 
+      # Copy user-facing PT-BR quando o LLM falha (parse error, HTTP error, timeout).
+      # NÃO vazar a string técnica de `result[:error]` em `reasoning_full` — ela
+      # é renderizada direto no card `/fixtures/[id]` como se fosse análise.
+      LLM_FAILURE_SUMMARY = 'Análise indisponível agora'
+      LLM_FAILURE_REASONING = 'A IA não conseguiu processar este jogo desta vez. Tente pedir uma nova análise em alguns minutos.'
+
       def insert_reco(conn, row, all_candidates, league_calibrated, result, log_id, cost)
-        d = result[:decision] || { verdict: 'skip', confidence: 'baixo', reasoning: result[:error] }
+        d = result[:decision] || {
+          verdict: 'skip',
+          confidence: 'baixo',
+          summary_line: LLM_FAILURE_SUMMARY,
+          reasoning: LLM_FAILURE_REASONING,
+        }
         chosen = if d[:verdict] == 'bet'
                    all_candidates.find { |c| c[:market] == d[:market] && c[:side] == d[:side] }
                  end

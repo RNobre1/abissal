@@ -386,6 +386,36 @@ module AdamStats::Scraper
       end
     end
 
+    describe 'LLM parse-error fallback copy' do
+      it 'NAO vaza texto técnico em reasoning_full quando LLM falha' do
+        # Regressão: ai_recommendations 309 (Fluminense), 194, 183, 136 tinham
+        # reasoning_full = "failed to parse decision JSON (schema mismatch or
+        # invalid JSON)" — vazava string interna do client pro card user-facing.
+        runner = described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true)
+        row = { 'fixture_id' => 99, 'home_team' => 'A', 'away_team' => 'B',
+                'league' => 'L', 'kickoff_utc' => '2026-05-30T15:00:00Z' }
+        candidates = []
+        failed_result = { ok: false, error: 'failed to parse decision JSON (schema mismatch or invalid JSON)' }
+
+        captured_params = nil
+        conn = instance_double(PG::Connection)
+        result_double = double('PG::Result', first: nil)
+        allow(conn).to receive(:exec_params) { |_sql, params| captured_params = params; result_double }
+
+        runner.send(:insert_reco, conn, row, candidates, true, failed_result, nil, 0.0)
+
+        # params order: ..., summary_line(22), reasoning_full(23), ...
+        # RECO_INSERT_SQL: indices baseados no array passado
+        summary_line = captured_params[22]
+        reasoning_full = captured_params[23]
+
+        expect(summary_line).to eq('Análise indisponível agora')
+        expect(reasoning_full).to eq('A IA não conseguiu processar este jogo desta vez. Tente pedir uma nova análise em alguns minutos.')
+        expect(reasoning_full).not_to include('failed to parse')
+        expect(reasoning_full).not_to include('schema mismatch')
+      end
+    end
+
     describe 'failure isolation' do
       it 'uma fixture com erro nao derruba o batch' do
         sims = [
