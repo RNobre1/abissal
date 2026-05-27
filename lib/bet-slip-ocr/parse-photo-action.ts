@@ -33,6 +33,8 @@ export interface ParsePhotoResult {
     odd_combined: number | null;
     house_detected: string | null;
   };
+  /** Quando is_bet_builder=true do Gemini, vem populado; client redireciona em vez de abrir modal. */
+  redirect_to?: string;
 }
 
 // ── Constants ─────────────────────────────────────────────────────────────────
@@ -71,7 +73,49 @@ export async function parseBetSlipPhoto(
     // 3. Parsear via Gemini Vision
     const parsed = await parseBetSlipImage(buffer);
 
-    // 4. Fuzzy-match cada leg contra fixtures do DB
+    // 4a. Bet Builder: single-game multi-market — redirect ao /bilhete/builder
+    if (parsed.is_bet_builder === true) {
+      const firstLeg = parsed.legs[0];
+      const match = await matchFixture({
+        home: firstLeg.home,
+        away: firstLeg.away,
+        kickoffIso: firstLeg.kickoff_iso ?? null,
+        league: firstLeg.league ?? null,
+      });
+
+      const params = new URLSearchParams();
+
+      const CONFIDENCE_AUTO_LINK = 0.85;
+      if (match.best !== null && match.best.confidence >= CONFIDENCE_AUTO_LINK) {
+        params.set("fixture_id", String(match.best.fixture_id));
+      } else {
+        params.set("home", firstLeg.home);
+        params.set("away", firstLeg.away);
+      }
+
+      if (parsed.odd_combined !== null) {
+        params.set("odd", String(parsed.odd_combined));
+      }
+      if (parsed.stake_total !== null) {
+        params.set("stake", String(parsed.stake_total));
+      }
+      if (parsed.house_detected !== null) {
+        params.set("house", parsed.house_detected);
+      }
+
+      const legs = parsed.legs.map((leg) => ({
+        market: leg.market,
+        side: leg.side,
+      }));
+      params.set("legs", encodeURIComponent(JSON.stringify(legs)));
+
+      return {
+        ok: true,
+        redirect_to: `/bilhete/builder?${params.toString()}`,
+      };
+    }
+
+    // 4b. Fuzzy-match cada leg contra fixtures do DB
     const legsWithMatch: ParsedLegWithMatch[] = await Promise.all(
       parsed.legs.map(async (leg) => {
         const match = await matchFixture({
@@ -97,8 +141,7 @@ export async function parseBetSlipPhoto(
     if (err instanceof OcrParseError) {
       return {
         ok: false,
-        error:
-          "Não consegui ler o cupom. Tenta com uma foto mais clara, OU registra manual em /bets/nova se for 'Criar Aposta' (Bet Builder) — esse tipo ainda não é suportado.",
+        error: "Não consegui ler o cupom. Tenta com uma foto mais clara.",
       };
     }
     const msg = err instanceof Error ? err.message : String(err);
