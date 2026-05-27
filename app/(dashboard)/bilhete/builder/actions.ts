@@ -100,8 +100,11 @@ export async function createBetBuilderAction(
   const selections = data.legs.map((leg, idx) => ({
     bet_id: betId,
     user_id: user.id,
-    odds: 0,         // sentinel — combined odd is on bets.total_odds
-    odd_taken: null, // nullable per BB A migration 0039
+    // Use odd_combined so the value satisfies CHECK (odds > 1).
+    // Individual odds per leg are not available in bet_builder; the combined odd
+    // is the same for all legs and already lives in bets.total_odds.
+    odds: data.odd_combined,
+    odd_taken: null, // nullable per BB A migration 0039 — no individual odd taken
     event_label: eventLabel,
     selection_label: `${leg.market} — ${leg.side}`,
     position_index: idx,
@@ -112,8 +115,9 @@ export async function createBetBuilderAction(
     .insert(selections);
 
   if (selError) {
-    // Non-fatal: bet already persisted; log and continue
-    console.error("[bet_builder] bet_selections insert error:", selError.message);
+    // FATAL: selections are the core payload; roll back the bet row for atomicity.
+    await supabase.from("bets").delete().eq("id", betId);
+    return { error: `Falha ao salvar condições: ${selError.message}` };
   }
 
   revalidatePath("/bets");
