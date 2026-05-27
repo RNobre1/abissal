@@ -3,14 +3,19 @@ import { z } from "zod";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
- * POST /api/telemetry — batched UI event insert.
+ * POST /api/telemetry -- batched UI event insert.
  *
  * Fire-and-forget: always returns 204 so the client never retries on DB
  * failures (prevents event storms). DB errors are logged server-side only.
  *
- * Rate limit: 1000 events/min per session_id. Exceeding returns 429 without
- * inserting. The check uses a count query on `ui_telemetry` — if the table
- * doesn't exist yet (migration not applied) the check is skipped safely.
+ * Rate limits:
+ *   - 1000 events/min per session_id (DB-backed sliding window).
+ *   - 200 requests/min per IP (in-memory map, resets per minute window).
+ *     IP read from cf-connecting-ip -> x-forwarded-for -> "unknown".
+ *
+ * Payload constraints (tightened 2026-05-27):
+ *   - events: max 50 per batch.
+ *   - payload per event: JSON size < 2048 bytes.
  *
  * Auth: none required. RLS policy allows anonymous inserts.
  */
@@ -22,22 +27,48 @@ const eventSchema = z.object({
   ai_recommendation_id: z.number().int().positive().optional(),
   panel_id: z.string().optional(),
   elapsed_ms: z.number().int().nonnegative().optional(),
-  payload: z.record(z.unknown()).optional(),
+  payload: z
+    .record(z.unknown())
+    .refine(
+      (v) => JSON.stringify(v).length < 2048,
+      "payload too large (max 2048 bytes)",
+    )
+    .optional(),
 });
 
 const bodySchema = z.object({
-  events: z.array(eventSchema).min(1),
+  events: z.array(eventSchema).min(1).max(50),
 });
 
 const RATE_LIMIT = 1000;
+
+// In-memory IP rate limiter (200 requests / min / IP)
+const IP_RATE_LIMIT = 200;
+const IP_WINDOW_MS = 60_000;
+
+interface IpEntry {
+  count: number;
+  resetAt: number;
+}
+
+const ipMap = new Map<string, IpEntry>();
+
+function checkIpRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const entry = ipMap.get(ip);
+  if (!entry || now >= entry.resetAt) {
+    ipMap.set(ip, { count: 1, resetAt: now + IP_WINDOW_MS });
+    return false;
+  }
+  entry.count += 1;
+  return entry.count > IP_RATE_LIMIT;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnySupabase = any;
 
 export async function POST(request: Request): Promise<Response> {
-  // ─────────────────────────────────────────────────────────────────────────
   // 1. Parse + validate body
-  // ─────────────────────────────────────────────────────────────────────────
   let parsed: z.infer<typeof bodySchema>;
   try {
     const raw = await request.json();
@@ -51,9 +82,17 @@ export async function POST(request: Request): Promise<Response> {
 
   const { events } = parsed;
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // 2. Rate-limit check (per session_id, sliding 1-min window)
-  // ─────────────────────────────────────────────────────────────────────────
+  // 2a. IP rate limit (in-memory, 200 req/min/IP)
+  const clientIp =
+    request.headers.get("cf-connecting-ip") ??
+    request.headers.get("x-forwarded-for") ??
+    "unknown";
+
+  if (checkIpRateLimit(clientIp)) {
+    return NextResponse.json({ error: "rate limit exceeded" }, { status: 429 });
+  }
+
+  // 2b. Session rate-limit check (per session_id, sliding 1-min window in DB)
   const sessionIds = [...new Set(events.map((e) => e.session_id))];
 
   try {
@@ -75,12 +114,10 @@ export async function POST(request: Request): Promise<Response> {
       }
     }
   } catch {
-    // Rate-limit check failed — allow insert (fail open, not closed)
+    // Rate-limit check failed -- allow insert (fail open, not closed)
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // 3. Batch insert — fire-and-forget (always 204 to client)
-  // ─────────────────────────────────────────────────────────────────────────
+  // 3. Batch insert
   const rows = events.map((e) => ({
     event_type: e.event_type,
     session_id: e.session_id,
@@ -92,15 +129,7 @@ export async function POST(request: Request): Promise<Response> {
   }));
 
   // Await insert antes de retornar 204.
-  //
-  // Original intent: fire-and-forget pra não bloquear o client. Mas em
-  // Cloudflare Workers (OpenNext) o handler termina assim que a Response
-  // é retornada e MATA todas as promises pendentes — então `.then()` sem
-  // await descartava o insert silenciosamente (validado empiricamente
-  // 2026-05-25 noite: endpoint retornava 204, mas 0 rows em prod).
-  //
-  // Insert no Supabase pooler leva ~50-100ms — aceitável.
-  // Erros do DB são logados mas NÃO propagam pro client (retorna 204 sempre).
+  // Em Cloudflare Workers o handler mata promises pendentes -- await e necessario.
   try {
     const supabase = createAdminClient() as AnySupabase;
     const { error } = await supabase.from("ui_telemetry").insert(rows);
