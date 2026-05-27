@@ -101,3 +101,29 @@ describe("shouldRequireThesis — combinações", () => {
     expect(shouldRequireThesis({ hourBrt: 14, drawdown3d: 5 })).toBe(false);
   });
 });
+
+describe("shouldRequireThesis — userEnabled (disciplina_settings)", () => {
+  it("userEnabled=false desliga mesmo se hora alta", async () => {
+    vi.stubEnv("FRICAO_THESIS_GATE_ENABLED", "true");
+    const { shouldRequireThesis } = await import("../thesis-gate");
+    expect(shouldRequireThesis({ hourBrt: 23, drawdown3d: 0, userEnabled: false })).toBe(false);
+  });
+
+  it("userEnabled=false desliga mesmo se drawdown alto", async () => {
+    vi.stubEnv("FRICAO_THESIS_GATE_ENABLED", "true");
+    const { shouldRequireThesis } = await import("../thesis-gate");
+    expect(shouldRequireThesis({ hourBrt: 14, drawdown3d: 50, userEnabled: false })).toBe(false);
+  });
+
+  it("userEnabled=true respeita gatilhos (hora alta → true)", async () => {
+    vi.stubEnv("FRICAO_THESIS_GATE_ENABLED", "true");
+    const { shouldRequireThesis } = await import("../thesis-gate");
+    expect(shouldRequireThesis({ hourBrt: 22, drawdown3d: 0, userEnabled: true })).toBe(true);
+  });
+
+  it("userEnabled=undefined trata como ligado (compat)", async () => {
+    vi.stubEnv("FRICAO_THESIS_GATE_ENABLED", "true");
+    const { shouldRequireThesis } = await import("../thesis-gate");
+    expect(shouldRequireThesis({ hourBrt: 22, drawdown3d: 0 })).toBe(true);
+  });
+});

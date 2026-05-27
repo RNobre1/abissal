@@ -53,6 +53,8 @@ interface ApostaiModalProps {
   onSuccess: (betId: string) => void;
   /** Drawdown das últimas 72h em % — passado pelo componente pai via server data. */
   drawdown3d?: number;
+  /** disciplina_settings.thesis_gate_enabled — `false` desliga o gate independente dos gatilhos. */
+  thesisGateEnabled?: boolean;
   /** Timestamp (Date.now()) when the panel first became visible — used for elapsed_ms telemetry. */
   panelVisibleAt?: number;
   fixtureId?: number;
@@ -76,6 +78,7 @@ export function ApostaiModal({
   onCancel,
   onSuccess,
   drawdown3d = 0,
+  thesisGateEnabled,
   panelVisibleAt,
   fixtureId,
 }: ApostaiModalProps) {
@@ -92,7 +95,7 @@ export function ApostaiModal({
 
   // Calcula hora BRT atual (UTC-3 fixo) para thesis gate
   const hourBrt = (new Date().getUTCHours() - 3 + 24) % 24;
-  const thesisRequired = shouldRequireThesis({ hourBrt, drawdown3d });
+  const thesisRequired = shouldRequireThesis({ hourBrt, drawdown3d, userEnabled: thesisGateEnabled });
   const thesisCopy = thesisRequired ? thesisGateCopy({ hourBrt, drawdown3d }) : "";
 
   // Track modal open + stake_zero flag (Wave T telemetria)
