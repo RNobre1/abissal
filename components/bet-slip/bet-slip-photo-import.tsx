@@ -246,11 +246,13 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
         <span>Importar foto</span>
       </button>
 
-      {/* Error inline (state=error) */}
+      {/* Error inline (state=error) — ancorado ACIMA da MobileBottomNav (z-50)
+          via bottom-[calc(5rem+env(safe-area-inset-bottom))]. z-60 garante
+          que cobre a nav, não fica atrás. */}
       {state === "error" && error ? (
         <div
           role="alert"
-          className="fixed inset-x-0 bottom-0 z-50 flex flex-col gap-2 rounded-t-[var(--radius)] bg-[var(--color-surface-2)] p-4 shadow-lg sm:inset-auto sm:right-4 sm:top-16 sm:w-80 sm:rounded-[var(--radius)]"
+          className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-[60] flex flex-col gap-2 rounded-t-[var(--radius)] bg-[var(--color-surface-2)] p-4 shadow-lg lg:bottom-auto lg:inset-auto lg:right-4 lg:top-16 lg:w-80 lg:rounded-[var(--radius)]"
         >
           <p className="label text-[var(--color-warning)]">{error}</p>
           <button
@@ -263,12 +265,12 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
         </div>
       ) : null}
 
-      {/* Uploading spinner overlay */}
+      {/* Uploading spinner overlay — mesma regra de bottom + z-60 */}
       {state === "uploading" ? (
         <div
           role="status"
           aria-live="polite"
-          className="fixed inset-x-0 bottom-0 z-50 flex flex-col items-center gap-3 rounded-t-[var(--radius)] bg-[var(--color-surface-2)] p-6 shadow-lg sm:inset-auto sm:right-4 sm:top-16 sm:w-80 sm:rounded-[var(--radius)]"
+          className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-[60] flex flex-col items-center gap-3 rounded-t-[var(--radius)] bg-[var(--color-surface-2)] p-6 shadow-lg lg:bottom-auto lg:inset-auto lg:right-4 lg:top-16 lg:w-80 lg:rounded-[var(--radius)]"
         >
           <span
             className="h-6 w-6 animate-spin rounded-full border-2 border-[var(--color-vermelho)] border-t-transparent"
@@ -280,12 +282,12 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
         </div>
       ) : null}
 
-      {/* Confirmation panel */}
+      {/* Confirmation panel — mesma regra */}
       {state === "confirming" || state === "saving" ? (
         <div
           role="dialog"
           aria-label="Confirmar legs do cupom"
-          className="fixed inset-x-0 bottom-0 z-50 flex flex-col rounded-t-[var(--radius)] bg-[var(--color-surface-2)] shadow-lg sm:inset-auto sm:right-4 sm:top-16 sm:w-80 sm:rounded-[var(--radius)]"
+          className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-[60] flex max-h-[70vh] flex-col overflow-y-auto rounded-t-[var(--radius)] bg-[var(--color-surface-2)] shadow-lg lg:bottom-auto lg:inset-auto lg:right-4 lg:top-16 lg:max-h-none lg:w-80 lg:rounded-[var(--radius)]"
         >
           {/* Header */}
           <header className="flex items-center justify-between border-b border-[var(--color-line)] px-4 py-3">

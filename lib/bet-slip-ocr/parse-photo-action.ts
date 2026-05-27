@@ -98,7 +98,7 @@ export async function parseBetSlipPhoto(
       return {
         ok: false,
         error:
-          "Não consegui ler o cupom. Tenta com uma foto mais clara.",
+          "Não consegui ler o cupom. Tenta com uma foto mais clara, OU registra manual em /bets/nova se for 'Criar Aposta' (Bet Builder) — esse tipo ainda não é suportado.",
       };
     }
     const msg = err instanceof Error ? err.message : String(err);
