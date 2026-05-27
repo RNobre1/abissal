@@ -14,8 +14,8 @@
   /* Color — Text */
   --color-ink: #f0ece3;
   --color-ink-display: #f8f5ef;
-  --color-ink-muted: #7a7872;
-  --color-ink-faint: #6a6862;
+  --color-ink-muted: #8a8882;
+  --color-ink-faint: #898782;
 
   /* Color — Identity (Vermelho Garantido) */
   --color-vermelho: #c42b2b;
@@ -34,7 +34,7 @@
 
   /* Color — Status */
   --color-warning: #b87a1a;
-  --color-success: #2d8659;
+  --color-success: #38a870;
 
   /* Typography */
   --font-display: var(--font-fraunces);
