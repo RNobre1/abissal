@@ -26,6 +26,11 @@ describe("ParsedLegSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("aceita odd_taken null (bet builder — sem odd individual por leg)", () => {
+    const result = ParsedLegSchema.safeParse({ ...validLeg, odd_taken: null });
+    expect(result.success).toBe(true);
+  });
+
   it("rejeita odd_taken negativo", () => {
     const result = ParsedLegSchema.safeParse({ ...validLeg, odd_taken: -1.5 });
     expect(result.success).toBe(false);
@@ -136,5 +141,36 @@ describe("ParsedSlipSchema", () => {
       house_detected: null,
     });
     expect(result.success).toBe(false);
+  });
+
+  it("is_bet_builder default false quando ausente", () => {
+    const result = ParsedSlipSchema.safeParse({
+      legs: [validLeg],
+      stake_total: null,
+      odd_combined: 2.1,
+      house_detected: null,
+      // is_bet_builder ausente
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.is_bet_builder).toBe(false);
+    }
+  });
+
+  it("aceita is_bet_builder: true com legs de odd_taken null", () => {
+    const builderLeg = { ...validLeg, odd_taken: null };
+    const result = ParsedSlipSchema.safeParse({
+      legs: [builderLeg, builderLeg],
+      stake_total: 20,
+      odd_combined: 4.5,
+      house_detected: "betano",
+      is_bet_builder: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.is_bet_builder).toBe(true);
+      expect(result.data.legs[0].odd_taken).toBeNull();
+      expect(result.data.legs[1].odd_taken).toBeNull();
+    }
   });
 });
