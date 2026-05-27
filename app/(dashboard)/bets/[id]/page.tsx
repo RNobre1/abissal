@@ -24,6 +24,7 @@ const KIND_LABEL: Record<BetKind, string> = {
   single: "simples",
   multiple: "múltipla",
   system: "sistema",
+  bet_builder: "bet builder",
 };
 
 const EVENT_LABEL: Record<BetEventType, string> = {

@@ -1502,7 +1502,7 @@ export type Database = {
         | "voided"
         | "cashed_out"
         | "reopened"
-      bet_kind: "single" | "multiple" | "system"
+      bet_kind: "single" | "multiple" | "system" | "bet_builder"
       bet_status:
         | "pending"
         | "won"
