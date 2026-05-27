@@ -29,6 +29,7 @@ import {
   type BetSlip,
   type SlipLeg,
 } from "./compute";
+import { checkDisciplinaLimits } from "@/lib/disciplina/disciplina-guard";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -280,6 +281,16 @@ export async function commitSlip(
 
   if (!slip.stake_total || slip.stake_total <= 0) {
     return { error: "Informe o stake antes de confirmar" };
+  }
+
+  // Disciplina guard — same check as placeBetAction in /bets/actions.ts
+  const disciplinaCheck = await checkDisciplinaLimits(supabase, user.id);
+  if (!disciplinaCheck.allowed) {
+    return {
+      error:
+        disciplinaCheck.reason ??
+        "aposta bloqueada pelas configurações de disciplina",
+    };
   }
 
   // Build selections payload for place_bet RPC
