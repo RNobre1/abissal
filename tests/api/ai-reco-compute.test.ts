@@ -82,6 +82,8 @@ interface MockState {
   recoInsertError: { message: string } | null;
   insertedLlmLog: Record<string, unknown> | null;
   insertedReco: Record<string, unknown> | null;
+  authedUserId: string | null;
+  authError: boolean;
 }
 
 const mockState: MockState = {
@@ -98,6 +100,8 @@ const mockState: MockState = {
   recoInsertError: null,
   insertedLlmLog: null,
   insertedReco: null,
+  authedUserId: null,
+  authError: false,
 };
 
 function resetMock() {
@@ -114,6 +118,8 @@ function resetMock() {
   mockState.recoInsertError = null;
   mockState.insertedLlmLog = null;
   mockState.insertedReco = null;
+  mockState.authedUserId = null;
+  mockState.authError = false;
 }
 
 function buildAdminMock() {
@@ -231,6 +237,24 @@ function buildAdminMock() {
   };
 }
 
+function buildServerMock() {
+  return {
+    auth: {
+      getUser: () => {
+        if (mockState.authError) return Promise.reject(new Error("auth failure"));
+        return Promise.resolve({
+          data: { user: mockState.authedUserId ? { id: mockState.authedUserId } : null },
+          error: null,
+        });
+      },
+    },
+  };
+}
+
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: () => Promise.resolve(buildServerMock()),
+}));
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => buildAdminMock(),
 }));
@@ -239,6 +263,8 @@ const ORIGINAL_ENV = { ...process.env };
 
 beforeEach(() => {
   resetMock();
+  // Default: authenticated user so existing tests pass after adding auth gate.
+  mockState.authedUserId = "default-test-user";
   process.env = {
     ...ORIGINAL_ENV,
     NEXT_PUBLIC_SUPABASE_URL: "https://example.supabase.co",
@@ -678,3 +704,22 @@ describe("POST /api/ai-reco/compute — cap enforcement", () => {
 
 // Avoid unused-var lint for the helper
 void jsonResponse;
+
+// Auth gate (added 2026-05-27 -- lockdown Acao 1)
+
+describe("POST /api/ai-reco/compute -- auth gate", () => {
+  it("returns 401 when no session (unauthenticated request)", async () => {
+    mockState.authedUserId = null;
+    mockState.fixtureRow = makeFixtureRow();
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(401);
+    expect(((await res.json()) as { error: string }).error).toBeDefined();
+  });
+
+  it("returns 401 when auth throws", async () => {
+    mockState.authedUserId = null;
+    mockState.authError = true;
+    mockState.fixtureRow = makeFixtureRow();
+    expect((await callRoute({ fixtureId: 42 })).status).toBe(401);
+  });
+});
