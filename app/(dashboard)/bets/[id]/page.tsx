@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { fmt } from "@/lib/format";
 import type { Database } from "@/lib/supabase/types";
 import { ResolveForm } from "./resolve-form";
+import { SelectionsList } from "./selections-list";
 
 type BetStatus = Database["public"]["Enums"]["bet_status"];
 type BetKind = Database["public"]["Enums"]["bet_kind"];
@@ -163,38 +164,9 @@ export default async function BetDetailPage({
 
       <section className="mb-10">
         <span className="label">seleções</span>
-        <ol className="mt-4 flex flex-col gap-[2px] overflow-hidden rounded-[var(--radius-sm)] bg-[var(--color-line)]">
-          {selections.map((s, i) => (
-            <li
-              key={s.id}
-              className="grid grid-cols-[auto_1fr_auto_auto] items-center gap-4 bg-[var(--color-surface-2)] px-4 py-3"
-            >
-              <span className="num text-[10px] text-[var(--color-ink-faint)]">
-                #{i + 1}
-              </span>
-              <div className="flex min-w-0 flex-col">
-                <span className="truncate text-sm text-[var(--color-ink)]">
-                  {s.event_label}
-                </span>
-                <span className="truncate text-xs text-[var(--color-ink-muted)]">
-                  {s.selection_label}
-                </span>
-              </div>
-              <span
-                className="num text-[10px] uppercase tracking-[0.18em]"
-                style={{ color: statusColor(s.status) }}
-              >
-                {STATUS_LABEL[s.status]}
-              </span>
-              <span
-                className="num text-sm"
-                style={{ color: "var(--color-ink-display)" }}
-              >
-                @ {fmt.number(Number(s.odds))}
-              </span>
-            </li>
-          ))}
-        </ol>
+        <div className="mt-4">
+          <SelectionsList selections={selections} kind={bet.kind} />
+        </div>
       </section>
 
       {bet.note && (
