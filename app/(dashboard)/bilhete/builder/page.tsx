@@ -1,0 +1,55 @@
+/**
+ * /bilhete/builder — Página do Bet Builder manual.
+ *
+ * Server Component: carrega casas do usuário e renderiza BuilderForm (client).
+ */
+
+import { redirect } from "next/navigation";
+import Link from "next/link";
+import { createClient } from "@/lib/supabase/server";
+import { BuilderForm } from "./_components/builder-form";
+
+export const dynamic = "force-dynamic";
+
+export default async function BetBuilderPage() {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) redirect("/login");
+
+  const { data: houses } = await supabase
+    .from("houses")
+    .select("id, name")
+    .eq("user_id", user.id)
+    .is("archived_at", null)
+    .order("name");
+
+  const houseOptions = (houses ?? []).map((h) => ({
+    id: h.id,
+    name: h.name,
+  }));
+
+  return (
+    <main className="mx-auto max-w-xl px-4 py-8">
+      <header className="mb-6 flex items-baseline justify-between gap-4">
+        <h1 className="font-display text-2xl font-light tracking-tight text-[var(--color-ink-display)]">
+          Bet Builder
+        </h1>
+        <Link
+          href="/bilhete"
+          className="label text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+        >
+          ← bilhete
+        </Link>
+      </header>
+
+      <p className="label mb-6 text-[var(--color-ink-faint)]">
+        1 jogo · N condições · 1 odd combinada única
+      </p>
+
+      <BuilderForm houses={houseOptions} />
+    </main>
+  );
+}
