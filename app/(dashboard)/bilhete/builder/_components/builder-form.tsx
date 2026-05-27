@@ -88,6 +88,7 @@ export function BuilderForm({ houses, initialParams }: BuilderFormProps) {
   const [oddCombined, setOddCombined] = useState(params.get("odd") ?? "");
   const [stake, setStake] = useState(params.get("stake") ?? "");
   const [thesis, setThesis] = useState("");
+  const [isFreeBet, setIsFreeBet] = useState(false);
 
   // fixture search state
   const [fixtureId, setFixtureId] = useState<number | null>(
@@ -195,6 +196,7 @@ export function BuilderForm({ houses, initialParams }: BuilderFormProps) {
       stake: Number(stake),
       legs: legs.map(({ market, side }) => ({ market, side })),
       thesis: thesis || undefined,
+      is_free_bet: isFreeBet,
     };
 
     startTransition(async () => {
@@ -457,6 +459,21 @@ export function BuilderForm({ houses, initialParams }: BuilderFormProps) {
           </span>
         </div>
       ) : null}
+
+      {/* ── Free bet ──────────────────────────────────────────────────────── */}
+      <label className="flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={isFreeBet}
+          onChange={(e) => setIsFreeBet(e.target.checked)}
+          disabled={pending}
+          className="h-4 w-4 accent-[var(--color-vermelho)]"
+          aria-label="Aposta grátis (não desconta da banca)"
+        />
+        <span className="label text-[var(--color-ink-muted)]">
+          🎁 Aposta grátis (não desconta da banca)
+        </span>
+      </label>
 
       {/* ── Error ─────────────────────────────────────────────────────────── */}
       {error ? (

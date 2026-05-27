@@ -25,6 +25,7 @@ const builderSchema = z.object({
   stake: z.coerce.number().positive("stake deve ser > 0"),
   legs: z.array(legSchema).min(1, "adicione ao menos 1 condição"),
   thesis: z.string().trim().max(1000).optional(),
+  is_free_bet: z.boolean().default(false).optional(),
 });
 
 export type CreateBetBuilderInput = z.input<typeof builderSchema>;
@@ -77,6 +78,7 @@ export async function createBetBuilderAction(
       status: "pending" as const,
       placed_at: new Date().toISOString(),
       thesis: data.thesis ?? null,
+      is_free_bet: data.is_free_bet ?? false,
     })
     .select("id")
     .single();

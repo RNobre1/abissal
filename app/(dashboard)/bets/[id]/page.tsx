@@ -124,12 +124,19 @@ export default async function BetDetailPage({
               )}
             </h2>
           </div>
-          <span
-            className="num text-xs uppercase tracking-[0.18em]"
-            style={{ color: statusColor(bet.status) }}
-          >
-            {STATUS_LABEL[bet.status]}
-          </span>
+          <div className="flex flex-col items-end gap-1">
+            <span
+              className="num text-xs uppercase tracking-[0.18em]"
+              style={{ color: statusColor(bet.status) }}
+            >
+              {STATUS_LABEL[bet.status]}
+            </span>
+            {bet.is_free_bet && (
+              <span className="num text-xs uppercase tracking-[0.12em] text-[var(--color-depth-hi)]">
+                🎁 aposta grátis
+              </span>
+            )}
+          </div>
         </div>
       </header>
 
@@ -139,7 +146,11 @@ export default async function BetDetailPage({
           value={house?.name ?? "—"}
           accent={house?.color_hex ?? null}
         />
-        <Stat label="stake" value={fmt.currency(Number(bet.total_stake))} mono />
+        <Stat
+          label="stake"
+          value={`${bet.is_free_bet ? "🎁 " : ""}${fmt.currency(Number(bet.total_stake))}`}
+          mono
+        />
         <Stat
           label="odd combinada"
           value={fmt.number(Number(bet.total_odds))}

@@ -32,7 +32,7 @@ export interface BetSlip {
   odd_combined: number | null;
   potential_return: number | null;
   bet_id: string | null;
-  thesis: string | null;
+  thesis?: string | null;
   created_at: string;
   updated_at: string;
   bet_slip_legs: SlipLeg[];
