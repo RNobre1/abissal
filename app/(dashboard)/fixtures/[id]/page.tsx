@@ -40,11 +40,15 @@ import {
   MomentumChart,
   type MomentumPoint,
 } from "@/components/fixtures/stats/panels/momentum-chart";
-import { RecentMatchesPanel } from "@/components/fixtures/stats/panels/recent-matches";
-import { RadarComparison } from "@/components/fixtures/stats/panels/radar-comparison";
-import { ScatterPlayground } from "@/components/fixtures/stats/panels/scatter-playground";
+// Heavy recharts panels — lazy-loaded on the client to shrink first-load JS.
+// Drop-in replacements; same props contract as the originals.
+import {
+  LazyRadarComparison as RadarComparison,
+  LazyScatterPlayground as ScatterPlayground,
+  LazyRecentMatchesPanel as RecentMatchesPanel,
+  LazyPlayers as Players,
+} from "./_components/lazy-charts";
 import { StreaksHeatmap } from "@/components/fixtures/stats/panels/streaks-heatmap";
-import { Players } from "@/components/fixtures/stats/panels/players";
 import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-browser";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
