@@ -189,4 +189,117 @@ describe("parseBetSlipPhoto", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Erro inesperado");
   });
+
+  // ── BB-C: Bet Builder redirect ──────────────────────────────────────────────
+
+  const BET_BUILDER_SLIP: ParsedSlip = {
+    legs: [
+      {
+        home: "Arsenal",
+        away: "Chelsea",
+        market: "Gols Marcados",
+        side: "Bukayo Saka",
+        odd_taken: null,
+        league: "Premier League",
+        kickoff_iso: "2026-05-28T19:45:00Z",
+      },
+      {
+        home: "Arsenal",
+        away: "Chelsea",
+        market: "Cartoes",
+        side: "Over 3.5",
+        odd_taken: null,
+        league: "Premier League",
+        kickoff_iso: "2026-05-28T19:45:00Z",
+      },
+    ],
+    stake_total: 25,
+    odd_combined: 50,
+    house_detected: "bet365",
+    is_bet_builder: true,
+  };
+
+  it("[BB-C] is_bet_builder=true + match confidence >= 0.85 => redirect_to com fixture_id", async () => {
+    mockParseBetSlipImage.mockResolvedValueOnce(BET_BUILDER_SLIP);
+    mockMatchFixture.mockResolvedValueOnce(MATCH_RESULT_FOUND); // confidence 0.95
+
+    const { parseBetSlipPhoto } = await import(
+      "@/lib/bet-slip-ocr/parse-photo-action"
+    );
+    const fd = makeFormData();
+    const result = await parseBetSlipPhoto(fd);
+
+    expect(result.ok).toBe(true);
+    expect(result.slip).toBeUndefined();
+    expect(result.redirect_to).toBeDefined();
+    expect(result.redirect_to).toContain("/bilhete/builder");
+    expect(result.redirect_to).toContain("fixture_id=999");
+    expect(result.redirect_to).toContain("odd=50");
+    expect(result.redirect_to).toContain("stake=25");
+    expect(result.redirect_to).toContain("house=bet365");
+    // legs encoded as JSON
+    expect(result.redirect_to).toContain("legs=");
+    // matchFixture called only once (first leg only)
+    expect(mockMatchFixture).toHaveBeenCalledTimes(1);
+  });
+
+  it("[BB-C] is_bet_builder=true + sem match => redirect_to com home/away mas sem fixture_id", async () => {
+    mockParseBetSlipImage.mockResolvedValueOnce(BET_BUILDER_SLIP);
+    mockMatchFixture.mockResolvedValueOnce(MATCH_RESULT_NOT_FOUND);
+
+    const { parseBetSlipPhoto } = await import(
+      "@/lib/bet-slip-ocr/parse-photo-action"
+    );
+    const fd = makeFormData();
+    const result = await parseBetSlipPhoto(fd);
+
+    expect(result.ok).toBe(true);
+    expect(result.slip).toBeUndefined();
+    expect(result.redirect_to).toBeDefined();
+    expect(result.redirect_to).not.toContain("fixture_id");
+    expect(result.redirect_to).toContain("home=");
+    expect(result.redirect_to).toContain("away=");
+  });
+
+  it("[BB-C] is_bet_builder=true + match confidence < 0.85 => redirect_to sem fixture_id", async () => {
+    mockParseBetSlipImage.mockResolvedValueOnce(BET_BUILDER_SLIP);
+    mockMatchFixture.mockResolvedValueOnce({
+      best: {
+        fixture_id: 777,
+        home_team: "Arsenal FC",
+        away_team: "Chelsea FC",
+        league: "Premier League",
+        country: "england",
+        kickoff_utc: "2026-05-28T19:45:00Z",
+        confidence: 0.75, // below 0.85
+      },
+      candidates: [],
+    });
+
+    const { parseBetSlipPhoto } = await import(
+      "@/lib/bet-slip-ocr/parse-photo-action"
+    );
+    const fd = makeFormData();
+    const result = await parseBetSlipPhoto(fd);
+
+    expect(result.ok).toBe(true);
+    expect(result.redirect_to).toBeDefined();
+    expect(result.redirect_to).not.toContain("fixture_id");
+    expect(result.redirect_to).toContain("home=");
+  });
+
+  it("[BB-C] is_bet_builder=false => result.slip popula, sem redirect_to", async () => {
+    mockParseBetSlipImage.mockResolvedValueOnce(PARSED_SLIP_FIXTURE); // is_bet_builder: false
+    mockMatchFixture.mockResolvedValueOnce(MATCH_RESULT_FOUND);
+
+    const { parseBetSlipPhoto } = await import(
+      "@/lib/bet-slip-ocr/parse-photo-action"
+    );
+    const fd = makeFormData();
+    const result = await parseBetSlipPhoto(fd);
+
+    expect(result.ok).toBe(true);
+    expect(result.slip).toBeDefined();
+    expect(result.redirect_to).toBeUndefined();
+  });
 });

@@ -36,8 +36,10 @@ vi.mock("@/lib/bet-slip/actions", () => ({
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+const mockRouterPush = vi.fn();
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }),
+  useRouter: () => ({ push: mockRouterPush, refresh: vi.fn() }),
 }));
 
 // ── Telemetry mock (Wave N4) ───────────────────────────────────────────────────
@@ -464,6 +466,48 @@ describe("BetSlipPhotoImport", () => {
     expect(failedCalls[0][1]).toMatchObject({
       stage: "parse",
       error_kind: expect.any(String),
+    });
+  });
+
+  // ── BB-C: Bet Builder redirect ───────────────────────────────────────────────
+
+  it("[BB-C] redirect_to presente => router.push chamado, modal NAO abre", async () => {
+    mockRouterPush.mockClear();
+
+    mockParseBetSlipPhoto.mockResolvedValueOnce({
+      ok: true,
+      redirect_to: "/bilhete/builder?fixture_id=999&odd=50&stake=25&house=bet365&legs=%5B%5D",
+    });
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(mockRouterPush).toHaveBeenCalledWith(
+        expect.stringContaining("/bilhete/builder"),
+      );
+    });
+
+    // Modal de confirmacao NAO deve aparecer
+    expect(screen.queryByRole("dialog", { name: /confirmar legs/i })).toBeNull();
+  });
+
+  it("[BB-C] slip presente (sem redirect_to) => modal de confirmacao abre normalmente", async () => {
+    mockParseBetSlipPhoto.mockResolvedValueOnce(PARSED_RESULT_OK);
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("dialog", { name: /confirmar legs/i })).toBeInTheDocument();
     });
   });
 });
