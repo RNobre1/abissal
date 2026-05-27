@@ -55,6 +55,7 @@ export default async function LlmObservabilityPage() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const admin = createAdminClient() as unknown as { from: (t: string) => any };
 
+  // eslint-disable-next-line react-hooks/purity
   const since30d = new Date(Date.now() - WINDOW_DAYS * DAY_MS).toISOString();
 
   // Logs (janela 30d) — escalares apenas, sem prompt_snapshot/response_raw.
@@ -92,6 +93,7 @@ export default async function LlmObservabilityPage() {
   }
 
   // ── agregações ──────────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/purity
   const now = Date.now();
   const cost1d = aggregateCostVolume(logs, now - 1 * DAY_MS);
   const cost7d = aggregateCostVolume(logs, now - 7 * DAY_MS);
