@@ -18,6 +18,7 @@
 
 import { useRef, useState } from "react";
 import { Camera } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { parseBetSlipPhoto, type ParsedLegWithMatch } from "@/lib/bet-slip-ocr/parse-photo-action";
 import { addLegToSlip } from "@/lib/bet-slip/actions";
 import {
@@ -63,6 +64,7 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
   const editedLegsRef = useRef<Set<number>>(new Set());
 
   const track = useTelemetry();
+  const router = useRouter();
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -93,13 +95,32 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
 
     const result = await parseBetSlipPhoto(fd);
 
-    if (!result.ok || !result.slip) {
+    if (!result.ok) {
       setState("error");
       setError(result.error ?? "Erro desconhecido ao processar imagem.");
       // N4: bilhete_foto_failed — parse stage
       track("bilhete_foto_failed", {
         stage: "parse",
         error_kind: result.error ?? "unknown",
+      });
+      return;
+    }
+
+    // BB-C: Bet Builder detectado — redireciona para o form dedicado
+    if (result.redirect_to) {
+      track("bilhete_foto_bet_builder_detected", {
+        redirect_to: result.redirect_to,
+      });
+      router.push(result.redirect_to);
+      return;
+    }
+
+    if (!result.slip) {
+      setState("error");
+      setError("Erro desconhecido ao processar imagem.");
+      track("bilhete_foto_failed", {
+        stage: "parse",
+        error_kind: "no_slip",
       });
       return;
     }
