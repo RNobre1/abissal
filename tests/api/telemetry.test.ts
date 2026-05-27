@@ -232,3 +232,71 @@ describe("POST /api/telemetry — rate limiting", () => {
     expect(res.status).toBe(429);
   });
 });
+
+// Schema tightening (added 2026-05-27 -- lockdown Acao 1)
+
+describe("POST /api/telemetry -- schema tightening", () => {
+  it("returns 400 when events array has more than 50 items", async () => {
+    const events = Array.from({ length: 51 }, (_, i) =>
+      makeEvent({ event_type: `event_${i}` }),
+    );
+    expect((await callRoute({ events })).status).toBe(400);
+  });
+
+  it("accepts exactly 50 events", async () => {
+    const events = Array.from({ length: 50 }, (_, i) =>
+      makeEvent({ event_type: `event_${i}` }),
+    );
+    expect((await callRoute({ events })).status).toBe(204);
+  });
+
+  it("returns 400 when payload exceeds 2048 bytes", async () => {
+    const bigPayload = { data: "x".repeat(2049) };
+    expect(
+      (await callRoute({ events: [makeEvent({ payload: bigPayload })] })).status,
+    ).toBe(400);
+  });
+
+  it("accepts payload under 2048 bytes", async () => {
+    const smallPayload = { data: "x".repeat(100) };
+    expect(
+      (await callRoute({ events: [makeEvent({ payload: smallPayload })] })).status,
+    ).toBe(204);
+  });
+});
+
+// IP rate limiting (added 2026-05-27 -- lockdown Acao 1)
+
+async function callRouteWithHeaders(
+  body: unknown,
+  headers: Record<string, string>,
+): Promise<Response> {
+  const { POST } = await import("@/app/api/telemetry/route");
+  return POST(
+    new Request("http://localhost/api/telemetry", {
+      method: "POST",
+      headers: { "content-type": "application/json", ...headers },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+describe("POST /api/telemetry -- IP rate limiting", () => {
+  it("returns 429 when IP exceeds 200 requests/min (cf-connecting-ip)", async () => {
+    const events = [makeEvent({ session_id: "ip-test-session" })];
+    const ip = "192.0.2.100";
+    let lastRes: Response | null = null;
+    for (let i = 0; i < 201; i++) {
+      lastRes = await callRouteWithHeaders({ events }, { "cf-connecting-ip": ip });
+    }
+    expect(lastRes!.status).toBe(429);
+  });
+
+  it("returns 204 for a fresh IP (not rate limited)", async () => {
+    const res = await callRouteWithHeaders(
+      { events: [makeEvent()] },
+      { "cf-connecting-ip": "10.0.0.99" },
+    );
+    expect(res.status).toBe(204);
+  });
+});

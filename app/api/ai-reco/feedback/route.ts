@@ -1,32 +1,29 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
- * POST /api/ai-reco/feedback — captura feedback humano sobre uma
- * ai_recommendation (concordo, discordo, apostei, não apostei).
- *
- * Permite separar o ROI hipotético (todas as recos × resultado real, calculado
- * pelo `AiRecommendationReconciler`) do ROI realista (apenas recos onde o
- * usuário marcou `bet`). Também alimenta dataset pra fine-tuning futuro.
+ * POST /api/ai-reco/feedback -- captura feedback humano sobre uma
+ * ai_recommendation (concordo, discordo, apostei, nao apostei).
  *
  * Body:
  *   {
  *     "aiRecommendationId": 123,
  *     "userDecision": "agree" | "disagree" | "bet" | "no_bet",
- *     "comment": "razão opcional"
+ *     "comment": "razao opcional"
  *   }
  *
  * Comportamento:
- *   - 400 se body inválido / userDecision fora do enum.
- *   - 404 se ai_recommendation_id não existir.
+ *   - 400 se body invalido / userDecision fora do enum.
+ *   - 401 sem sessao (auth gate -- apenas usuario autenticado pode registrar).
+ *   - 404 se ai_recommendation_id nao existir.
  *   - 200 + { id } se upsert OK.
- *   - Upsert por (ai_recommendation_id, user_decision) — clicar duas vezes
- *     no mesmo botão sobrescreve `comment`/`updated_at` sem duplicar linhas.
+ *   - Upsert por (ai_recommendation_id, user_decision).
  *
- * Auth: sem gate (single-user app, igual `/api/ai-reco/compute`).
+ * Auth: createClient (server cookie session) -- auth gate adicionado 2026-05-27.
  *
- * Spec: discussion 2026-05-25 — loop de feedback humano IA-2.
+ * Spec: discussion 2026-05-25 -- loop de feedback humano IA-2.
  */
 
 export const maxDuration = 10;
@@ -55,10 +52,23 @@ export async function POST(request: Request): Promise<Response> {
     );
   }
 
+  // ---------------------------------------------------------------------------
+  // 2. Auth gate -- only the authenticated user can record feedback
+  // ---------------------------------------------------------------------------
+  try {
+    const serverClient = (await createClient()) as AnySupabase;
+    const { data: { user } = { user: null } } = await serverClient.auth.getUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   const supabase = createAdminClient() as AnySupabase;
 
   // ---------------------------------------------------------------------------
-  // 2. Validate FK — ai_recommendation_id must exist
+  // 3. Validate FK -- ai_recommendation_id must exist
   // ---------------------------------------------------------------------------
   try {
     const { data, error } = await supabase
@@ -86,7 +96,7 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   // ---------------------------------------------------------------------------
-  // 3. Upsert feedback row
+  // 4. Upsert feedback row
   // ---------------------------------------------------------------------------
   try {
     const { data, error } = await supabase
