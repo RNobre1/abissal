@@ -3,21 +3,27 @@
 /**
  * Responsive renderer for the stats panel grid.
  *
- * - Desktop (≥768px): 12-column CSS grid; every panel mounted once.
- * - Mobile (<768px): Radix `<Tabs.Root>` with 5 tabs. Each tab content
- *   mounts only its declared panels — Radix unmounts inactive content
- *   by default, which is a real perf win on phones (lightweight-charts,
- *   recharts, and the virtualized streaks list only construct when the
- *   tab is active).
+ * - Desktop (≥768px): 12-column CSS grid.
+ *   - Painéis de decisão imediata (SIM) ficam sempre visíveis.
+ *   - Os demais painéis técnicos são envolvidos em um `<details>` recolhido
+ *     por default — reduz cognitive overload ao ocultar os 13+ painéis de
+ *     análise até o usuário precisar deles.
+ * - Mobile (<768px): Radix `<Tabs.Root>` com 5 tabs. Cada aba monta apenas
+ *   seus painéis declarados — Radix desmonta conteúdo inativo por default,
+ *   ganho real de perf em mobile (lightweight-charts, recharts, lista de
+ *   streaks só constroem quando a aba está ativa).
  *
- * Viewport detection uses `useSyncExternalStore` + `window.matchMedia`
- * so SSR markup matches the initial client render (desktop), avoiding
- * hydration drift. The first matchMedia subscription tick swaps to the
- * mobile structure if the viewport is actually narrow.
+ * Viewport detection usa `useSyncExternalStore` + `window.matchMedia`
+ * para que o markup SSR corresponda ao render inicial do cliente (desktop),
+ * evitando hydration drift. O primeiro tick do matchMedia troca para a
+ * estrutura mobile se o viewport for realmente estreito.
  *
- * `MOBILE_TABS` (declared in `stats-layout.tsx`) is the single source
- * of truth for tab → panel-id mapping. Panels declared by `page.tsx`
- * but absent from MOBILE_TABS fall back to the "visão" tab.
+ * `MOBILE_TABS` (declarado em `stats-layout.tsx`) é a fonte da verdade
+ * para o mapeamento tab → panel-id. Painéis declarados pelo `page.tsx`
+ * mas ausentes de qualquer aba caem na aba "visão".
+ *
+ * DECISION_PANEL_IDS: ids dos painéis que ficam FORA do <details> no
+ * desktop — ficam sempre visíveis como parte da "zona de decisão".
  */
 
 import * as Tabs from "@radix-ui/react-tabs";
@@ -29,6 +35,13 @@ import {
 } from "./stats-layout";
 
 const MOBILE_QUERY = "(max-width: 767.98px)";
+
+/**
+ * Painéis que ficam FORA do <details> no modo desktop. Estes são os painéis
+ * de "decisão rápida" — simulação pré-jogo — que o usuário quer ver sem
+ * precisar expandir o bloco de análise técnica.
+ */
+const DECISION_PANEL_IDS = new Set(["SIM"]);
 
 // ─── matchMedia hook ────────────────────────────────────────────────────
 
@@ -89,12 +102,46 @@ export function StatsLayoutResponsive({
   }
 
   if (!isMobile) {
+    // Separate decision panels (always visible) from technical panels (inside <details>).
+    const decisionPanels = panels.filter((p) => DECISION_PANEL_IDS.has(p.id));
+    const technicalPanels = panels.filter((p) => !DECISION_PANEL_IDS.has(p.id));
+
     return (
       <section
         data-panels
-        className="@container/main grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6"
+        className="@container/main flex flex-col gap-6"
       >
-        {panels.map((p) => renderPanelSlot(p, false))}
+        {/* Decision panels — always visible (e.g. SIM) */}
+        {decisionPanels.length > 0 && (
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-6">
+            {decisionPanels.map((p) => renderPanelSlot(p, false))}
+          </div>
+        )}
+
+        {/* Technical panels — collapsed by default */}
+        {technicalPanels.length > 0 && (
+          <details
+            data-technical-panels
+            className="group rounded-[var(--radius)] border border-[var(--color-line-subtle)]"
+          >
+            <summary
+              className="flex cursor-pointer select-none items-center justify-between gap-3 rounded-[var(--radius)] bg-[var(--color-surface-1)] px-4 py-3 transition-colors hover:bg-[var(--color-surface-2)]"
+            >
+              <span className="label">
+                análise técnica ({technicalPanels.length} painéis)
+              </span>
+              <span
+                aria-hidden="true"
+                className="label text-[var(--color-ink-faint)] transition-transform group-open:rotate-180"
+              >
+                &#x2193;
+              </span>
+            </summary>
+            <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-12 lg:gap-6">
+              {technicalPanels.map((p) => renderPanelSlot(p, false))}
+            </div>
+          </details>
+        )}
       </section>
     );
   }
@@ -132,9 +179,10 @@ export function StatsLayoutResponsive({
       </Tabs.List>
 
       {MOBILE_TABS.map((tab) => {
-        const ids = tab.id === MOBILE_TABS[0].id
-          ? [...tab.panels, ...orphanIds]
-          : tab.panels;
+        const ids =
+          tab.id === MOBILE_TABS[0].id
+            ? [...tab.panels, ...orphanIds]
+            : tab.panels;
         const tabPanels = ids
           .map((id) => byId.get(id))
           .filter((p): p is PanelSlot => Boolean(p));
