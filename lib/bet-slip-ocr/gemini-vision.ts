@@ -38,22 +38,28 @@ const SYSTEM_PROMPT = `Você é um extrator de dados estruturados de cupons de a
       "away": "string (nome do time visitante, ex. 'Palmeiras')",
       "market": "string (ex. '1X2', 'Over/Under 2.5 Gols', 'BTTS', 'Asian Handicap -0.5', 'Corners Over 9.5')",
       "side": "string (ex. 'Casa', 'Empate', 'Fora', 'Over', 'Under', 'Sim', 'Não')",
-      "odd_taken": number (ex. 1.85),
+      "odd_taken": number ou null (ex. 1.85 — null em cupons Bet Builder, ver abaixo),
       "league": "string ou null (ex. 'Brasileirão Série A')",
       "kickoff_iso": "string ISO 8601 UTC ou null (ex. '2026-05-26T22:00:00Z')"
     }
   ],
   "stake_total": number ou null (valor apostado total em R$, sem símbolo),
   "odd_combined": number ou null (cotação combinada das múltiplas),
-  "house_detected": "string ou null (slug da casa: superbet, bet365, betano, etc)"
+  "house_detected": "string ou null (slug da casa: superbet, bet365, betano, etc)",
+  "is_bet_builder": boolean (true se for cupom tipo Bet Builder / Criar Aposta, false caso contrário)
 }
 
 Regras:
 - Para cupom único (não-múltipla), legs tem 1 elemento e odd_combined = legs[0].odd_taken
 - Se algum campo não estiver legível, use null (NUNCA invente).
-- Se a imagem não for um cupom de aposta, retorne {"legs": [], "stake_total": null, "odd_combined": null, "house_detected": null} — schema vai falhar validação (esperado).
+- Se a imagem não for um cupom de aposta, retorne {"legs": [], "stake_total": null, "odd_combined": null, "house_detected": null, "is_bet_builder": false} — schema vai falhar validação (esperado).
 - Times com sufixo (ex. "Flamengo RJ", "Palmeiras SP"): mantenha o sufixo apenas se estiver visível no cupom.
-- Datas relativas ("Hoje 22h", "Amanhã 16:00"): converta pra ISO usando "hoje" = data UTC atual (assuma a imagem foi tirada hoje).`;
+- Datas relativas ("Hoje 22h", "Amanhã 16:00"): converta pra ISO usando "hoje" = data UTC atual (assuma a imagem foi tirada hoje).
+
+Bet Builder / Criar Aposta:
+- Se o cupom for tipo "Criar Aposta", "Bet Builder" ou "Build a Bet" (vários mercados no mesmo jogo com 1 só odd combinada e SEM odds individuais por seleção), marque is_bet_builder: true na raiz.
+- Indicadores típicos: header "Criar Aposta" ou "Bet Builder", vários mercados todos do mesmo jogo (mesmo home/away), 1 só odd visível no total do bilhete.
+- Nesses casos, deixe odd_taken: null em cada leg — a odd combinada vai em odd_combined (campo raiz do slip).`;
 
 export interface ParseBetSlipOptions {
   model?: string;
