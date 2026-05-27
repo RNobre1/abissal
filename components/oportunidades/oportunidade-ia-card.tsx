@@ -28,12 +28,12 @@ export function OportunidadeIaCard({ reco }: OportunidadeIaCardProps) {
     <li className="flex items-center gap-2">
       <a
         href={`/fixtures/${reco.fixture_id ?? ""}`}
-        className="flex min-w-0 flex-1 items-baseline justify-between gap-3 rounded-[var(--radius-sm)] border border-transparent px-2 py-1 transition-colors hover:border-[var(--color-line)] hover:text-[var(--color-ink)]"
+        className="flex min-w-0 flex-1 flex-col gap-0.5 rounded-[var(--radius-sm)] border border-transparent px-2 py-1 transition-colors hover:border-[var(--color-line)] hover:text-[var(--color-ink)] sm:flex-row sm:items-baseline sm:justify-between sm:gap-3"
       >
         <span className="min-w-0 truncate text-sm text-[var(--color-ink)]">
           {reco.home_team} vs {reco.away_team}
         </span>
-        <span className="num shrink-0 text-sm tabular-nums text-[var(--color-ink-muted)]">
+        <span className="num min-w-0 truncate text-xs tabular-nums text-[var(--color-ink-muted)] sm:shrink-0 sm:text-sm">
           {reco.summary_line ?? "—"}
         </span>
       </a>

@@ -221,12 +221,13 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
 
   return (
     <>
-      {/* Hidden file input */}
+      {/* Hidden file input — sem `capture` pra deixar o mobile mostrar
+          chooser nativo (câmera OU galeria); Pilot pediu acesso à galeria
+          (print salvo) em 2026-05-27. */}
       <input
         ref={inputRef}
         type="file"
         accept="image/*"
-        capture="environment"
         className="hidden"
         onChange={handleFileChange}
         aria-hidden="true"

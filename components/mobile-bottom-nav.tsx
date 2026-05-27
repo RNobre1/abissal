@@ -8,7 +8,7 @@ import {
   LayoutDashboard,
   Target,
   CalendarDays,
-  ArrowLeftRight,
+  Receipt,
   MoreHorizontal,
   type LucideIcon,
 } from "lucide-react";
@@ -29,12 +29,7 @@ const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", label: "início", Icon: LayoutDashboard, match: "/" },
   { href: "/bets", label: "apostas", Icon: Target, match: "/bets" },
   { href: "/fixtures", label: "jogos", Icon: CalendarDays, match: "/fixtures" },
-  {
-    href: "/transactions",
-    label: "transações",
-    Icon: ArrowLeftRight,
-    match: "/transactions",
-  },
+  { href: "/bilhete", label: "bilhete", Icon: Receipt, match: "/bilhete" },
 ];
 
 const MORE_GROUPS: Array<{
@@ -46,6 +41,7 @@ const MORE_GROUPS: Array<{
     items: [
       { href: "/banca", label: "banca" },
       { href: "/houses", label: "casas" },
+      { href: "/transactions", label: "transações" },
       { href: "/forecast", label: "previsão" },
     ],
   },
