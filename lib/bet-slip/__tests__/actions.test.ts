@@ -11,17 +11,25 @@ const mockGetUser = vi.fn();
 
 // Mock supabase factory — simplified
 const mockFrom = vi.fn();
+const mockRpc = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () =>
     Promise.resolve({
       auth: { getUser: mockGetUser },
       from: mockFrom,
+      rpc: mockRpc,
     }),
 }));
 
 // next/cache stub
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
+
+// disciplina guard mock
+const mockCheckDisciplinaLimits = vi.fn();
+vi.mock("@/lib/disciplina/disciplina-guard", () => ({
+  checkDisciplinaLimits: (...args: unknown[]) => mockCheckDisciplinaLimits(...args),
+}));
 
 import {
   addLegToSlip,
@@ -29,6 +37,7 @@ import {
   updateSlipStake,
   removeLegFromSlip,
   cancelSlip,
+  commitSlip,
 } from "../actions";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -375,6 +384,137 @@ describe("updateSlipStake", () => {
     mockGetUser.mockResolvedValue({ data: { user: null }, error: null });
     const result = await updateSlipStake(1, 50);
     expect(result.error).toContain("autenticado");
+  });
+});
+
+// ── commitSlip ────────────────────────────────────────────────────────────────
+
+/** Helper: builds mockFrom chain for a slip fetch with legs and stake */
+function setupSlipWithLegs(
+  slipId: number,
+  legs: Array<{ id: number; odd_taken: number; home_team?: string; away_team?: string; market?: string; side?: string }>,
+  stakeTotal: number | null,
+) {
+  const mockSlip = {
+    id: slipId,
+    user_id: MOCK_USER_ID,
+    status: "draft",
+    stake_total: stakeTotal,
+    odd_combined: null,
+    potential_return: null,
+    bet_id: null,
+    thesis: null,
+    created_at: "2026-05-27T10:00:00Z",
+    updated_at: "2026-05-27T10:00:00Z",
+    bet_slip_legs: legs.map((l) => ({
+      id: l.id,
+      slip_id: slipId,
+      fixture_id: 100 + l.id,
+      home_team: l.home_team ?? "HomeFC",
+      away_team: l.away_team ?? "AwayFC",
+      market: l.market ?? "1x2",
+      side: l.side ?? "home",
+      odd_taken: l.odd_taken,
+      league: "Premier League",
+      kickoff_utc: null,
+      created_at: "2026-05-27T10:00:00Z",
+      ai_recommendation_id: null,
+      sport_id: null,
+      market_id: null,
+    })),
+  };
+
+  mockFrom.mockReturnValue({
+    select: vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({
+        eq: vi.fn().mockReturnValue({
+          eq: vi.fn().mockReturnValue({
+            maybeSingle: vi.fn().mockResolvedValue({ data: mockSlip, error: null }),
+          }),
+        }),
+      }),
+    }),
+    update: vi.fn().mockReturnValue({
+      eq: vi.fn().mockReturnValue({
+        eq: vi.fn().mockResolvedValue({ data: null, error: null }),
+      }),
+    }),
+  });
+}
+
+describe("commitSlip", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setupAuth();
+    // Default: disciplina guard allows
+    mockCheckDisciplinaLimits.mockResolvedValue({ allowed: true });
+    // Default: rpc succeeds
+    mockRpc.mockResolvedValue({ data: "bet-uuid-abc", error: null });
+  });
+
+  it("(a) disciplina guard denies → returns error without calling rpc", async () => {
+    mockCheckDisciplinaLimits.mockResolvedValue({
+      allowed: false,
+      reason: "Stop-loss diário atingido (10%)",
+    });
+
+    setupSlipWithLegs(1, [{ id: 10, odd_taken: 2.0 }, { id: 11, odd_taken: 1.8 }], 50);
+
+    const result = await commitSlip(1, "house-1");
+
+    expect(result.error).toContain("Stop-loss");
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("(b) legs < 2 → returns error", async () => {
+    setupSlipWithLegs(1, [{ id: 10, odd_taken: 2.0 }], 50);
+
+    const result = await commitSlip(1, "house-1");
+
+    expect(result.error).toContain("2");
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("(c) stake null/zero → returns error", async () => {
+    setupSlipWithLegs(
+      1,
+      [{ id: 10, odd_taken: 2.0 }, { id: 11, odd_taken: 1.5 }],
+      null,
+    );
+
+    const result = await commitSlip(1, "house-1");
+
+    expect(result.error).toContain("stake");
+    expect(mockRpc).not.toHaveBeenCalled();
+  });
+
+  it("(d) success → returns betId", async () => {
+    setupSlipWithLegs(
+      1,
+      [{ id: 10, odd_taken: 2.0 }, { id: 11, odd_taken: 1.8 }],
+      100,
+    );
+    mockRpc.mockResolvedValue({ data: "bet-uuid-success", error: null });
+
+    const result = await commitSlip(1, "house-1");
+
+    expect(result.error).toBeUndefined();
+    expect(result.betId).toBe("bet-uuid-success");
+    expect(mockRpc).toHaveBeenCalledOnce();
+  });
+
+  it("(e) rpc fails → returns error", async () => {
+    setupSlipWithLegs(
+      1,
+      [{ id: 10, odd_taken: 2.0 }, { id: 11, odd_taken: 1.8 }],
+      100,
+    );
+    mockRpc.mockResolvedValue({ data: null, error: { message: "RPC falhou" } });
+
+    const result = await commitSlip(1, "house-1");
+
+    expect(result.error).toContain("RPC falhou");
+    expect(result.betId).toBeUndefined();
   });
 });
 

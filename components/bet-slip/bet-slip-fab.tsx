@@ -11,6 +11,7 @@
  */
 
 import type { SlipLeg } from "@/lib/bet-slip/compute";
+import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 interface BetSlipFABProps {
   legs: SlipLeg[];
@@ -20,6 +21,8 @@ interface BetSlipFABProps {
 }
 
 export function BetSlipFAB({ legs, oddCombined, stakeTotal, onOpen }: BetSlipFABProps) {
+  const track = useTelemetry();
+
   if (legs.length === 0) return null;
 
   const legCount = legs.length;
@@ -33,7 +36,13 @@ export function BetSlipFAB({ legs, oddCombined, stakeTotal, onOpen }: BetSlipFAB
       <button
         type="button"
         aria-label={`Bilhete · ${legCount} ${legCount === 1 ? "jogo" : "jogos"} · odd ${oddDisplay}`}
-        onClick={onOpen}
+        onClick={() => {
+          track("bilhete_drawer_open", {
+            leg_count: legs.length,
+            odd_combined: oddCombined,
+          });
+          onOpen();
+        }}
         className="
           flex items-center gap-2 rounded-[var(--radius)] border border-[var(--color-vermelho)]
           bg-[var(--color-surface-2)] px-4 py-3 shadow-lg
