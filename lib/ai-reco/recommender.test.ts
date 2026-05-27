@@ -217,7 +217,7 @@ describe("runRecommender + sanity guard", () => {
         apiKey: "t",
         leagueCalibrated: false,
         edgePct: 114,
-        fetchImpl: mockFetch as any,
+        fetchImpl: mockFetch as unknown as typeof fetch,
       },
     );
     expect(result.ok).toBe(true);
@@ -238,7 +238,7 @@ describe("runRecommender", () => {
     });
     const result = await runRecommender(
       { system: "sys", user: "usr" },
-      { model: "deepseek/deepseek-r1", apiKey: "test", leagueCalibrated: true, fetchImpl: mockFetch as any },
+      { model: "deepseek/deepseek-r1", apiKey: "test", leagueCalibrated: true, fetchImpl: mockFetch as unknown as typeof fetch },
     );
     expect(result.ok).toBe(true);
     expect(result.decision!.verdict).toBe("bet");
@@ -260,7 +260,7 @@ describe("runRecommender", () => {
     });
     const result = await runRecommender(
       { system: "s", user: "u" },
-      { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as any },
+      { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as unknown as typeof fetch },
     );
     expect(result.decision!.units_final).toBe(1.0); // cap 1.0u aplicado (R2)
   });
@@ -273,7 +273,7 @@ describe("runRecommender", () => {
     });
     const result = await runRecommender(
       { system: "s", user: "u" },
-      { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as any },
+      { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/500/);
@@ -289,7 +289,7 @@ describe("runRecommender", () => {
     });
     const result = await runRecommender(
       { system: "s", user: "u" },
-      { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as any },
+      { model: "deepseek/deepseek-r1", apiKey: "t", leagueCalibrated: true, fetchImpl: mockFetch as unknown as typeof fetch },
     );
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/parse|JSON|schema/i);
