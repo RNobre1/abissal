@@ -88,6 +88,13 @@ export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProp
             Ver fixtures
           </Link>
           <BetSlipPhotoImport onLegsAdded={() => router.refresh()} />
+          <Link
+            href="/bilhete/builder"
+            data-bet-builder-entry
+            className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] px-4 py-2 text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+          >
+            ⚡ Bet Builder
+          </Link>
         </div>
       </section>
     );
