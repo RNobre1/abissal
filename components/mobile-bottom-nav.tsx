@@ -28,7 +28,7 @@ interface NavItem {
 const PRIMARY_ITEMS: NavItem[] = [
   { href: "/", label: "início", Icon: LayoutDashboard, match: "/" },
   { href: "/bets", label: "apostas", Icon: Target, match: "/bets" },
-  { href: "/fixtures", label: "jogos", Icon: CalendarDays, match: "/fixtures" },
+  { href: "/fixtures", label: "fixtures", Icon: CalendarDays, match: "/fixtures" },
   {
     href: "/transactions",
     label: "transações",
@@ -85,7 +85,7 @@ export function MobileBottomNav() {
   return (
     <>
       <nav
-        className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-[var(--color-line)] bg-[var(--color-surface-1)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-surface-1)]/80 pb-[env(safe-area-inset-bottom,0px)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-50 grid grid-cols-5 border-t border-[var(--color-line)] bg-[var(--color-surface-1)]/95 backdrop-blur supports-[backdrop-filter]:bg-[var(--color-surface-1)]/80 lg:hidden"
         aria-label="Navegação principal"
       >
         {PRIMARY_ITEMS.map(({ href, label, Icon, match }) => {

@@ -27,7 +27,7 @@ const NAV_GROUPS: Array<{
   {
     label: "análise",
     items: [
-      { href: "/fixtures", label: "jogos" },
+      { href: "/fixtures", label: "fixtures" },
       { href: "/explore", label: "explorar" },
       { href: "/calibracao", label: "calibração" },
     ],
