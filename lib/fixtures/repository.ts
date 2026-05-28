@@ -101,32 +101,38 @@ async function fetchBadgeView(
 }
 
 /**
- * Wave 4: returns a Set of choistats ids that have an active `verdict='bet'`
- * recommendation in `ai_recommendations` with kickoff still in the future.
- * Scalar-only select (just `fixture_id`). Degrades to an empty Set on
- * missing table / transient error so the list never crashes when the
- * Wave 1+2+3 producers haven't been deployed yet.
+ * Returns a `Map<choistatsId, "bet" | "skip">` for fixtures with an active
+ * recommendation in `ai_recommendations` (kickoff still in the future). `bet`
+ * wins over `skip` when a fixture has both (the value chip beats the
+ * "sem valor" chip). Scalar-only select (`fixture_id, verdict`) — never pulls
+ * detail_json, so the /fixtures list stays cheap (B12/B14). Degrades to an
+ * empty Map on missing table / transient error so the list never crashes.
  *
  * Skips the round-trip entirely when there are zero parseable choistats ids
  * to look up (avoids an empty `IN ()` clause).
  */
-async function fetchAiBetIds(
+async function fetchAiVerdicts(
   supabase: AnySupabase,
   choistatsIds: number[],
-): Promise<Set<number>> {
-  const out = new Set<number>();
+): Promise<Map<number, "bet" | "skip">> {
+  const out = new Map<number, "bet" | "skip">();
   if (choistatsIds.length === 0) return out;
   try {
     const nowIso = new Date().toISOString();
     const { data, error } = await supabase
       .from("ai_recommendations")
-      .select("fixture_id")
-      .eq("verdict", "bet")
+      .select("fixture_id, verdict")
       .gt("kickoff_utc", nowIso)
       .in("fixture_id", choistatsIds);
     if (error) return out;
-    for (const r of (data ?? []) as Array<{ fixture_id: number | null }>) {
-      if (r.fixture_id != null) out.add(Number(r.fixture_id));
+    for (const r of (data ?? []) as Array<{
+      fixture_id: number | null;
+      verdict: string | null;
+    }>) {
+      if (r.fixture_id == null) continue;
+      const id = Number(r.fixture_id);
+      if (r.verdict === "bet") out.set(id, "bet");
+      else if (r.verdict === "skip" && out.get(id) !== "bet") out.set(id, "skip");
     }
   } catch {
     // Table missing / transient error → no IA chip. Never crash the list.
@@ -173,17 +179,19 @@ export async function fixturesForBrtDay(
     .map((r) => parseChoistatsId(r.source_url))
     .filter((v): v is number => v !== null);
 
-  // fetchBadgeView and fetchAiBetIds are independent — run in parallel.
-  const [signalMap, aiBetIds] = await Promise.all([
+  // fetchBadgeView and fetchAiVerdicts are independent — run in parallel.
+  const [signalMap, aiVerdicts] = await Promise.all([
     fetchBadgeView(supabase, sorted.map((r) => r.id), BADGE_VIEW_SCALAR),
-    fetchAiBetIds(supabase, choistatsIds),
+    fetchAiVerdicts(supabase, choistatsIds),
   ]);
 
   return sorted.map((row) => {
     const dto = toDto(row);
     dto.high_signal = signalMap.get(row.id)?.high_signal === true;
     const choistatsId = parseChoistatsId(row.source_url);
-    dto.ai_has_bet = choistatsId !== null && aiBetIds.has(choistatsId);
+    const verdict = choistatsId !== null ? aiVerdicts.get(choistatsId) : undefined;
+    dto.ai_has_bet = verdict === "bet";
+    dto.ai_no_value = verdict === "skip";
     return dto;
   });
 }
@@ -243,10 +251,10 @@ export async function fixturesWithBadgesForDashboard(
     .map((r) => parseChoistatsId(r.source_url))
     .filter((v): v is number => v !== null);
 
-  // fetchBadgeView and fetchAiBetIds are independent — run in parallel.
-  const [badgeMap, aiBetIds] = await Promise.all([
+  // fetchBadgeView and fetchAiVerdicts are independent — run in parallel.
+  const [badgeMap, aiVerdicts] = await Promise.all([
     fetchBadgeView(supabase, sorted.map((r) => r.id), BADGE_VIEW_FULL),
-    fetchAiBetIds(supabase, choistatsIds),
+    fetchAiVerdicts(supabase, choistatsIds),
   ]);
 
   return sorted.map((row) => {
@@ -255,7 +263,9 @@ export async function fixturesWithBadgesForDashboard(
     dto.badges = badgesFromSlugs(view?.badges ?? []);
     dto.high_signal = view?.high_signal === true;
     const choistatsId = parseChoistatsId(row.source_url);
-    dto.ai_has_bet = choistatsId !== null && aiBetIds.has(choistatsId);
+    const verdict = choistatsId !== null ? aiVerdicts.get(choistatsId) : undefined;
+    dto.ai_has_bet = verdict === "bet";
+    dto.ai_no_value = verdict === "skip";
     return dto;
   });
 }

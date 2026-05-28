@@ -292,8 +292,8 @@ describe("fixturesForBrtDay — high_signal exposed for /fixtures realce", () =>
 });
 
 describe("fixturesForBrtDay — ai_has_bet from ai_recommendations (Wave 4)", () => {
-  it("queries ai_recommendations with scalar select, filtered by verdict='bet' + kickoff>now + choistats IN", async () => {
-    const { client, captured, eqs, gts, ins } = buildMultiMock({
+  it("queries ai_recommendations with scalar select (fixture_id, verdict) + kickoff>now + choistats IN, mapping bet", async () => {
+    const { client, captured, gts, ins } = buildMultiMock({
       fixtures: [
         compactRow({
           id: 1,
@@ -306,22 +306,19 @@ describe("fixturesForBrtDay — ai_has_bet from ai_recommendations (Wave 4)", ()
           source_url: "https://www.adamchoi.co.uk/fixture/19427227/eng-prem-c-vs-d",
         }),
       ],
-      ai_recommendations: [{ fixture_id: 19427226 }],
+      ai_recommendations: [{ fixture_id: 19427226, verdict: "bet" }],
     });
 
     const out = await fixturesForBrtDay("2026-05-12", client);
 
-    // ai_recommendations select: scalar only, NO detail_json.
+    // Scalar-only select: fixture_id + verdict, NO detail_json (guard B12/B14).
     expect(captured.ai_recommendations).toBeDefined();
     expect(captured.ai_recommendations).not.toContain("detail_json");
     expect(captured.ai_recommendations).toContain("fixture_id");
+    expect(captured.ai_recommendations).toContain("verdict");
 
-    // Filters applied: verdict='bet', kickoff_utc>now, fixture_id IN [...]
-    expect(
-      eqs.ai_recommendations.some(
-        (e) => e.column === "verdict" && e.value === "bet",
-      ),
-    ).toBe(true);
+    // Filtros: kickoff_utc>now + fixture_id IN [...]. SEM filtro de verdict
+    // (buscamos bet E skip numa query só).
     expect(
       gts.ai_recommendations.some((g) => g.column === "kickoff_utc"),
     ).toBe(true);
@@ -337,7 +334,57 @@ describe("fixturesForBrtDay — ai_has_bet from ai_recommendations (Wave 4)", ()
     const f1 = out.find((f) => f.id === 1)!;
     const f2 = out.find((f) => f.id === 2)!;
     expect(f1.ai_has_bet).toBe(true);
+    expect(f1.ai_no_value).toBe(false);
     expect(f2.ai_has_bet).toBe(false);
+    expect(f2.ai_no_value).toBe(false);
+  });
+
+  it("verdict='skip' -> ai_no_value=true (IA analisou, sem valor)", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/19427226/eng-prem-a-vs-b",
+        }),
+        compactRow({
+          id: 2,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/19427227/eng-prem-c-vs-d",
+        }),
+      ],
+      ai_recommendations: [
+        { fixture_id: 19427226, verdict: "skip" },
+        { fixture_id: 19427227, verdict: "bet" },
+      ],
+    });
+    const out = await fixturesForBrtDay("2026-05-12", client);
+    const f1 = out.find((f) => f.id === 1)!;
+    const f2 = out.find((f) => f.id === 2)!;
+    expect(f1.ai_no_value).toBe(true);
+    expect(f1.ai_has_bet).toBe(false);
+    expect(f2.ai_has_bet).toBe(true);
+    expect(f2.ai_no_value).toBe(false);
+  });
+
+  it("bet vence skip quando a fixture tem os dois verdicts", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/19427226/eng-prem-a-vs-b",
+        }),
+      ],
+      ai_recommendations: [
+        { fixture_id: 19427226, verdict: "skip" },
+        { fixture_id: 19427226, verdict: "bet" },
+      ],
+    });
+    const out = await fixturesForBrtDay("2026-05-12", client);
+    const f1 = out.find((f) => f.id === 1)!;
+    expect(f1.ai_has_bet).toBe(true);
+    expect(f1.ai_no_value).toBe(false);
   });
 
   it("fixture without source_url -> ai_has_bet = false (graceful)", async () => {
@@ -381,10 +428,11 @@ describe("fixturesWithBadgesForDashboard — ai_has_bet from ai_recommendations 
         { fixture_id: 1, badges: ["over-alto"], high_signal: false },
         { fixture_id: 2, badges: [], high_signal: false },
       ],
-      ai_recommendations: [{ fixture_id: 200 }],
+      ai_recommendations: [{ fixture_id: 200, verdict: "bet" }],
     });
     const out = await fixturesWithBadgesForDashboard("2026-05-12", client);
     expect(out.find((f) => f.id === 1)!.ai_has_bet).toBe(false);
     expect(out.find((f) => f.id === 2)!.ai_has_bet).toBe(true);
+    expect(out.find((f) => f.id === 2)!.ai_no_value).toBe(false);
   });
 });

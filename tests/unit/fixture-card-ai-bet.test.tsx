@@ -84,3 +84,32 @@ describe("<FixtureCard aiHasBet>", () => {
     expect(screen.getByText(/IA/)).toBeInTheDocument();
   });
 });
+
+describe("<FixtureCard aiNoValue>", () => {
+  it("aiNoValue=true → renders 'IA · sem valor' chip with data-ai-no-value='true'", () => {
+    const { container } = render(
+      <FixtureCard fixture={fx({ id: 1 })} aiNoValue={true} />,
+    );
+    const chip = container.querySelector("[data-ai-no-value='true']");
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent).toMatch(/sem valor/i);
+    expect(chip!.getAttribute("title")).toMatch(/não viu valor/i);
+  });
+
+  it("aiNoValue=false / undefined → chip absent", () => {
+    const { container: c1 } = render(
+      <FixtureCard fixture={fx({ id: 1 })} aiNoValue={false} />,
+    );
+    expect(c1.querySelector("[data-ai-no-value='true']")).toBeNull();
+    const { container: c2 } = render(<FixtureCard fixture={fx({ id: 2 })} />);
+    expect(c2.querySelector("[data-ai-no-value='true']")).toBeNull();
+  });
+
+  it("aiHasBet tem precedência: bet mostra ⚡IA e esconde 'sem valor'", () => {
+    const { container } = render(
+      <FixtureCard fixture={fx({ id: 1 })} aiHasBet={true} aiNoValue={true} />,
+    );
+    expect(container.querySelector("[data-ai-bet='true']")).not.toBeNull();
+    expect(container.querySelector("[data-ai-no-value='true']")).toBeNull();
+  });
+});

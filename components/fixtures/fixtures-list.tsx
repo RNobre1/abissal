@@ -58,6 +58,7 @@ export function FixturesList({ fixtures }: FixturesListProps) {
                     fixture={fixture}
                     highSignal={fixture.high_signal === true}
                     aiHasBet={fixture.ai_has_bet === true}
+                    aiNoValue={fixture.ai_no_value === true}
                   />
                 </li>
               ))}

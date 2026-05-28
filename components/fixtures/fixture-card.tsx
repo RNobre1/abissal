@@ -14,6 +14,12 @@ interface FixtureCardProps {
    * the DTO shape.
    */
   aiHasBet?: boolean;
+  /**
+   * Render the muted "IA · sem valor" chip quando a IA analisou e deu skip
+   * (de `fixture.ai_no_value`) e NÃO há aposta. Distingue "analisado, sem
+   * valor" de "ainda não analisado" (sem chip). `aiHasBet` tem precedência.
+   */
+  aiNoValue?: boolean;
 }
 
 const TONE_DESCRIPTION: Record<BadgeTone, string> = {
@@ -27,6 +33,7 @@ export function FixtureCard({
   fixture,
   highSignal,
   aiHasBet,
+  aiNoValue,
 }: FixtureCardProps) {
   const ko = formatUtcAsBrt(fixture.kickoff_utc) ?? fixture.ko_time ?? "TBD";
   const badges = fixture.badges ?? [];
@@ -69,6 +76,15 @@ export function FixtureCard({
             aria-label="IA recomenda aposta nesta fixture"
           >
             ⚡ IA
+          </span>
+        ) : aiNoValue ? (
+          <span
+            data-ai-no-value="true"
+            title="IA analisou e não viu valor nesta fixture"
+            className="label shrink-0 inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--color-line)] px-1.5 py-0.5 text-[10px] text-[var(--color-ink-faint)] lg:text-[11px]"
+            aria-label="IA analisou e não viu valor nesta fixture"
+          >
+            IA · sem valor
           </span>
         ) : null}
         {!fixture.has_detail ? (

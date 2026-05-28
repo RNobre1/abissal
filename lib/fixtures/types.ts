@@ -33,6 +33,13 @@ export interface FixtureDTO {
    */
   ai_has_bet?: boolean;
   /**
+   * true sse a IA analisou esta fixture e deu `verdict='skip'` (nenhum mercado
+   * com valor) e NÃO há um `verdict='bet'` ativo. Distingue "analisado, sem
+   * valor" de "ainda não analisado". Renderizado como chip muted "IA · sem
+   * valor" no FixtureCard. Escalar — mesma query escalar do `ai_has_bet`.
+   */
+  ai_no_value?: boolean;
+  /**
    * Full badge objects — only populated by the dashboard query
    * (`fixturesWithBadgesForDashboard`), never by the /fixtures list.
    */
