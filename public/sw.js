@@ -3,13 +3,16 @@
 //  - Navegações: network-first, com fallback offline (/offline.html).
 //  - Estáticos versionados (_next/static, /icons): cache-first.
 const CACHE = "abissal-v1";
-const OFFLINE_URL = "/offline.html";
+// URL limpa: OpenNext serve public/offline.html em /offline (307 em /offline.html).
+// O SW só roda em produção, então referenciar a URL limpa é seguro.
+const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches
       .open(CACHE)
-      .then((cache) => cache.add(OFFLINE_URL))
+      // Precache tolerante: falha aqui não deve abortar a instalação do SW.
+      .then((cache) => cache.add(OFFLINE_URL).catch(() => undefined))
       .then(() => self.skipWaiting()),
   );
 });
