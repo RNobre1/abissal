@@ -1,0 +1,231 @@
+{
+  "schema_version": "1.0",
+  "installed_version": "1.4.0",
+  "installed_at": "2026-05-11T00:49:30.670Z",
+  "files": {
+    ".claude/skills/akita-xp-rules/SKILL.md": {
+      "hash": "sha256:d02f400096f32197176dcd29a32a7cce85699a28b1e7daa4c03db05c8b558c99",
+      "source": "plugins/xp-stack/skills/akita-xp-rules/SKILL.md",
+      "user_modified": false
+    },
+    ".agents/skills/akita-xp-rules/SKILL.md": {
+      "hash": "sha256:d02f400096f32197176dcd29a32a7cce85699a28b1e7daa4c03db05c8b558c99",
+      "source": "plugins/xp-stack/skills/akita-xp-rules/SKILL.md",
+      "user_modified": false
+    },
+    ".claude/skills/akita-xp-rules/scripts/version-check.sh": {
+      "hash": "sha256:d1b2036a253fc9a08e5b4f839586630b42cc2eb89e94cca96580f73fbea0a901",
+      "source": "plugins/xp-stack/skills/akita-xp-rules/scripts/version-check.sh",
+      "user_modified": false
+    },
+    ".agents/skills/akita-xp-rules/scripts/version-check.sh": {
+      "hash": "sha256:d1b2036a253fc9a08e5b4f839586630b42cc2eb89e94cca96580f73fbea0a901",
+      "source": "plugins/xp-stack/skills/akita-xp-rules/scripts/version-check.sh",
+      "user_modified": false
+    },
+    ".claude/skills/tdd-conventions/SKILL.md": {
+      "hash": "sha256:10512f83d065028b16a46f3896b46b0f54a02cf4b80dad1c493408c6ce0932cb",
+      "source": "plugins/xp-stack/skills/tdd-conventions/SKILL.md",
+      "user_modified": false
+    },
+    ".agents/skills/tdd-conventions/SKILL.md": {
+      "hash": "sha256:10512f83d065028b16a46f3896b46b0f54a02cf4b80dad1c493408c6ce0932cb",
+      "source": "plugins/xp-stack/skills/tdd-conventions/SKILL.md",
+      "user_modified": false
+    },
+    ".claude/skills/task-decomposition/SKILL.md": {
+      "hash": "sha256:2be2d81c8df05e46bbaa88f6accd05952e41a1c66039977dc27797b6526beb45",
+      "source": "plugins/xp-stack/skills/task-decomposition/SKILL.md",
+      "user_modified": false
+    },
+    ".agents/skills/task-decomposition/SKILL.md": {
+      "hash": "sha256:2be2d81c8df05e46bbaa88f6accd05952e41a1c66039977dc27797b6526beb45",
+      "source": "plugins/xp-stack/skills/task-decomposition/SKILL.md",
+      "user_modified": false
+    },
+    ".claude/skills/research-cycle/SKILL.md": {
+      "hash": "sha256:597a9051ba1545f72c620ef8c5d430aa1fc7f0d80b5ea9ff7815e75eca935790",
+      "source": "plugins/xp-stack/skills/research-cycle/SKILL.md",
+      "user_modified": false
+    },
+    ".agents/skills/research-cycle/SKILL.md": {
+      "hash": "sha256:597a9051ba1545f72c620ef8c5d430aa1fc7f0d80b5ea9ff7815e75eca935790",
+      "source": "plugins/xp-stack/skills/research-cycle/SKILL.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/SKILL.md": {
+      "hash": "sha256:7093ec36578aa432533ec2a9986b5cb532c1bd951e14c85d634e6ec0ab42ed74",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/SKILL.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/SKILL.md": {
+      "hash": "sha256:7093ec36578aa432533ec2a9986b5cb532c1bd951e14c85d634e6ec0ab42ed74",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/SKILL.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/examples/bad-workflow.yml": {
+      "hash": "sha256:ab2a56f5252609aaa0b42a69842ec1ed590ab9967ea881fccb38e06154a33183",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/examples/bad-workflow.yml",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/examples/bad-workflow.yml": {
+      "hash": "sha256:ab2a56f5252609aaa0b42a69842ec1ed590ab9967ea881fccb38e06154a33183",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/examples/bad-workflow.yml",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/examples/good-workflow.yml": {
+      "hash": "sha256:8d8b4d28c34fe7a6a492bad58c3b5c6a70fc2a0c7212d007006954ce5990d646",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/examples/good-workflow.yml",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/examples/good-workflow.yml": {
+      "hash": "sha256:8d8b4d28c34fe7a6a492bad58c3b5c6a70fc2a0c7212d007006954ce5990d646",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/examples/good-workflow.yml",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/artifacts-v4.md": {
+      "hash": "sha256:b62f7710453d8e2223efc0d62c58f528977976ac11a44671cf7efdff2c1a8d55",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/artifacts-v4.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/artifacts-v4.md": {
+      "hash": "sha256:b62f7710453d8e2223efc0d62c58f528977976ac11a44671cf7efdff2c1a8d55",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/artifacts-v4.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/caching.md": {
+      "hash": "sha256:20b6d549f25e58a6cc2199b49c904a863e7171864d26477076c130dca2002961",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/caching.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/caching.md": {
+      "hash": "sha256:20b6d549f25e58a6cc2199b49c904a863e7171864d26477076c130dca2002961",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/caching.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/concurrency-and-triggers.md": {
+      "hash": "sha256:969f1ebdbd0b3278959e2a3f1ac63289e76991f372230e9c2116ec248ad47f2a",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/concurrency-and-triggers.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/concurrency-and-triggers.md": {
+      "hash": "sha256:969f1ebdbd0b3278959e2a3f1ac63289e76991f372230e9c2116ec248ad47f2a",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/concurrency-and-triggers.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/observability.md": {
+      "hash": "sha256:2da3176ca0973ae01e9e12ea9351a70015d0190d40f4921b8131804213e7ce02",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/observability.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/observability.md": {
+      "hash": "sha256:2da3176ca0973ae01e9e12ea9351a70015d0190d40f4921b8131804213e7ce02",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/observability.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/reuse-patterns.md": {
+      "hash": "sha256:3a3d8252413df8c30136ac8eda23c8dee81f2af5d13619f4062618857d422d90",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/reuse-patterns.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/reuse-patterns.md": {
+      "hash": "sha256:3a3d8252413df8c30136ac8eda23c8dee81f2af5d13619f4062618857d422d90",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/reuse-patterns.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/security.md": {
+      "hash": "sha256:5286283c00a1f1d3c7af20449a428c9b28bef811eb8eb33bcbc23cbf76d6c47f",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/security.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/security.md": {
+      "hash": "sha256:5286283c00a1f1d3c7af20449a428c9b28bef811eb8eb33bcbc23cbf76d6c47f",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/security.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/references/sharding.md": {
+      "hash": "sha256:258140ed4d70ab281d0f056f97ad05915eefb2d90b06da0ea8554dca482f82a7",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/sharding.md",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/references/sharding.md": {
+      "hash": "sha256:258140ed4d70ab281d0f056f97ad05915eefb2d90b06da0ea8554dca482f82a7",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/references/sharding.md",
+      "user_modified": false
+    },
+    ".claude/skills/optimizing-github-actions/scripts/audit-action-pins.sh": {
+      "hash": "sha256:5df0cf33830066b77729d524a2409ee2951e72ffe3e391882844b3eb2b7c2d69",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/scripts/audit-action-pins.sh",
+      "user_modified": false
+    },
+    ".agents/skills/optimizing-github-actions/scripts/audit-action-pins.sh": {
+      "hash": "sha256:5df0cf33830066b77729d524a2409ee2951e72ffe3e391882844b3eb2b7c2d69",
+      "source": "plugins/xp-stack/skills/optimizing-github-actions/scripts/audit-action-pins.sh",
+      "user_modified": false
+    },
+    ".claude/agents/researcher.md": {
+      "hash": "sha256:d42aca3950b209568fdac79c841b72b90e46912dab4029b4d7be6e58d2f00e88",
+      "source": "plugins/xp-stack/agents/researcher.md",
+      "user_modified": false
+    },
+    ".claude/agents/research-critic.md": {
+      "hash": "sha256:b17798c105ac1571ca6940fd03bddff5ab45c7399a5df05dad142f04fd085c1e",
+      "source": "plugins/xp-stack/agents/research-critic.md",
+      "user_modified": false
+    },
+    ".claude/agents/tdd.md": {
+      "hash": "sha256:4c0f0e232af3767c0a397c0046d492a5687176c6916f9f64a5a05ce663cf4ad2",
+      "source": "plugins/xp-stack/agents/tdd.md",
+      "user_modified": false
+    },
+    ".claude/agents/reviewer.md": {
+      "hash": "sha256:0ec9cda8d0503aa7b4c2976a67a9ec7fc4942f593fec98779e836faa030ffbe1",
+      "source": "plugins/xp-stack/agents/reviewer.md",
+      "user_modified": false
+    },
+    "CLAUDE.md": {
+      "hash": "sha256:be5706f0b8283d823a8c5ca92ff2d9b61ee2134c83ce3b47c9f0501384cd188e",
+      "source": "plugins/xp-stack/templates/CLAUDE.md.template",
+      "user_modified": false
+    },
+    "docs/tasks/_template/README.md": {
+      "hash": "sha256:112091843071c5435621567cdd1f264b1229eaca13cfa89aaa25b252a1602c37",
+      "source": "plugins/xp-stack/templates/docs-tasks-template/...",
+      "user_modified": false
+    },
+    "docs/tasks/_template/TEMPLATE-overview.md": {
+      "hash": "sha256:4a3f31b9138c4a2ff8e725745727445f91966bb2feafc22573c723ee12652e8a",
+      "source": "plugins/xp-stack/templates/docs-tasks-template/...",
+      "user_modified": false
+    },
+    "docs/tasks/_template/TEMPLATE-progress.md": {
+      "hash": "sha256:a61f6d438df708c62ccd9f3aae128bb8373a69faeff593d4a38480109c6c4023",
+      "source": "plugins/xp-stack/templates/docs-tasks-template/...",
+      "user_modified": false
+    },
+    "docs/tasks/_template/TEMPLATE-task.md": {
+      "hash": "sha256:cc5d77f29a5bfcb94143c191f3f688b62e92df609dd24fef402072b4e53caea5",
+      "source": "plugins/xp-stack/templates/docs-tasks-template/...",
+      "user_modified": false
+    },
+    "docs/tasks/_template/TEMPLATE-terminal-prompts.md": {
+      "hash": "sha256:940497f4b71ceabc10b3ce357c0e17d25efee0a57d2ccfc81baf3c07452d5afe",
+      "source": "plugins/xp-stack/templates/docs-tasks-template/...",
+      "user_modified": false
+    },
+    "docs/pesquisas/_template/TEMPLATE-pesquisa.md": {
+      "hash": "sha256:a6388e455c0d564e8be81e360da16958da590f1831b8899d623182b7e74dd860",
+      "source": "plugins/xp-stack/templates/docs-pesquisas-template/...",
+      "user_modified": false
+    },
+    ".claude/settings.json": {
+      "hash": "sha256:d51f8e3c8a16d02d3fb57254f66d788e39b92852a938cb72daeed6be0574576b",
+      "source": "plugins/xp-stack/templates/claude-settings-project.json",
+      "user_modified": false
+    }
+  },
+  "engines": [
+    "claude-code",
+    "antigravity"
+  ]
+}

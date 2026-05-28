@@ -1,0 +1,10 @@
+{
+  "schema_version": "1.0",
+  "active_features": [],
+  "archived_features": [],
+  "doc_level_default": "essencial",
+  "engines_installed": [
+    "claude-code",
+    "antigravity"
+  ]
+}

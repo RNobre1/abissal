@@ -1,0 +1,186 @@
+# Annotated example of a GitHub Actions workflow following ALL patterns from the
+# `optimizing-github-actions` skill.
+# This file does NOT run — it's documentation reference.
+#
+# To create a real workflow, copy + adapt to your case. Each pattern has an
+# explanatory comment.
+
+name: Example CI (good)
+
+# ============================================================
+# TRIGGERS — pre-flight item #5 (5a duplicate SHA + 5b cost)
+# ============================================================
+on:
+  # PR-only for normal CI workflow; push only on main to be deploy gate + cover hotfix
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main]   # Do NOT include dev — would cause CI 2x same SHA when feature PR → dev merges
+  workflow_dispatch:   # Manual trigger to run ad-hoc
+
+# ============================================================
+# CONCURRENCY — pre-flight item #4
+# ============================================================
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true   # PR can cancel previous run; deploy would be `false`
+
+# ============================================================
+# PERMISSIONS — least privilege default
+# ============================================================
+permissions: read-all   # Safe default; specific jobs escalate when needed
+
+jobs:
+  # ============================================================
+  # Setup: runs 1x, caches node_modules for parallel jobs
+  # ============================================================
+  setup:
+    runs-on: ubuntu-latest
+    steps:
+      # SHA-pinning of official actions is acceptable via major (see Red Flag #1)
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false   # Pre-flight item #10 — read-only checkout doesn't need persisted credential
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - uses: actions/cache@v4
+        id: cache
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
+
+      - if: steps.cache.outputs.cache-hit != 'true'
+        run: npm ci
+
+  # ============================================================
+  # Parallel jobs: restore cache (no npm ci)
+  # ============================================================
+  lint-typecheck:
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          fail-on-cache-miss: true   # Setup already ran; cache miss here = fast fail
+      - run: npm run lint
+      - run: npx tsc --noEmit
+
+  # ============================================================
+  # Sharded tests with blob reporter + merge job (Vitest 2.x+)
+  # Pre-flight item #6 (artifact naming) + #7 (coverage threshold on merge)
+  # ============================================================
+  unit-test-shard:
+    needs: setup
+    strategy:
+      fail-fast: false   # Don't cancel other shards if one fails
+      matrix:
+        shard: [1, 2, 3]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          fail-on-cache-miss: true
+
+      - name: Run shard ${{ matrix.shard }}/3
+        run: npx vitest run --reporter=blob --coverage --shard=${{ matrix.shard }}/3
+        env:
+          # Coverage threshold doesn't work on partial shard — skip here, apply on merge
+          COVERAGE_SKIP_THRESHOLDS: 1
+
+      - name: Upload blob (shard ${{ matrix.shard }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: vitest-blob-${{ matrix.shard }}   # Unique name required in v4
+          path: .vitest-reports/blob-*.json
+          retention-days: 1
+
+  unit-tests-merge:
+    needs: unit-test-shard
+    if: ${{ !cancelled() }}   # Run even if shard failed — want to see aggregated report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/cache@v4
+        with:
+          path: node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json') }}
+          fail-on-cache-miss: true
+
+      - name: Download all blobs
+        uses: actions/download-artifact@v4
+        with:
+          path: .vitest-reports
+          pattern: vitest-blob-*       # Merges all shards
+          merge-multiple: true
+
+      - name: Merge reports + apply coverage threshold
+        run: npx vitest --merge-reports --coverage --reporter=default
+        # Real threshold (lines: 80%) applied HERE on merge — aggregated coverage
+
+      - name: Generate summary
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail   # Pre-flight item #8 — bash hardening
+          {
+            echo "## Test Results"
+            COVERAGE=$(jq '.total.lines.pct' coverage/coverage-summary.json)
+            echo "- Coverage: ${COVERAGE}%"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # ============================================================
+  # Deploy job — example of OIDC for cloud auth (pre-flight item #2)
+  # ============================================================
+  deploy:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [lint-typecheck, unit-tests-merge]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write    # For OIDC — does NOT grant write to resources, only allows requesting token
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      # OIDC: no long-lived AWS_ACCESS_KEY_ID
+      - name: Configure AWS via OIDC
+        # SHA-pin required for third-party (pre-flight item #1)
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502 # v4.0.2
+        with:
+          role-to-assume: arn:aws:iam::123456789012:role/github-actions-deploy
+          aws-region: us-east-1
+
+      - name: Deploy
+        run: |
+          set -euo pipefail
+          aws s3 sync ./build s3://my-bucket
+        # Long-lived secret (only for service without OIDC) would be scoped at step level:
+        # env:
+        #   THIRD_PARTY_API_KEY: ${{ secrets.THIRD_PARTY_API_KEY }}   # OIDC not supported by ThirdParty
