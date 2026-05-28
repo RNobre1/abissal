@@ -456,5 +456,121 @@ module AdamStats::Scraper
         expect { runner.run }.not_to raise_error
       end
     end
+
+    # ── Parte 1: cobertura de skip desacoplada do orçamento de LLM ──────────────
+    # O edge-calc roda em TODAS as fixtures da janela (skip é de graça, sem LLM),
+    # mas o LLM só é chamado no máximo `llm_budget` vezes (corte de tokens).
+    # Resultado: o badge "IA · sem valor" aparece mesmo fora do top-N, sem custo.
+    describe 'orçamento de chamadas LLM (Parte 1 — skip-coverage)' do
+      # Linha sem valor: odds tunadas pra todo candidato ficar com edge < 10%.
+      def no_value_row(id)
+        {
+          'fixture_id' => id.to_s,
+          'home_team' => 'A', 'away_team' => 'B', 'league' => 'L',
+          'kickoff_utc' => '2026-05-30T15:00:00Z',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.50',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'A' => { 'decimal_odds' => 2.0 },
+                'Draw' => { 'decimal_odds' => 3.0 },
+                'B' => { 'decimal_odds' => 3.2 }
+              },
+              'Match Goals Overs/Unders' => {
+                'Over 2.5' => { 'decimal_odds' => 2.0 },
+                'Under 2.5' => { 'decimal_odds' => 1.85 }
+              },
+              'BTTS' => {
+                'Yes' => { 'decimal_odds' => 1.9 },
+                'No' => { 'decimal_odds' => 1.9 }
+              }
+            }
+          )
+        }
+      end
+
+      # Linha COM valor: btts/sim com edge ~24% (liga não-calibrada, abaixo do
+      # SANITY 50 → não é pré-filtrada → chama a IA). Mesmo shape do teste
+      # "CHAMA a IA quando edge<=50 em liga nao-calibrada".
+      def value_row(id)
+        {
+          'fixture_id' => id.to_s,
+          'home_team' => 'Home', 'away_team' => 'Away', 'league' => 'L',
+          'kickoff_utc' => '2026-05-30T15:00:00Z',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.75',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'Home' => { 'decimal_odds' => 4.0 },
+                'Draw' => { 'decimal_odds' => 4.0 },
+                'Away' => { 'decimal_odds' => 2.0 }
+              },
+              'Match Goals Overs/Unders' => {
+                'Over 2.5' => { 'decimal_odds' => 2.0 },
+                'Under 2.5' => { 'decimal_odds' => 1.85 }
+              },
+              'BTTS' => {
+                'Yes' => { 'decimal_odds' => 2.0 },
+                'No' => { 'decimal_odds' => 1.9 }
+              }
+            }
+          )
+        }
+      end
+
+      def setup_conn(rows)
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return(rows)
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        inserts = []
+        allow(conn).to receive(:exec_params) do |sql, params|
+          inserts << params if sql.include?('INSERT INTO ai_recommendations')
+          [{ 'id' => 1 }]
+        end
+        [conn, inserts]
+      end
+
+      it 'chama o LLM no máximo `llm_budget` vezes mesmo com mais candidatos de valor' do
+        rows = [value_row(1), value_row(2), value_row(3)]
+        conn, inserts = setup_conn(rows)
+
+        runner = described_class.new(conn: conn, logger: logger, client: client, llm_budget: 2)
+        runner.run
+
+        expect(client).to have_received(:call).exactly(2).times
+        verdicts = inserts.map { |p| p[11] }
+        expect(verdicts.count('bet')).to eq(2)
+        expect(verdicts.count('skip')).to eq(0)
+        # 3ª fixture de valor fica pra on-demand: nem LLM nem persist.
+        expect(inserts.length).to eq(2)
+      end
+
+      it 'persiste skip pra fixtures sem valor SEM consumir o orçamento de LLM' do
+        # Ordem: valor consome o único slot de LLM ANTES de um skip aparecer —
+        # prova que skip continua sendo persistido após o orçamento esgotar.
+        rows = [no_value_row(1), value_row(2), no_value_row(3), value_row(4)]
+        conn, inserts = setup_conn(rows)
+
+        runner = described_class.new(conn: conn, logger: logger, client: client, llm_budget: 1)
+        runner.run
+
+        expect(client).to have_received(:call).exactly(1).time
+        verdicts = inserts.map { |p| p[11] }
+        # 2 skips (de graça, mesmo o 2º vindo depois do orçamento esgotar) + 1 bet.
+        expect(verdicts.count('skip')).to eq(2)
+        expect(verdicts.count('bet')).to eq(1)
+        # A 2ª fixture de valor (id 4) fica pra on-demand: sem insert.
+        expect(inserts.length).to eq(3)
+      end
+
+      it 'usa LLM_CALL_BUDGET como default quando llm_budget não é passado' do
+        expect(described_class::LLM_CALL_BUDGET).to be_a(Integer)
+        expect(described_class::LLM_CALL_BUDGET).to be > 0
+      end
+    end
   end
 end

@@ -49,12 +49,26 @@ module AdamStats
       # (fit em fixture_simulations resolvidas — quando houver dataset por liga).
       DEFAULT_BLEND_ALPHA = 0.3
 
+      # Teto de chamadas LLM (R1) por rodada — corte de tokens/custo.
+      # Parte 1 (2026-05-28): só o ramo que chama a IA é capado; skips
+      # (sem candidato com edge, ou pré-filtrados) são persistidos de graça pra
+      # TODAS as fixtures da janela. Substitui o antigo LIMIT 50 do SQL, que
+      # capava a query inteira e deixava o overflow sem badge "IA · sem valor".
+      # Mantido em 50 = mesmo nº de chamadas R1 do design anterior (custo igual).
+      LLM_CALL_BUDGET = 50
+
       # Cron query priorizada (B19 — 2026-05-25):
       # 1. Fixtures de ligas CALIBRADAS primeiro (tem isotonic_lookup +
       #    league_parameters próprios — IA tem dados pra decidir).
       # 2. Dentro do subset, kickoff_utc mais cedo.
       # 3. Ligas não-calibradas depois, também por kickoff_utc.
-      # LIMIT 50 mantém budget de tokens controlado.
+      #
+      # Parte 1 (2026-05-28): o corte de tokens NÃO é mais o LIMIT aqui —
+      # migrou pro ramo que chama o LLM (LLM_CALL_BUDGET). Rodamos o edge-calc
+      # em TODAS as fixtures da janela pra persistir skip de graça (sem LLM) e
+      # o badge "IA · sem valor" aparecer também fora do top-N. O LIMIT 500 vira
+      # só um guardrail de memória (muito acima do volume real ~200-400/janela);
+      # se algum dia estourar, o overflow é a cauda de menor prioridade.
       FIXTURES_QUERY = <<~SQL.freeze
         SELECT s.id, s.fixture_id, s.home_team, s.away_team, s.league, s.kickoff_utc,
                s.model_version,
@@ -74,7 +88,7 @@ module AdamStats
             WHERE lp.league = s.league AND lp.effective_until IS NULL
           ) DESC,
           s.kickoff_utc ASC
-        LIMIT 50
+        LIMIT 500
       SQL
 
       LEAGUES_CAL_QUERY = <<~SQL.freeze
@@ -112,11 +126,13 @@ module AdamStats
       SQL
 
       def initialize(conn: nil, logger: ->(m) { warn m }, client: nil,
-                     dry_run: false, bankroll: nil, model: nil, blend_alpha: nil)
+                     dry_run: false, bankroll: nil, model: nil, blend_alpha: nil,
+                     llm_budget: nil)
         @conn = conn
         @logger = logger
         @client = client
         @dry_run = dry_run
+        @llm_budget = llm_budget || LLM_CALL_BUDGET
         # ENV vars vindas de GH Actions `${{ vars.X }}` chegam como string vazia
         # quando a var não está definida (não nil). Ruby `"" || x` retorna `""`
         # (truthy), o que furava o fallback. Normalizar pra nil antes do `||`.
@@ -143,6 +159,7 @@ module AdamStats
       # pré-raise; o orchestrator usa o rescue e zera).
       def run
         @run_stats = { inserted_recos: 0, errors: 0 }
+        @llm_calls_made = 0
 
         with_connection do |conn|
           fixtures = conn.query(FIXTURES_QUERY).to_a
@@ -219,6 +236,17 @@ module AdamStats
           @logger.call("[ai-reco] dry-run skipping IA call for fixture #{row['fixture_id']}")
           return
         end
+
+        # Corte de tokens (Parte 1): só este ramo — o que chama o R1 — é capado.
+        # Os skips acima já foram persistidos de graça pra toda a janela, então o
+        # badge "IA · sem valor" cobre o overflow. Fixtures COM valor além do teto
+        # ficam pra on-demand (têm valor → vale o clique do usuário).
+        @llm_calls_made ||= 0
+        if @llm_calls_made >= @llm_budget
+          @logger.call("[ai-reco] orçamento LLM (#{@llm_budget}) atingido — fixture #{row['fixture_id']} fica pra on-demand")
+          return
+        end
+        @llm_calls_made += 1
 
         run_ia_for(conn, row, candidates, bet_candidates, league_calibrated)
       end
