@@ -132,47 +132,6 @@ async function authenticateViaCookieInjection(page: Page): Promise<boolean> {
   return true;
 }
 
-// ── Mock OpenRouter response ──────────────────────────────────────────────────
-
-/**
- * OpenRouter mock — returns 2 legs:
- *   Leg 1: Flamengo × Palmeiras (auto-link confidence: none, no DB fixture)
- *   Leg 2: Arsenal × Chelsea (same)
- */
-const MOCK_OPENROUTER_RESPONSE = {
-  choices: [
-    {
-      message: {
-        content: JSON.stringify({
-          legs: [
-            {
-              home: "Flamengo",
-              away: "Palmeiras",
-              market: "1X2",
-              side: "Casa",
-              odd_taken: 2.1,
-              league: "Brasileirão Série A",
-              kickoff_iso: null,
-            },
-            {
-              home: "Arsenal",
-              away: "Chelsea",
-              market: "BTTS",
-              side: "Sim",
-              odd_taken: 1.75,
-              league: "Premier League",
-              kickoff_iso: null,
-            },
-          ],
-          stake_total: 50,
-          odd_combined: 3.675,
-          house_detected: "superbet",
-        }),
-      },
-    },
-  ],
-};
-
 // ── Fixtures path ─────────────────────────────────────────────────────────────
 
 const MOCK_BET_SLIP_PNG = path.join(__dirname, "fixtures", "mock-bet-slip.png");
@@ -276,27 +235,17 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
   test.describe.configure({ mode: "serial" });
   test.use({ viewport: { width: 1440, height: 900 } });
 
-  test.beforeEach(async ({ page }) => {
-    // Intercept ALL OpenRouter requests and return mock JSON
-    await page.route("**/openrouter.ai/api/v1/chat/completions", (route) => {
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify(MOCK_OPENROUTER_RESPONSE),
-      });
-    });
-  });
-
-  test("fluxo completo: upload → confirmação → commit (stub)", async ({ page }) => {
-    // parseBetSlipPhoto é Server Action: a chamada OpenRouter roda no servidor,
-    // que `page.route` NÃO intercepta. O stub do caminho de sucesso nunca dispara
-    // (o estado nunca vira "confirming"). Cobertura real do sucesso: spec
-    // bet-slip-photo-live (PLAYWRIGHT_LIVE_OCR=1) + testes unitários de parse/match.
-    // Follow-up: mock via base URL de teste do OpenRouter ou MSW server-side.
+  test("fluxo completo: upload → confirmação → commit (stub)", async ({ page }, testInfo) => {
+    // Teste de FLUXO (força viewport 1440×900), não de layout mobile. Roda só no
+    // desktop-chromium: rodar em paralelo nos 2 projetos colide no mesmo usuário
+    // E2E (OTP one-time + seed/cleanup de bilhete compartilhado).
     test.skip(
-      true,
-      "stub não dispara: OCR é Server Action, page.route não intercepta server-side (ver live OCR + units)",
+      testInfo.project.name !== "desktop-chromium",
+      "fluxo de upload — só desktop (evita corrida de OTP/seed entre projetos)",
     );
+    // OCR é Server Action: o OpenRouter é chamado no servidor. Nos E2E o app
+    // aponta OPENROUTER_BASE_URL para o mock (tests/e2e/support/mock-openrouter.mjs),
+    // que devolve 2 legs (Flamengo, Arsenal). page.route não serviria aqui.
     test.skip(
       !authReady,
       "Needs SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL + E2E_USER_EMAIL for magic-link auth",
@@ -334,13 +283,14 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
     await expect(fileInput).toBeAttached();
     await fileInput.setInputFiles(MOCK_BET_SLIP_PNG);
 
-    // 8. Wait for confirmation dialog (parseBetSlipPhoto is mocked via page.route)
+    // 8. Wait for confirmation dialog (parseBetSlipPhoto usa o mock via OPENROUTER_BASE_URL)
     const confirmDialog = page.getByRole("dialog", { name: /confirmar legs/i });
     await expect(confirmDialog).toBeVisible({ timeout: 15_000 });
 
-    // 9. Both mock legs should be visible
-    await expect(page.getByText("Flamengo")).toBeVisible();
-    await expect(page.getByText("Arsenal")).toBeVisible();
+    // 9. Both mock legs should be visible. Texto completo da leg evita colidir
+    // com as opções de auto-match (`<option>Flamengo × Coritiba…`) no dropdown.
+    await expect(page.getByText("Flamengo × Palmeiras")).toBeVisible();
+    await expect(page.getByText("Arsenal × Chelsea")).toBeVisible();
 
     // 10. Add button should be enabled
     const addBtn = page.getByRole("button", { name: /adicionar/i });
@@ -354,65 +304,6 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
     await expect(confirmDialog).not.toBeVisible({ timeout: 10_000 });
 
     // Cleanup: remove only the seed leg
-    await cleanupSeedLeg(seedResult!.legId);
-  });
-
-  test("exibe erro gracioso quando parse falha (stub 500)", async ({ page }) => {
-    // Mesmo motivo do teste de sucesso: OCR é Server Action, o page.route 500
-    // não intercepta a chamada server-side. O comportamento aqui depende de uma
-    // chamada OpenRouter REAL (flaky). Cobertura do caminho de erro fica nos
-    // testes unitários de parse-photo-action. Follow-up: mock server-side.
-    test.skip(
-      true,
-      "stub não dispara: OCR é Server Action, page.route não intercepta server-side (flaky com chamada real)",
-    );
-    test.skip(
-      !authReady,
-      "Needs SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL + E2E_USER_EMAIL for magic-link auth",
-    );
-
-    // Override the beforeEach mock to return error instead
-    await page.route("**/openrouter.ai/api/v1/chat/completions", (route) => {
-      route.fulfill({
-        status: 500,
-        contentType: "application/json",
-        body: JSON.stringify({ error: "model overloaded" }),
-      });
-    });
-
-    const authed = await authenticateViaCookieInjection(page);
-    test.skip(!authed, "auth via cookie injection failed — check Supabase credentials");
-
-    // Seed a leg so FAB appears
-    const userId = await getTestUserId();
-    test.skip(!userId, "could not resolve test user ID");
-    const seedResult = await seedDraftSlip(userId!);
-    test.skip(!seedResult, "could not seed draft slip leg");
-
-    await page.goto("/fixtures");
-    await expect(page).not.toHaveURL(/login/, { timeout: 10_000 });
-
-    const fab = page.locator("[data-bet-slip-fab]");
-    await expect(fab).toBeVisible({ timeout: 10_000 });
-    await fab.click();
-
-    const drawer = page.getByRole("dialog", { name: /bilhete múltipla/i });
-    await expect(drawer).toBeVisible({ timeout: 5_000 });
-
-    const fileInput = page.locator('input[type="file"][accept="image/*"]');
-    await expect(fileInput).toBeAttached();
-    await fileInput.setInputFiles(MOCK_BET_SLIP_PNG);
-
-    // Should show error message (Server Action catches the 500 from OpenRouter)
-    const errorAlert = page.getByRole("alert").filter({ hasNotText: /bilhete múltipla/i });
-    await expect(errorAlert).toBeVisible({ timeout: 15_000 });
-    await expect(errorAlert).toContainText(/cupom|foto|erro/i);
-
-    // Dismiss
-    const closeBtn = errorAlert.getByRole("button", { name: /fechar/i });
-    await closeBtn.click();
-    await expect(errorAlert).not.toBeVisible();
-
     await cleanupSeedLeg(seedResult!.legId);
   });
 });

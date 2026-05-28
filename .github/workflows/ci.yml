@@ -94,6 +94,9 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
           E2E_USER_EMAIL: ${{ secrets.E2E_USER_EMAIL }}
           E2E_USER_PASSWORD: ${{ secrets.E2E_USER_PASSWORD }}
+          # Dummy: o OCR usa o mock OpenRouter (OPENROUTER_BASE_URL no webServer);
+          # gemini-vision só exige a key setada, o mock ignora o valor.
+          OPENROUTER_API_KEY: sk-e2e-mock
         run: pnpm exec playwright test --grep-invert "live OCR"
 
       - name: upload playwright report

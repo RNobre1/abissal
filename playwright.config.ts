@@ -59,11 +59,26 @@ export default defineConfig({
       use: { ...galaxyS23FE },
     },
   ],
-  webServer: {
-    // CI: build já rodou; sobe o servidor de produção. Local: dev server.
-    command: process.env.CI ? "pnpm start" : "pnpm dev",
-    url: "http://localhost:3000",
-    reuseExistingServer: !process.env.CI,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      // Mock OpenRouter para o stub de OCR. O OCR é Server Action (server→server),
+      // que page.route não intercepta — então mockamos no nível HTTP via
+      // OPENROUTER_BASE_URL apontando aqui.
+      command: "node tests/e2e/support/mock-openrouter.mjs",
+      url: "http://127.0.0.1:8787/health",
+      reuseExistingServer: !process.env.CI,
+      timeout: 30_000,
+    },
+    {
+      // CI: build já rodou; sobe o servidor de produção. Local: dev server.
+      // OPENROUTER_BASE_URL inline no comando garante propagação ao runtime
+      // (verificado via /api/debug-env). O teste de live OCR é excluído da suíte.
+      command: process.env.CI
+        ? "OPENROUTER_BASE_URL=http://127.0.0.1:8787/api/v1 pnpm start"
+        : "OPENROUTER_BASE_URL=http://127.0.0.1:8787/api/v1 pnpm dev",
+      url: "http://localhost:3000",
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+  ],
 });

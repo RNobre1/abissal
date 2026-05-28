@@ -14,7 +14,12 @@
 
 import { ParsedSlipSchema, type ParsedSlip } from "./schema";
 
-const ENDPOINT = "https://openrouter.ai/api/v1/chat/completions";
+// Base configurável (proxy/AI Gateway/mock de teste). OPENROUTER_BASE_URL =
+// base sem /chat/completions, ex.: "https://openrouter.ai/api/v1".
+const OPENROUTER_BASE =
+  process.env.OPENROUTER_BASE_URL?.replace(/\/$/, "") ??
+  "https://openrouter.ai/api/v1";
+const ENDPOINT = `${OPENROUTER_BASE}/chat/completions`;
 const PRIMARY_MODEL = "google/gemini-2.5-flash";
 const FALLBACK_MODEL = "google/gemini-2.5-flash-lite:free";
 const DEFAULT_REFERER = "https://abissal.rnobre.dev";
