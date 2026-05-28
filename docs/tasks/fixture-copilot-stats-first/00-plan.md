@@ -1,5 +1,7 @@
 # Fixture Copilot + Stats-first Implementation Plan
 
+> **⚠️ HISTÓRICO / SUPERSEDED (2026-05-28).** O copilot agêntico planejado aqui foi **substituído pelo recomendador IA-2** (`deepseek/deepseek-r1` → tabela `ai_recommendations`, rotas `/api/ai-reco/*`). Plano mantido como registro de execução; **não reflete o código atual**.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ao abrir um jogo, a tela inicial passa a ser o dashboard de stats; o chat vira um copilot do jogo agêntico (tool-loop), com cada tool explícita no chat e auditoria total em `llm_request_logs`.

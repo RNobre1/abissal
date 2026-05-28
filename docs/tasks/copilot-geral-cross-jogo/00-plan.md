@@ -1,5 +1,7 @@
 # Copilot geral cross-jogo profundo (Sub-projeto B) — Implementation Plan
 
+> **⚠️ HISTÓRICO / SUPERSEDED (2026-05-28).** O copilot agêntico planejado aqui foi **substituído pelo recomendador IA-2** (`deepseek/deepseek-r1` → tabela `ai_recommendations`, rotas `/api/ai-reco/*`). Plano mantido como registro de execução; **não reflete o código atual**.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Each wave runs in its own manually-created git worktree in the **abissal** repo (`git worktree add .worktrees/tN -b feat/... main` + `ln -sf ../../node_modules .worktrees/tN/node_modules`); never the Agent `isolation:"worktree"` flag. Single authorship — **never** `Co-Authored-By`. Conventional Commits pt-BR. `git -c commit.gpgsign=false commit`. Gate order: remover worktree → `rm -rf .next` → `pnpm lint` → `pnpm typecheck` → `pnpm test`.
 
 **Goal:** Dar ao copilot geral (`/api/copilot`, FAB da home) profundidade cross-jogo: triagem rasa rankeada (`scan_fixtures`) → mergulho profundo nas 12 derivações de A (`inspect_fixture`), tudo no mesmo tool-loop.

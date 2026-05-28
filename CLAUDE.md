@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Stack:** Next.js 16 (App Router, RSC, Server Actions) + TypeScript + React 19 + Tailwind v4 + Supabase (Postgres + Auth + RLS) + Cloudflare Workers (via OpenNext). Scraper Ruby 4.0.3 isolado em `scripts/scraper/`.
 - **Description:** Plataforma pessoal unificada com **dois domínios complementares**:
   1. **Gestão de banca de apostas** (single-user no MVP, multi-tenant via RLS) — bets, transactions, houses, audit log, balance snapshots. Dashboard com qualidade financeira.
-  2. **Análise pré-jogo de fixtures de futebol** (adam-stats domain) — scraper diário coleta fixtures via `api.choistats.com`, persiste em Postgres com retenção ~4 dias. UI lista jogos do dia; ao clicar, chama LLM (OpenRouter `deepseek/deepseek-v3.2`) que produz análise em streaming + chat de follow-up.
+  2. **Análise pré-jogo de fixtures de futebol** (adam-stats domain) — scraper diário coleta fixtures via `api.choistats.com`, persiste em Postgres (retenção ~4 dias) e roda um pipeline pós-persist: simulação estatística (força-de-temporada + Dixon-Coles + Monte Carlo), reconciliação de resultados reais e o **recomendador IA-2** (`deepseek/deepseek-r1`) que sugere apostas com edge calculado. UI lista jogos do dia; ao clicar, mostra simulação + análise LLM em streaming (OpenRouter) + chat de follow-up. Calibração contínua (CLV/Brier/ROI) no painel `/calibracao`.
 - **Hospedagem:** `https://abissal.rnobre.dev` — Cloudflare Worker (OpenNext build do Next.js inteiro). Supabase free tier em região `sa-east-1`.
 - **Design system:** Abismo Habitado v1.0. Sempre numerais em `font-mono` com `tabular-nums` (`.num`). Headings em Fraunces 300 com tracking negativo. Vermelho Garantido (`--color-vermelho`) é identidade, não erro.
 
@@ -47,8 +47,8 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 ## Tech stack
 
 **Frontend + API (the Next.js app):**
-- Next.js **16.2** (App Router, Server Components, Server Actions, Route Handlers)
-- React 19, TypeScript 5
+- Next.js **16.2.6** (App Router, Server Components, Server Actions, Route Handlers)
+- React 19.2, TypeScript 5
 - Tailwind CSS v4 (via `@tailwindcss/postcss`)
 - `@supabase/ssr` + `@supabase/supabase-js` for browser/server clients
 - Radix UI primitives + Lucide icons + `class-variance-authority`
@@ -60,7 +60,7 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 **Scraper (Ruby):**
 - Ruby **4.0.3** + Bundler (managed via [mise](https://mise.jdx.dev))
 - `faraday` + `faraday-retry` for HTTP, `nokogiri` for HTML parsing, `pg` for Postgres
-- `playwright-ruby-client` retained as fallback only (HTTP-direct is the default path now — see Lessons #5 below)
+- `playwright-ruby-client` retained as fallback only (HTTP-direct is the default path now — see Lesson A6 below)
 - RSpec + WebMock for tests
 - Self-contained sub-project under `scripts/scraper/` with own `Gemfile`, `mise.toml`, `.ruby-version`
 
@@ -70,9 +70,12 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 
 **Hospedagem:**
 - Cloudflare Worker `abissal` (custom domain `abissal.rnobre.dev`) built from Next.js via OpenNext (`@opennextjs/cloudflare`).
-- Daily scraper: GitHub Actions cron (`.github/workflows/scrape-daily.yml`), runs at 07:00 BRT (10:00 UTC), populates Supabase via the pooler URL.
-- Monthly calibration: GitHub Actions cron (`.github/workflows/calibracao-monthly.yml`), runs day 5 at 08:00 UTC. Refita parâmetros por liga (`scripts/calibracao/fit-league-parameters.ts`, todas as ligas com `n≥20` resolvidas) e a calibração isotônica IA (`scripts/calibracao/fit-isotonic.ts`). Trigger manual: `gh workflow run calibracao-monthly.yml -R RNobre1/abissal` (ou via web UI). Localmente: `pnpm exec tsx scripts/calibracao/fit-league-parameters.ts`. Secrets exigidos: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (server-only, bypassa RLS); `HEALTHCHECKS_CALIBRATE_URL` é opcional (steps `if: env != ''` ficam idle se ausente).
-- Backup: Supabase free tier already keeps a 7-day rolling backup. Additional `pg_dump` would require Pro.
+- **GitHub Actions crons** (repo público ⇒ minutos gratuitos):
+  - `scrape-daily.yml` — 10:00 UTC (07:00 BRT). Scrape + simulação + reconcilers + recomendador IA-2. `timeout-minutes: 60` (subiu de 30 em 2026-05-28 — ver Lição B20). Popula Supabase via pooler. `workflow_dispatch` disponível.
+  - `closing-odds-capture.yml` — 15/17/19/21 UTC. Captura closing odds (CLV) na janela ao redor do KO.
+  - `telegram-closure.yml` — 02:00 UTC. Resumo diário no Telegram.
+  - `calibracao-monthly.yml` — dia 5, 08:00 UTC. Refita parâmetros por liga (`scripts/calibracao/fit-league-parameters.ts`, ligas com `n≥20`) + calibração isotônica IA (`scripts/calibracao/fit-isotonic.ts`). Manual: `gh workflow run calibracao-monthly.yml -R RNobre1/abissal`. Local: `pnpm exec tsx scripts/calibracao/fit-league-parameters.ts`. Secrets: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; `HEALTHCHECKS_CALIBRATE_URL` opcional.
+- Backup: Supabase free tier mantém backup rolling de 7 dias. `pg_dump` adicional exigiria Pro.
 
 ## Environment variables
 
@@ -83,71 +86,88 @@ NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 SUPABASE_SERVICE_ROLE_KEY=<jwt>            # server-only; bypasses RLS
 NEXT_PUBLIC_APP_URL=http://localhost:3000  # dev origin (prod = https://abissal.rnobre.dev)
 
-# Adam-stats fixtures domain (server-only)
-OPENROUTER_API_KEY=sk-or-...               # required by /api/analyze
-OPENROUTER_MODEL=deepseek/deepseek-v3.2    # default; override per-request possible
-ADAMCHOI_API_TOKEN=45834886-68b3-11eb-...  # static public token of the choistats SPA
+# LLM (OpenRouter) — server-only
+OPENROUTER_API_KEY=sk-or-...               # required by /api/analyze e recomendador IA-2
+OPENROUTER_MODEL=deepseek/deepseek-v3.2    # análise streaming (/api/analyze)
+AI_RECO_MODEL=deepseek/deepseek-r1         # recomendador IA-2 batch (cron noturno)
+AI_RECO_MODEL_ONDEMAND=deepseek/deepseek-r1 # botão "pedir análise IA" em /fixtures/[id]
+
+# Fixtures source
+ADAMCHOI_API_TOKEN=45834886-68b3-11eb-...  # token público/estático embutido na SPA choistats
+
+# Telegram closure bot (opcional — cron telegram-closure)
+TELEGRAM_BOT_TOKEN=                        # via @BotFather
+TELEGRAM_CHAT_ID=                          # via @userinfobot
 
 # Sentry (optional)
 NEXT_PUBLIC_SENTRY_DSN=
 SENTRY_DSN=
 ```
 
-Locally, copy from `.env.example` to `.env.local`. **Never commit `.env*` except `.env.example`.**
+Locally, copy from `.env.example` to `.env.local` (o scraper tem o seu próprio `scripts/scraper/.env.example`). **Never commit `.env*` except `.env.example`.**
 
-GH Actions secrets (for the scraper):
-- `SCRAPER_DATABASE_URL` — Supabase pooler URL (URL-encoded password).
-- `ADAMCHOI_API_TOKEN`
-- `HEALTHCHECKS_URL` — full UUID ping endpoint.
-- (var) `SCRAPER_LEAGUE_SLUGS` — CSV whitelist.
+GH Actions secrets (produção):
+- `SCRAPER_DATABASE_URL` — Supabase pooler URL (senha URL-encoded).
+- `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `SUPABASE_SERVICE_ROLE_KEY`.
+- `OPENROUTER_API_KEY`, `ADAMCHOI_API_TOKEN`.
+- `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (deploy).
+- `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (cron telegram-closure).
+- `HEALTHCHECKS_URL` — ping do scrape geral; `HEALTHCHECKS_AI_RECO_URL` — silent-death detector do recomendador IA.
+- (var) `SCRAPER_LEAGUE_SLUGS` — CSV whitelist (deixar **unset** em prod — ver Lição B7).
 
 ## Directory structure
 
 ```
 abissal/
-├── CLAUDE.md
-├── README.md
+├── CLAUDE.md, README.md, AGENTS.md (symlink → CLAUDE.md)
 ├── package.json, pnpm-lock.yaml
 ├── next.config.ts, tsconfig.json, vitest.config.ts, playwright.config.ts
-├── wrangler.jsonc                       # Cloudflare Worker config (OpenNext target)
-├── open-next.config.ts
-├── middleware.ts                        # Supabase session refresh on every request
+├── wrangler.jsonc, open-next.config.ts  # Cloudflare Worker (OpenNext target)
+├── middleware.ts                        # Supabase session refresh em toda request
 ├── app/                                 # Next.js App Router
 │   ├── layout.tsx, globals.css
 │   ├── (auth)/login/                    # email+password login
-│   ├── (dashboard)/                     # banca: bets / transactions / houses / forecast / explore / audit
-│   ├── fixtures/                        # adam-stats UI (à porta) — listing + analyze panel
+│   ├── (dashboard)/                     # banca + fixtures + análise
+│   │   ├── banca/ bets/ transactions/ houses/ forecast/ explore/ audit/
+│   │   ├── bilhete/                     # bilhete múltipla / bet builder
+│   │   ├── fixtures/ [id]/ [id]/stats/  # listagem + análise + dashboard de stats
+│   │   ├── calibracao/                  # painel CLV/Brier/ROI + pipeline health
+│   │   ├── configuracoes/               # disciplina_settings
+│   │   ├── llm-observability/ logs/ admin/
+│   │   └── _components/                 # destaques-do-dia, etc.
 │   └── api/
 │       ├── fixtures/route.ts            # GET ?date= → FixtureDTO[]
-│       ├── fixtures/[id]/refresh/route.ts # POST → re-scrape detail
-│       └── analyze/route.ts             # POST SSE → OpenRouter stream
-├── components/                          # Radix-based UI + domain components
-│   └── fixtures/                        # FixturesList, FixtureCard, DateChips, AnalyzePanel
+│       ├── fixtures/[id]/refresh/route.ts
+│       ├── analyze/route.ts             # POST SSE → OpenRouter stream
+│       ├── ai-reco/{compute,feedback,apostei}/ # recomendador IA-2 on-demand + feedback
+│       ├── bets/export/  calibracao/secondary-metrics/  telemetry/
+├── components/                          # banca, bets, bet-slip, calibracao, charts,
+│   └── …                                #   disciplina, fixtures (+ fixtures/stats), oportunidades, ui
 ├── lib/
-│   ├── env.ts                           # Zod-validated env
-│   ├── format.ts, utils.ts
-│   ├── supabase/                        # client.ts, server.ts, middleware.ts, admin.ts (service_role), types.ts
-│   ├── fixtures/                        # time.ts, types.ts, repository.ts, choistats-api.ts, analysis-cache.ts, prompt-builder.ts
-│   ├── openrouter.ts                    # streaming chat completion client
-│   ├── stats/                           # bankroll, forecast, risk, streaks
-│   └── duckdb/                          # client-side OLAP for /explore
-├── supabase/
-│   └── migrations/                      # 0001..0006 banca + 0007..0011 fixtures
+│   ├── env.ts (Zod), format.ts, utils.ts
+│   ├── supabase/                        # client, server, middleware, admin (service_role), types
+│   ├── fixtures/ (+ fixtures/stats/)    # time, types, repository, choistats-api, analysis-cache, prompt-builder
+│   ├── ai/  ai-reco/                    # openrouter client + recomendador IA-2 (edge calc, blending)
+│   ├── banca/ bets/ bet-slip/ bet-slip-ocr/ disciplina/  # domínio banca + OCR de bilhete
+│   ├── calibracao/  alerts/  telemetry/  telegram/
+│   └── (stats e duckdb OLAP servem /explore e /fixtures/[id]/stats)
+├── supabase/migrations/                 # 0001-0042 (ver "Data model")
 ├── scripts/
-│   └── scraper/                         # self-contained Ruby 4.0.3 sub-project
-│       ├── Gemfile, mise.toml, .ruby-version
-│       ├── bin/scrape
-│       ├── lib/scraper/                 # Ruby modules
-│       └── spec/                        # 201 RSpec examples
-├── tests/
-│   ├── unit/                            # vitest (lib non-React + format helpers)
-│   ├── api/                             # vitest (route handlers — fixtures.test.ts, fixtures-refresh.test.ts, analyze.test.ts)
-│   └── e2e/                             # Playwright
+│   ├── scraper/                         # sub-projeto Ruby 4.0.3 (Gemfile, mise.toml)
+│   │   ├── bin/{scrape, capture_closing_odds, document_choistats_api, reresolve_secondary_markets}
+│   │   ├── lib/scraper/                 # módulos Ruby (orchestrator, reconcilers, ft_actuals, sim engine…)
+│   │   └── spec/                        # ~565 RSpec examples
+│   ├── calibracao/                      # fit-league-parameters.ts, fit-isotonic.ts (cron mensal)
+│   ├── telegram/send-closure.ts         # resumo diário
+│   └── poc/
+├── tests/  (unit/ · api/ · integration/ · e2e/)  + co-located *.test.ts em lib/
 └── .github/workflows/
     ├── ci.yml                           # lint + typecheck + tests + next build
     ├── deploy.yml                       # opennextjs-cloudflare build + wrangler deploy
-    ├── scrape-daily.yml                 # cron 10:00 UTC (07:00 BRT) + workflow_dispatch
-    └── calibracao-monthly.yml           # cron 08:00 UTC dia 5 — fit-league-parameters + fit-isotonic
+    ├── scrape-daily.yml                 # cron 10:00 UTC — scrape + sim + reconcilers + IA-2
+    ├── closing-odds-capture.yml         # cron 15/17/19/21 UTC — CLV
+    ├── telegram-closure.yml             # cron 02:00 UTC — resumo
+    └── calibracao-monthly.yml           # cron dia 5 08:00 UTC
 ```
 
 **Naming conventions:**
@@ -181,11 +201,16 @@ pnpm format                      # prettier write
 cd scripts/scraper
 mise install                     # ruby 4.0.3 + node 22
 bundle install
-bundle exec rspec                # 201 examples
+bundle exec rspec                # ~565 examples
 bundle exec bin/scrape           # one-off scrape (env DATABASE_URL required)
+bundle exec bin/capture_closing_odds        # captura closing odds (CLV)
+bundle exec bin/reresolve_secondary_markets # re-resolve corners/cards/sot (ver B19)
+bundle exec bin/document_choistats_api      # regenera docs/external-apis/choistats/
 
 # Cloudflare deploy
-pnpm cf:deploy                   # build + wrangler deploy (manually; CI does this on push to main)
+pnpm cf:build                    # opennextjs-cloudflare build (sem deploy)
+pnpm cf:deploy                   # build + wrangler deploy (manual; CI faz no push pra main)
+pnpm cf:upload                   # build + wrangler versions upload (preview version)
 
 # Supabase
 supabase link --project-ref etdrxzgspgslunivhrbe   # one-time, with SUPABASE_DB_PASSWORD env
@@ -199,19 +224,40 @@ curl -X POST "https://api.supabase.com/v1/projects/etdrxzgspgslunivhrbe/database
 
 ## Data model
 
-### Banca (existing — see `supabase/migrations/0001_init.sql` for the canonical schema)
+> O índice abaixo é a referência viva. O schema canônico está em `supabase/migrations/` (0001-0042). Migrations são **append-only / históricas** — nunca editar uma aplicada; criar a próxima `NNNN_`.
 
-`houses ← transactions (append-only) → bets ← bet_selections & bet_events`. `audit_log` captures every mutation via trigger. `balance_snapshots` regenerated by Edge Function daily. Reference tables: `sports`, `markets`. User-scoped via RLS `auth.uid() = user_id`. Money: `numeric(14,2)`.
+### Banca (núcleo em `0001_init.sql`, evoluído em 0014/0027/0030/0032-0034/0039-0042)
 
-### Fixtures (adam-stats domain — migrations 0007-0011)
+`houses ← transactions (append-only) → bets ← bet_selections & bet_events`. `audit_log` captura toda mutação via trigger. `balance_snapshots` regenerados diariamente. Tabelas de referência: `sports`, `markets`. RLS user-scoped `auth.uid() = user_id`. Dinheiro: `numeric(14,2)`.
 
-| Table | Purpose | RLS |
+| Tabela / objeto | Propósito |
+|---|---|
+| `bet_slips` + `bet_slip_legs` | Bilhete múltipla / bet builder (draft → committed); legs com FK opcional pra `ai_recommendations`. |
+| `disciplina_settings` | Fricção ética por usuário: stop-loss, max bets/dia, cooldown pós-derrota, quiet mode, thesis gate. |
+| `bets` (colunas extra) | `ai_recommendation_id`, `is_free_bet` (free bet não desconta da banca), `thesis`. |
+| RPCs `place_bet` / `resolve_bet` | Ledger transacional; lógica diferenciada pra free bet (ganho = `stake*(odds-1)`). |
+| Views `roi_by_house_view`, `roi_by_period_view` | ROI/yield/win-rate por casa e por mês+rolling-30d (`security_invoker`). |
+
+### Fixtures / análise (adam-stats domain — migrations 0007-0026, 0028-0029, 0031, 0035-0037)
+
+Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-detail, sim, cache, calibração) vão via **service_role** (bypassa RLS); o front lê via `authenticated SELECT`.
+
+| Tabela / view | Propósito | RLS |
 |---|---|---|
-| `fixtures` | One row per match. Retention ~3-4 days. Unique on `(match_date, home_team, away_team)`. Columns: `match_date date`, `ko_time time`, `home_team`, `away_team`, `league`, `country` (slug), `source_url`, `detail_json jsonb`, `kickoff_utc timestamptz` (absolute UTC instant — fixes the cross-midnight BRT bug — see Lesson #6), `scraped_at`, `status`. Indexes: `(match_date)`, `(kickoff_utc)`. | `authenticated SELECT` |
-| `analysis_cache` | Memoizes LLM responses. Keyed by `content_hash` (sha256 of model + fixture_id + question + detail_json). FK to `fixtures(id) ON DELETE CASCADE`. | `authenticated SELECT/INSERT` |
-| `league_baselines` | Pre-computed per-league statistical baselines (avg over/btts/etc.). PK `(league, stat_label)`. | `authenticated SELECT` |
-
-Writes (scraper, refresh-detail, cache fill) go through service_role (bypasses RLS) — fixtures are reference data shared across users.
+| `fixtures` | Uma linha por jogo. Retenção ~3-4 dias. Único em `(match_date, home_team, away_team)`. Escalares + `detail_json jsonb` (blob pesado — **nunca cruzar inteiro pro Worker**, ver B12/B14) + `kickoff_utc timestamptz` (instante UTC absoluto, corrige o bug cross-midnight BRT — A8). GIN `pg_trgm` em home/away pra fuzzy match de OCR (0037). | authenticated SELECT |
+| `analysis_cache` | Memoiza respostas LLM. Chave `content_hash` (sha256 de model+fixture+question+detail). FK `fixtures(id) ON DELETE CASCADE`. | authenticated |
+| `league_baselines` | Baselines estatísticos por liga (avg over/btts/etc.). PK `(league, stat_label)`. | authenticated SELECT |
+| `fixture_simulations` | **Motor estatístico**: Poisson + Dixon-Coles + Monte Carlo 10k → escalares `p_*` + `sim_stats jsonb` (gols/BTTS/corners/cards/SOT por time/tempo). Colunas `actual_*` populadas pelo reconciler **via choistats** (B19), `actual_data_source`, `model_version`. | service_role |
+| `ai_predictions` | Predição estruturada pré-jogo (winner+over) reconciliada (legado copilot, alimenta Brier). | service_role |
+| `ai_recommendations` | **Recomendador IA-2**: market/side/units/edge/kelly/reasoning/prob_estimated. Múltiplos mercados (1x2, over, btts, corners, cards, sot). | authenticated SELECT |
+| `ai_reco_feedback` | Feedback humano por reco (agree/disagree/apostei). | authenticated |
+| `model_calibration` | Curva isotônica pós-modelo por métrica (1x2/over25/btts). | service_role write |
+| `league_parameters` | Parâmetros calibrados por liga (ρ Dixon-Coles, baselines de gols, K shrinkage). | service_role write |
+| `closing_odds` | Odds próximas ao KO pra CLV. Único `(fixture_id, market, side, source)` (0026). | authenticated SELECT |
+| `fixture_badges_view` | View SQL que computa badges/realce a partir de `detail_json` **dentro do Postgres** (escalar pro Worker — B14). | authenticated |
+| `llm_request_logs` | Log de chamadas LLM (modelo, latência, tokens, custo, prompt_version, erro). | authenticated SELECT |
+| `ui_telemetry` | Eventos de UX (click/panel/elapsed). user_id nullable (anon OK). | own + anon |
+| `actuals_fixture_mapping` | **ÓRFÃ** — sobrou da api-football (abandonada 2026-05-28); o reconciler de actuals usa choistats, não esta tabela. | — |
 
 ### Métricas de calibração (apêndice)
 
@@ -228,11 +274,15 @@ Writes (scraper, refresh-detail, cache fill) go through service_role (bypasses R
 - Required headers: `X-Adamchoi-Api-Token: 45834886-68b3-11eb-99f4-9e36325824ad`, `Referer: https://www.adamchoi.co.uk/`, `Accept: application/json`.
 
 **OpenRouter (LLM):**
-- `POST https://openrouter.ai/api/v1/chat/completions` with `Authorization: Bearer $OPENROUTER_API_KEY`, `HTTP-Referer: https://abissal.rnobre.dev`, `X-Title: Abissal`.
-- Default model `deepseek/deepseek-v3.2`. `stream: true` for SSE proxying.
+- `POST https://openrouter.ai/api/v1/chat/completions` com `Authorization: Bearer $OPENROUTER_API_KEY`, `HTTP-Referer: https://abissal.rnobre.dev`, `X-Title: Abissal`.
+- **Análise streaming** (`/api/analyze`): `OPENROUTER_MODEL` (default `deepseek/deepseek-v3.2`), `stream: true` proxiado via SSE.
+- **Recomendador IA-2** (cron Ruby + `/api/ai-reco/compute`): `AI_RECO_MODEL` / `AI_RECO_MODEL_ONDEMAND` = `deepseek/deepseek-r1` (reasoning lento ~p95 195s, barato; aceitável fora do hot path).
+
+**Telegram (closure bot):**
+- Bot API via `TELEGRAM_BOT_TOKEN` → chat `TELEGRAM_CHAT_ID`. Resumo diário (cron `telegram-closure`, `scripts/telegram/send-closure.ts`).
 
 **Healthchecks.io:**
-- `https://hc-ping.com/<uuid>` — pings success / `/fail` / `/start`. Used by the daily scrape cron.
+- `https://hc-ping.com/<uuid>` — pings success / `/fail` / `/start`. `HEALTHCHECKS_URL` no scrape; `HEALTHCHECKS_AI_RECO_URL` é o silent-death detector do recomendador IA (ping `/fail` quando 0 recos com fixtures pendentes).
 
 ## Technical decisions (ADRs)
 
@@ -243,13 +293,19 @@ Writes (scraper, refresh-detail, cache fill) go through service_role (bypasses R
 
 2. **ADR-002 — API routes in Next.js (Route Handlers), not Supabase Edge Functions, not standalone CF Workers** — _2026-05-12_ — Cloudflare Workers (via OpenNext) have no wall-clock timeout while the client stays connected and no subrequest duration limit on the Free plan, which is critical for `/api/analyze` SSE streaming OpenRouter responses. Supabase Edge Functions are capped at **150s** on Free, which is borderline for LLM responses + chat tails. Standalone CF Workers would have split the codebase needlessly. Decision: keep all three routes inside the Next.js `app/api/` tree, deployed as part of the same Worker.
 
-3. **ADR-003 — Ruby scraper isolated in `scripts/scraper/`** — _2026-05-12_ — The adam-stats Ruby scraper (Faraday + Nokogiri + pg) was ported as-is into `scripts/scraper/` with its own `Gemfile`/`mise.toml`. No rewrite to TypeScript: 349 working specs, the HTTP-direct `ApiListFetcher` path is already fast (Playwright dropped from the hot path — see Lesson #5), and GitHub Actions runs Ruby natively. The scraper does not bundle into the Next.js build.
+3. **ADR-003 — Ruby scraper isolated in `scripts/scraper/`** — _2026-05-12_ — The adam-stats Ruby scraper (Faraday + Nokogiri + pg) was ported as-is into `scripts/scraper/` with its own `Gemfile`/`mise.toml`. No rewrite to TypeScript: 349 working specs, the HTTP-direct `ApiListFetcher` path is already fast (Playwright dropped from the hot path — see Lesson A6), and GitHub Actions runs Ruby natively. The scraper does not bundle into the Next.js build.
 
 4. **ADR-004 — Supabase Free tier with HTTPS-only access from local dev** — _2026-05-12_ — The local dev network blocks TCP 5432/6543 outbound (common BR ISP filter). Migrations are applied via Supabase Management API `/v1/projects/{ref}/database/query` (HTTPS:443) until the network is unblocked. GitHub Actions runners have no such filter, so the scraper connects via the pooler in production. Local Next.js dev works because `@supabase/ssr` uses HTTPS PostgREST, not raw TCP.
 
 5. **ADR-005 — Dashboard de stats por fixture: chart libs e visualização** — _2026-05-13_ — Para `/fixtures/[id]/stats` (11 painéis denso "Trading Terminal + Stadium Wall"), decisão de stack: **recharts** 2.15 (sparkline, radar 6-axis, scatter min×eff, line multi-series, ranking) + **lightweight-charts** 4.2.3 (séries temporais densas — PPG rolling, booking_points trend) + **CSS Grid puro** (heatmap de streaks de 109-194 entries × 10 grupos) + **Tailwind v4 container queries** (responsive layout sem media queries). Insights derivados server-side via `simple-statistics` + `regression` (correlações r ≥ 0.5, trends por regressão linear, padrões condicionais, outliers ≥ 2σ) — não vão pra bundle client. **Rejeitadas:** ECharts (60+ KB gzip; overkill), Nivo (D3 wrapper pesado), Chart.js (sem SSR-friendly radar), react-financial-charts (especializado em candlesticks), react-grid-layout + dnd-kit (drag-resize fora de escopo MVP), react-window (substituído por `@tanstack/react-virtual` que já estava no projeto). DuckDB-WASM permanece exclusivo de `/explore`. **Bundle delta:** +186.9 KB gzip num único chunk dedicado `/fixtures/[id]/stats` — **estourou o budget conservador de +150 KB gzip por ~37 KB**; aceito como não-blocking porque a rota é dedicada (lazy por route), não impacta entry points (login, fixtures list, dashboard, betting flow), e usuário só baixa o chunk com intenção explícita de ver stats. Follow-up condicional registrado: se Lighthouse Performance < 85 ou LCP > 2.5s em real-device test pós-deploy, splittar painéis via `next/dynamic` (ganho esperado -30 a -60 KB no first paint). Fundamentação completa em `docs/pesquisas/dashboard-stats-fixture-arquitetura.md` §10 e medições empíricas em `docs/tasks/dashboard-stats-fixture/bundle-report.md`.
 
-6. **ADR-006 — Simulação pré-jogo: força-de-temporada + Dixon-Coles + Monte Carlo, computada no scraper Ruby, schema próprio** — _2026-05-18_ — Simulação pré-jogo pré-computada por fixture (placar + todas as stats por time/tempo + camada por jogador com **provável escalação**). Decisão: modelo = força ataque/defesa de temporada (blocos `*Avgs` do choistats, `numMatches` 17-37 — já são as forças, **sem MLE global**) normalizada pela liga → Poisson + correção **Dixon-Coles τ** (ρ prior calibrável); **Negative Binomial** p/ stats overdispersas (escanteios/cartões); **Monte Carlo 10k → só escalares**; shrinkage **condicional** a `numMatches` baixo; alocação de eventos por jogador (provável XI por `started`/`minutes`, excl. `injured`). Computado **no scraper Ruby pós-persist** (Worker só lê escalares — protege contra a classe de outage 1101, ver B12/B14/B15); schema **`fixture_simulations` próprio** (migration `0018`, escalar + jsonb pequeno, RLS service-role-only, sem FK rígida — não estende `ai_predictions`/0016, ortogonal); odds devigadas (multiplicativo) + `outcomeOdds` por jogador como **âncora de validação não-circular, nunca input**. **Re-scrape tardio de escalação: NÃO no MVP** (Opção A — projeção do histórico, rotulada "provável escalação"; Opção B = follow-up condicional ao Brier dos `player_events`). Pré-requisito compartilhado: enriquecer `WidgetMerger` (6 itens descartados hoje) — beneficia simulação **e** o dashboard de stats (ADR-005). Fundamentação: `docs/pesquisas/simulacao-pre-jogo-fixtures.md` (L3 v0.3, research-critic real 2 rodadas: v0.1 REPROVADA, v0.2 APROVADA C/ RESSALVAS, v0.3 ressalvas aplicadas). Decomposição/execução: `docs/tasks/simulacao-pre-jogo-fixtures/00-plan.md`. **Status: IMPLEMENTADO e mergeado na `main` (2026-05-18) via subagent-driven paralelo em worktrees** — T0 POC (`093c43d`) ‖ T1 fundação-gate (`f70dac2`); T2 motor+`0018`+hook (`0181ec9`) ‖ T3 dashboard (`2c4ebab`); T4 calibração/`brierScore`/reconciler (`0635cc8`) ‖ T5 guard generalizado (`903ac41`). Cada task passou por TDD + review adversarial em 2 etapas (spec-compliance → code-quality) com loop de fix; gate combinado verde a cada merge (RSpec scraper 350/0/1 · Vitest 675 · lint 0 · typecheck). **Pendência operacional (gated ao Pilot):** aplicar a migration `0018_fixture_simulations.sql` no Postgres de produção — o hook do orchestrator é warning-safe (Lição #11), então prod permanece saudável sem ela (simulação degrada para "indisponível" até a migration ser aplicada); aplicação via Management API depende da rotação do PAT Supabase exposto (pendência de segurança pré-existente).
+6. **ADR-006 — Simulação pré-jogo: força-de-temporada + Dixon-Coles + Monte Carlo, computada no scraper Ruby, schema próprio** — _2026-05-18_ — Simulação pré-jogo pré-computada por fixture (placar + todas as stats por time/tempo + camada por jogador com **provável escalação**). Decisão: modelo = força ataque/defesa de temporada (blocos `*Avgs` do choistats, `numMatches` 17-37 — já são as forças, **sem MLE global**) normalizada pela liga → Poisson + correção **Dixon-Coles τ** (ρ prior calibrável); **Negative Binomial** p/ stats overdispersas (escanteios/cartões); **Monte Carlo 10k → só escalares**; shrinkage **condicional** a `numMatches` baixo; alocação de eventos por jogador (provável XI por `started`/`minutes`, excl. `injured`). Computado **no scraper Ruby pós-persist** (Worker só lê escalares — protege contra a classe de outage 1101, ver B12/B14/B15); schema **`fixture_simulations` próprio** (migration `0018`, escalar + jsonb pequeno, RLS service-role-only, sem FK rígida — não estende `ai_predictions`/0016, ortogonal); odds devigadas (multiplicativo) + `outcomeOdds` por jogador como **âncora de validação não-circular, nunca input**. **Re-scrape tardio de escalação: NÃO no MVP** (Opção A — projeção do histórico, rotulada "provável escalação"; Opção B = follow-up condicional ao Brier dos `player_events`). Pré-requisito compartilhado: enriquecer `WidgetMerger` (6 itens descartados hoje) — beneficia simulação **e** o dashboard de stats (ADR-005). Fundamentação: `docs/pesquisas/simulacao-pre-jogo-fixtures.md` (L3 v0.3, research-critic real 2 rodadas: v0.1 REPROVADA, v0.2 APROVADA C/ RESSALVAS, v0.3 ressalvas aplicadas). Decomposição/execução: `docs/tasks/simulacao-pre-jogo-fixtures/00-plan.md`. **Status: IMPLEMENTADO e mergeado na `main` (2026-05-18) via subagent-driven paralelo em worktrees** — T0 POC (`093c43d`) ‖ T1 fundação-gate (`f70dac2`); T2 motor+`0018`+hook (`0181ec9`) ‖ T3 dashboard (`2c4ebab`); T4 calibração/`brierScore`/reconciler (`0635cc8`) ‖ T5 guard generalizado (`903ac41`). Cada task passou por TDD + review adversarial em 2 etapas (spec-compliance → code-quality) com loop de fix; gate combinado verde a cada merge (RSpec scraper 350/0/1 · Vitest 675 · lint 0 · typecheck). **Pendência operacional (gated ao Pilot):** aplicar a migration `0018_fixture_simulations.sql` no Postgres de produção — o hook do orchestrator é warning-safe (Lição A5), então prod permanece saudável sem ela (simulação degrada para "indisponível" até a migration ser aplicada); aplicação via Management API depende da rotação do PAT Supabase exposto (pendência de segurança pré-existente).
+
+7. **ADR-007 — Roda + Puma para o endpoint Ruby `/api/fixtures`** — _2026-05-11_ — Escolha de framework (Roda 3.103 + Puma 6.6 + Rackup 2.2) pro endpoint do adam-stats standalone. **SUPERSEDED por ADR-002** na unificação: as rotas migraram pra Next.js Route Handlers; o serviço Roda não existe mais. Registro mantido por completude histórica (detalhe em `docs/tasks/mvp-v1/PROGRESS.md`).
+
+8. **ADR-008 — Mercados secundários (corners, cards, SOT)** — _2026-05-26_ — ACCEPTED. Extensão do edge-calculator e da calibração pra mercados além de 1x2/over/btts. Deep dive em `docs/adrs/008-mercados-secundarios.md`. Os *actuals* desses mercados são reconciliados via choistats (ver B19), não via fonte externa.
+
+9. **ADR-009 — Reconciler de actuals via API-Football** — _2026-05-26 REVERTED · 2026-05-28 REMOVED_ — Tentativa de buscar resultados FT (corners/cards/SOT) na API-Football. Revertida porque o free tier não cobre seasons 2025+; **removida por completo em 2026-05-28** (código, docs, workflow `api-football-snapshot`, GH secrets, key rotacionada — a chave havia vazado no histórico público). Substituída pela extração via choistats `recent_results` (B19). A migration `0036` e a tabela `actuals_fixture_mapping` permanecem como dead schema benigno (não removidas — migrations são append-only).
 
 ## Lessons learned
 
@@ -304,6 +360,8 @@ Writes (scraper, refresh-detail, cache fill) go through service_role (bypasses R
 - **B17 — 2026-05-24 — Componente com múltiplos `chrome` modes precisa de smoke E2E ou perde features inteiras silenciosamente.** O agente F3-prod colou o `<CalibrationBadge>` dentro do prop `eyebrow={...}` do `PanelShell` em `simulation-panel.tsx`. Tudo verde local (758 testes), `applyCalibration` flipava `calibrated_via_isotonic=true` corretamente, probs eram alteradas (0.6289→0.587). Mas em prod o badge não aparecia. **Causa raiz:** `SimulationPanel` tem `if (chrome === "bare") return body;` (linha 377) que descarta o PanelShell inteiro — incluindo o eyebrow onde o badge vivia. E `page.tsx` chama com `chrome="bare"` (porque o `SimulationDisclosure` já provê a casca, evitando card-in-card). **Sem teste unitário do componente nem smoke ao vivo, o bug viajou pra prod.** Fix em `be146f8`: mover badge pro topo do `SimulationBody` (que é renderizado em ambos modos `bare` e `shell`). **Regra:** quando o panel tem 2+ chrome modes (default `shell` + variants como `bare`/`minimal`), TODA feature que afeta o header/eyebrow deve ser duplicada nos modos OU vivir no body. Testes do componente precisam exercitar todos os modos. E pra UI sem teste — smoke E2E ao vivo após deploy é OBRIGATÓRIO antes de declarar shipped, não opcional.
 
 - **B16 — 2026-05-21 — Reconciler é OBRIGATÓRIO no pipeline, não é opcional.** O `SimulationReconciler` foi criado com specs verdes mas NUNCA cabeado no `orchestrator.rb` (só o `PredictionReconciler` estava). Resultado: 665 simulações ficaram `pending` por dias, bloqueando toda calibração downstream (F4/F8/F13/F14). Fix em `009b1b4`: adicionado bloco `begin/rescue` chamando `SimulationReconciler.new(logger:).run` logo após o PredictionReconciler. **Regra:** ao criar um novo `*Reconciler`, SEMPRE adicionar ao pipeline diário no mesmo PR. Spec do orchestrator deve cobrir a invocação (e o rescue não-fatal). Lição secundária: WebMock `NetConnectNotAllowedError < Exception` (não `StandardError`) vaza dos `rescue StandardError` do reconciler — considerar `rescue Exception` em testes de pipeline ou stubar reconciler globalmente em specs de integração.
+
+- **B20 — 2026-05-28 — `scrape-daily` estourou o `timeout-minutes: 30` por 3 dias seguidos (26-28/05); o pipeline pós-persist inflou o runtime.** Os runs apareciam como `cancelled` em ~30min com a annotation `The job has exceeded the maximum execution time of 30m0s`. O scrape em si era ~5min pra ~564 fixtures (A6), mas o pipeline pós-persist cresceu muito: simulação Monte Carlo + reconcilers (Prediction/Simulation/AiRecommendation) + recompute de baselines + **recomendador IA-2 chamando OpenRouter R1 (p95 ~195s por fixture com edge)** no fim. Fix imediato: `timeout-minutes` 30→60 (commit `eb4818d`). **Nota:** o fix entrou às 14:17 UTC, *depois* do scrape de 28/05 (10:00 UTC) — o primeiro run a rodar com 60min é o de 2026-05-29. **Regra:** ao adicionar etapas pesadas (especialmente chamadas LLM) ao orchestrator, reavaliar o `timeout-minutes` do workflow no mesmo PR. Se 60min apertar, mover o recomendador IA-2 pra um workflow separado do scrape (desacoplar o hot path de coleta da inferência LLM).
 
 ---
 

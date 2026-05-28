@@ -1,5 +1,7 @@
 # Design — Copilot geral cross-jogo profundo (Sub-projeto B)
 
+> **⚠️ HISTÓRICO / SUPERSEDED (2026-05-28).** O copilot agêntico descrito aqui foi **substituído pelo recomendador IA-2** (`deepseek/deepseek-r1` → tabela `ai_recommendations`, rotas `/api/ai-reco/*`). Documento mantido como registro de pesquisa/decisão; **não reflete o código atual**.
+
 > **Status:** APPROVED · **Data:** 2026-05-16 · **Owner:** Rafael Nobre
 > **Origem:** pedido para o copilot geral da home de fixtures responder qualquer coisa sobre qualquer jogo do dia com profundidade, fazer filtro/ranking cross-jogo e comparar jogos/times.
 > **Brainstorm:** `.superpowers/brainstorm/214800-1778941128/` (mockups companion).

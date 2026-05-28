@@ -1,5 +1,7 @@
 # Design — Stats-first ao abrir o jogo + Copilot do jogo agêntico
 
+> **⚠️ HISTÓRICO / SUPERSEDED (2026-05-28).** O copilot agêntico descrito aqui foi **substituído pelo recomendador IA-2** (`deepseek/deepseek-r1` → tabela `ai_recommendations`, rotas `/api/ai-reco/*`). Documento mantido como registro de pesquisa/decisão; **não reflete o código atual**.
+
 > **Status:** APPROVED · **Data:** 2026-05-15 · **Owner:** Rafael Nobre
 > **Origem:** pedido para inverter a tela inicial do jogo (stats no lugar do chat) e transformar o chat num copilot agêntico do jogo, com transparência de tools e auditoria total.
 > **Brainstorm:** `.superpowers/brainstorm/1696662-1778881105/` (mockups companion).
