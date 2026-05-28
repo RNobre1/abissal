@@ -30,6 +30,19 @@ RSpec.describe AdamStats::Scraper::AiRecommendationReconciler do
     { 'fixture' => { 'id' => 999, 'status' => 'NS' } }
   end
 
+  # Widget FT com o entry do jogo em recentHomeResults (stats secundários).
+  def finished_widget_with_stats(home_goals:, away_goals:, **stats)
+    entry = {
+      'id' => 999, 'status' => 'FT',
+      'homeGoalsFt' => home_goals, 'awayGoalsFt' => away_goals
+    }.merge(stats.transform_keys(&:to_s))
+    {
+      'fixture' => { 'id' => 999, 'status' => 'FT',
+                     'homeGoalsFt' => home_goals, 'awayGoalsFt' => away_goals },
+      'recentHomeResults' => [entry]
+    }
+  end
+
   # Stub helper: mocks the SELECT to return given rows and captures all UPDATE params.
   def run_with(rows:, widget:)
     updates = []
@@ -182,6 +195,83 @@ RSpec.describe AdamStats::Scraper::AiRecommendationReconciler do
       row = pending_row('market' => 'btts', 'side' => 'nao', 'odd_captured' => 2.10, 'units_final' => 1.0)
       updates = run_with(rows: [row], widget: finished_widget(home_goals: 1, away_goals: 1))
       expect(updates.first).to include(false)
+    end
+  end
+
+  # ── corners (side = linha × 10; total = home + away) ───────────────────────
+
+  describe 'corners-under' do
+    it 'bet_won=true quando total < 8.5 (side 85)' do
+      row = pending_row('market' => 'corners-under', 'side' => '85', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 1, away_goals: 0, homeCorners: 4, awayCorners: 3)
+      expect(run_with(rows: [row], widget: w).first).to include(true, 'resolved')
+    end
+
+    it 'bet_won=false quando total > 8.5' do
+      row = pending_row('market' => 'corners-under', 'side' => '85', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 1, away_goals: 0, homeCorners: 9, awayCorners: 2)
+      expect(run_with(rows: [row], widget: w).first).to include(false, 'resolved')
+    end
+  end
+
+  describe 'corners-over' do
+    it 'bet_won=true quando total > 10.5 (side 105)' do
+      row = pending_row('market' => 'corners-over', 'side' => '105', 'odd_captured' => 1.9, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 2, away_goals: 2, homeCorners: 7, awayCorners: 5)
+      expect(run_with(rows: [row], widget: w).first).to include(true, 'resolved')
+    end
+  end
+
+  # ── shots on target ────────────────────────────────────────────────────────
+
+  describe 'sot-under' do
+    it 'bet_won=true quando total < 7.5 (side 75)' do
+      row = pending_row('market' => 'sot-under', 'side' => '75', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 0, away_goals: 0, homeShotsOnTarget: 3, awayShotsOnTarget: 2)
+      expect(run_with(rows: [row], widget: w).first).to include(true, 'resolved')
+    end
+
+    it 'bet_won=false quando total > 7.5' do
+      row = pending_row('market' => 'sot-under', 'side' => '75', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 3, away_goals: 0, homeShotsOnTarget: 15, awayShotsOnTarget: 1)
+      expect(run_with(rows: [row], widget: w).first).to include(false, 'resolved')
+    end
+  end
+
+  # ── cards (yellows + reds; side = linha × 10) ───────────────────────────────
+
+  describe 'cards-over' do
+    it 'bet_won=true quando total cartões > 4.5 (side 45)' do
+      row = pending_row('market' => 'cards-over', 'side' => '45', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 1, away_goals: 1,
+                                     homeYellows: 3, homeReds: 0, awayYellows: 2, awayReds: 1)
+      # total = 3 + 0 + 2 + 1 = 6 > 4.5
+      expect(run_with(rows: [row], widget: w).first).to include(true, 'resolved')
+    end
+
+    it 'bet_won=false quando total cartões < 4.5' do
+      row = pending_row('market' => 'cards-over', 'side' => '45', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      w = finished_widget_with_stats(home_goals: 1, away_goals: 1,
+                                     homeYellows: 1, homeReds: 0, awayYellows: 2, awayReds: 0)
+      expect(run_with(rows: [row], widget: w).first).to include(false, 'resolved')
+    end
+  end
+
+  # ── stat secundário indisponível → NÃO marca false-loss ────────────────────
+
+  describe 'mercado secundário sem stat disponível' do
+    it 'NÃO resolve (fica pending) quando widget não traz corners (sem recentHomeResults)' do
+      row = pending_row('market' => 'corners-under', 'side' => '85', 'odd_captured' => 2.0, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 1, away_goals: 0))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+    end
+
+    it 'marca unresolvable quando stale e sem stat secundário' do
+      stale = (Time.now.utc - (described_class::MAX_ATTEMPTS_DAYS + 1) * 86_400).iso8601
+      row = pending_row('market' => 'corners-under', 'side' => '85', 'kickoff_utc' => stale,
+                        'odd_captured' => 2.0, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 1, away_goals: 0))
+      expect(updates.flatten).to include('unresolvable')
     end
   end
 

@@ -1,0 +1,50 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# reresolve_secondary_markets — corrige as recomendações de mercados secundários
+# (corners/SOT/cards) que o reconciler antigo marcava como derrota automática
+# por não ler os actuals de recentHomeResults[0] (bug 2026-05-28). Reseta essas
+# linhas resolved+verdict=bet para 'pending' e roda o AiRecommendationReconciler
+# corrigido, que agora settla corretamente (ou mantém pending se o stat não
+# estiver disponível — nunca mais false-loss).
+#
+# Uso: DATABASE_URL=... bundle exec bin/reresolve_secondary_markets [--dry-run]
+
+require_relative '../lib/scraper/db'
+require_relative '../lib/scraper/ai_recommendation_reconciler'
+
+SECONDARY_MARKETS = %w[
+  corners-over corners-under sot-over sot-under cards-over cards-under
+].freeze
+
+dry_run = ARGV.include?('--dry-run')
+pg_array = "{#{SECONDARY_MARKETS.join(',')}}"
+
+AdamStats::Scraper::DB.with_connection do |conn|
+  count = conn.exec_params(
+    "SELECT count(*) AS n FROM ai_recommendations " \
+    "WHERE status = 'resolved' AND verdict = 'bet' AND market = ANY($1)",
+    [pg_array]
+  ).first['n']
+  warn "[reresolve] #{count} recos secundárias resolved+bet encontradas"
+
+  if dry_run
+    warn '[reresolve] --dry-run: nada alterado'
+    next
+  end
+
+  reset = conn.exec_params(
+    "UPDATE ai_recommendations " \
+    "SET status = 'pending', bet_won = NULL, pl_units = NULL, actual_resolved_at = NULL " \
+    "WHERE status = 'resolved' AND verdict = 'bet' AND market = ANY($1) " \
+    "RETURNING id",
+    [pg_array]
+  )
+  warn "[reresolve] #{reset.ntuples} linhas resetadas para pending"
+end
+
+exit 0 if dry_run
+
+warn '[reresolve] rodando AiRecommendationReconciler corrigido...'
+stats = AdamStats::Scraper::AiRecommendationReconciler.new(logger: ->(m) { warn m }).run
+warn "[reresolve] stats: #{stats.inspect}"

@@ -53,6 +53,18 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
     }
   end
 
+  # FT com o entry do jogo em recentHomeResults (stats secundários).
+  def finished_widget_with_stats(home_goals: 2, away_goals: 1, **stats)
+    {
+      'fixture' => { 'id' => 999, 'status' => 'FT',
+                     'homeGoalsFt' => home_goals, 'awayGoalsFt' => away_goals },
+      'recentHomeResults' => [
+        { 'id' => 999, 'status' => 'FT',
+          'homeGoalsFt' => home_goals, 'awayGoalsFt' => away_goals }.merge(stats.transform_keys(&:to_s))
+      ]
+    }
+  end
+
   # ── testes (mock) ────────────────────────────────────────────────────────────
 
   describe '#run' do
@@ -189,8 +201,67 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
       sql = sqls_captured.first
       params = updates_captured.first
       expect(sql).to match(/actual_btts/i)
-      # home_goals, away_goals, actual_btts, correct_winner, correct_ou, status, id = 7 total
-      expect(params.length).to eq(7)
+      # goals(2) + btts + winner + ou + corners(2) + cards(2) + sot(2) +
+      # data_source + status + id = 14 total
+      expect(params.length).to eq(14)
+    end
+
+    it 'preenche actual_corners/cards/sot + data_source quando o widget traz stats' do
+      row = pending_row
+      updates_captured = []
+      sqls_captured = []
+
+      db_conn = double('db_conn')
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/SELECT.*status.*=.*'pending'/im), anything)
+        .and_return(double('r', to_a: [row]))
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/UPDATE.*fixture_simulations/im), anything) do |sql, params|
+          sqls_captured << sql
+          updates_captured << params
+          double('r', cmd_tuples: 1)
+        end
+
+      client = double('client')
+      w = finished_widget_with_stats(home_goals: 3, away_goals: 0,
+                                     homeCorners: 9, awayCorners: 2,
+                                     homeShotsOnTarget: 15, awayShotsOnTarget: 1,
+                                     homeYellows: 0, homeReds: 0, awayYellows: 5, awayReds: 1)
+      allow(client).to receive(:fetch_widget).and_return(w)
+
+      described_class.new(db_conn: db_conn, client: client, logger: logger).run
+
+      sql = sqls_captured.first
+      params = updates_captured.first.flatten
+      expect(sql).to match(/actual_corners_home/i)
+      expect(sql).to match(/actual_data_source/i)
+      expect(params).to include(9, 2)   # corners home/away
+      expect(params).to include(15, 1)  # sot home/away
+      expect(params).to include(6)      # away cards = 5 yellows + 1 red
+      expect(params).to include('choistats')
+    end
+
+    it 'deixa actual_corners/cards/sot NULL quando widget só tem header (sem stats)' do
+      row = pending_row
+      updates_captured = []
+
+      db_conn = double('db_conn')
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/SELECT.*status.*=.*'pending'/im), anything)
+        .and_return(double('r', to_a: [row]))
+      allow(db_conn).to receive(:exec_params)
+        .with(a_string_matching(/UPDATE.*fixture_simulations/im), anything) do |_sql, params|
+          updates_captured << params
+          double('r', cmd_tuples: 1)
+        end
+
+      client = double('client')
+      allow(client).to receive(:fetch_widget).and_return(finished_widget(home_goals: 2, away_goals: 1))
+
+      described_class.new(db_conn: db_conn, client: client, logger: logger).run
+      # ainda resolve (gols disponíveis), mas data_source não é 'choistats'
+      expect(updates_captured.first.flatten).to include('resolved')
+      expect(updates_captured.first.flatten).not_to include('choistats')
     end
 
     it 'correct_winner=false quando argmax=home mas away vence (0-2)' do
@@ -423,6 +494,9 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
       DBHelper.apply_migration!('0018_fixture_simulations.sql')
       # Wave G: add secondary actual columns. Idempotent (ADD COLUMN IF NOT EXISTS).
       DBHelper.apply_migration!('0029_actuals_secondary.sql')
+      # 0036: adiciona actual_data_source (preenchido pelo reconciler quando os
+      # secundários vêm do choistats). Idempotente.
+      DBHelper.apply_migration!('0036_actuals_reconciler.sql')
     end
 
     before(:each) do

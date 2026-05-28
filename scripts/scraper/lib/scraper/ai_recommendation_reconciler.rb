@@ -1,6 +1,7 @@
 require 'time'
 require_relative 'db'
 require_relative 'choistats_api_client'
+require_relative 'ft_actuals'
 
 module AdamStats
   module Scraper
@@ -99,31 +100,42 @@ module AdamStats
         end
 
         widget = @client.fetch_widget(:recent_results, fixture_id: fixture_api_id)
-        fixture_data = widget&.dig('fixture') || {}
-        status = fixture_data['status']
+        actuals = FtActuals.from_widget(widget, fixture_api_id)
 
-        home_goals = fixture_data['homeGoalsFt']
-        away_goals = fixture_data['awayGoalsFt']
-
-        if status == 'FT' && !home_goals.nil? && !away_goals.nil?
-          home_goals = home_goals.to_i
-          away_goals = away_goals.to_i
-
-          verdict = row['verdict']
-          if verdict == 'skip'
-            mark_resolved_skip(conn, row['id'].to_i, home_goals, away_goals)
-          else
-            won = bet_won?(row, home_goals, away_goals)
-            pl  = compute_pl(row, won)
-            mark_resolved_bet(conn, row['id'].to_i, home_goals, away_goals, won, pl)
-          end
-          stats[:resolved] += 1
-        elsif stale
-          mark_unresolvable(conn, row['id'].to_i)
-          stats[:unresolvable] += 1
-        else
-          stats[:pending] += 1
+        if actuals.nil?
+          # jogo ainda não FT (ou sem gols)
+          stale ? mark_stale(conn, row, stats) : (stats[:pending] += 1)
+          return
         end
+
+        home_goals = actuals[:home_goals]
+        away_goals = actuals[:away_goals]
+
+        if row['verdict'] == 'skip'
+          mark_resolved_skip(conn, row['id'].to_i, home_goals, away_goals)
+          stats[:resolved] += 1
+          return
+        end
+
+        won = bet_won?(row, actuals)
+
+        # won == nil => mercado secundário (corners/sot/cards) sem stat disponível
+        # ainda. NÃO marcamos derrota — fica pending pra próxima rodada (ou
+        # unresolvable se já passou MAX_ATTEMPTS_DAYS). Evita o false-loss que
+        # poluía os mercados secundários (bug 2026-05-28).
+        if won.nil?
+          stale ? mark_stale(conn, row, stats) : (stats[:pending] += 1)
+          return
+        end
+
+        pl = compute_pl(row, won)
+        mark_resolved_bet(conn, row['id'].to_i, home_goals, away_goals, won, pl)
+        stats[:resolved] += 1
+      end
+
+      def mark_stale(conn, row, stats)
+        mark_unresolvable(conn, row['id'].to_i)
+        stats[:unresolvable] += 1
       end
 
       def mark_unresolvable(conn, id)
@@ -164,23 +176,45 @@ module AdamStats
         )
       end
 
-      # Avalia se a aposta (market, side) foi vencedora dado o placar real.
-      # Mercados nao reconhecidos -> false (defensivo).
-      def bet_won?(row, home_goals, away_goals)
+      # Avalia se a aposta (market, side) foi vencedora dado os actuals.
+      # Retorna true/false; ou nil quando o stat secundário necessário ainda
+      # não está disponível (caller mantém pending em vez de marcar derrota).
+      # Mercados não reconhecidos -> nil (defensivo: não inventa derrota).
+      def bet_won?(row, actuals)
         market = row['market'].to_s
         side   = row['side'].to_s
-        total  = home_goals + away_goals
+        hg = actuals[:home_goals]
+        ag = actuals[:away_goals]
 
-        case "#{market}-#{side}"
-        when '1x2-home'      then home_goals > away_goals
-        when '1x2-draw'      then home_goals == away_goals
-        when '1x2-away'      then away_goals > home_goals
-        when 'over25-over'   then total > 2
-        when 'over25-under'  then total <= 2
-        when 'btts-sim'      then home_goals >= 1 && away_goals >= 1
-        when 'btts-nao'      then home_goals.zero? || away_goals.zero?
-        else                      false
+        case market
+        when '1x2'
+          case side
+          when 'home' then hg > ag
+          when 'draw' then hg == ag
+          when 'away' then ag > hg
+          end
+        when 'over25'
+          side == 'over' ? (hg + ag) > 2 : (hg + ag) <= 2
+        when 'btts'
+          both = hg >= 1 && ag >= 1
+          side == 'sim' ? both : !both
+        when 'corners-over', 'corners-under'
+          over_under(actuals[:home_corners], actuals[:away_corners], market, side)
+        when 'sot-over', 'sot-under'
+          over_under(actuals[:home_sot], actuals[:away_sot], market, side)
+        when 'cards-over', 'cards-under'
+          over_under(actuals[:home_cards], actuals[:away_cards], market, side)
         end
+      end
+
+      # Over/under genérico p/ mercados de total (corners/sot/cards).
+      # side = linha × 10 (e.g. '85' => 8.5). nil se o stat não veio.
+      def over_under(home_val, away_val, market, side)
+        return nil if home_val.nil? || away_val.nil?
+
+        total = home_val + away_val
+        line  = side.to_f / 10.0
+        market.end_with?('-over') ? total > line : total < line
       end
 
       # PL em units:

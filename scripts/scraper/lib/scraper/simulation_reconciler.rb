@@ -1,5 +1,6 @@
 require_relative 'db'
 require_relative 'choistats_api_client'
+require_relative 'ft_actuals'
 
 module AdamStats
   module Scraper
@@ -97,39 +98,46 @@ module AdamStats
           return
         end
 
-        widget = @client.fetch_widget(:recent_results, fixture_id: fixture_api_id)
-        fixture_data = widget&.dig('fixture') || {}
-        status = fixture_data['status']
+        widget  = @client.fetch_widget(:recent_results, fixture_id: fixture_api_id)
+        actuals = FtActuals.from_widget(widget, fixture_api_id)
 
-        home_goals = fixture_data['homeGoalsFt']
-        away_goals = fixture_data['awayGoalsFt']
-
-        if status == 'FT' && !home_goals.nil? && !away_goals.nil?
-          home_goals = home_goals.to_i
-          away_goals = away_goals.to_i
+        if actuals
+          home_goals = actuals[:home_goals]
+          away_goals = actuals[:away_goals]
 
           correct_winner = score_winner(row, home_goals, away_goals)
           correct_ou     = score_over_under(row, home_goals, away_goals)
+          actual_btts    = home_goals.positive? && away_goals.positive?
 
-          # BTTS: trivially derivable from goals. Always available when FT.
-          # Note: actual_corners_*/actual_cards_*/actual_sot_* remain NULL —
-          # choistats recent-results widget does not expose these for the
-          # reconciled fixture (only homeGoalsFt/awayGoalsFt/homeReds/awayReds).
-          # See CLAUDE.md Wave G investigation (2026-05-25).
-          actual_btts = home_goals.positive? && away_goals.positive?
+          # Stats secundários (corners/SOT/cards) vêm de recentHomeResults[0]
+          # quando disponíveis (FtActuals). NULL caso o jogo já tenha saído da
+          # janela de resultados recentes. data_source='choistats' marca que os
+          # secundários foram preenchidos. Corrige o bug 2026-05-28 (antes eram
+          # sempre NULL por premissa errada — ver CLAUDE.md lessons).
+          data_source = actuals[:has_secondary] ? 'choistats' : nil
 
           conn.exec_params(
             "UPDATE fixture_simulations SET " \
             "  actual_home_goals   = $1, " \
             "  actual_away_goals   = $2, " \
             "  actual_btts         = $3, " \
-            "  actual_resolved_at  = now(), " \
             "  correct_winner      = $4, " \
             "  correct_over_under  = $5, " \
-            "  status              = $6 " \
-            "WHERE id = $7",
-            [home_goals, away_goals, actual_btts,
-             correct_winner, correct_ou, 'resolved', row['id'].to_i]
+            "  actual_corners_home = $6, " \
+            "  actual_corners_away = $7, " \
+            "  actual_cards_home   = $8, " \
+            "  actual_cards_away   = $9, " \
+            "  actual_sot_home     = $10, " \
+            "  actual_sot_away     = $11, " \
+            "  actual_data_source  = $12, " \
+            "  actual_resolved_at  = now(), " \
+            "  status              = $13 " \
+            "WHERE id = $14",
+            [home_goals, away_goals, actual_btts, correct_winner, correct_ou,
+             actuals[:home_corners], actuals[:away_corners],
+             actuals[:home_cards], actuals[:away_cards],
+             actuals[:home_sot], actuals[:away_sot],
+             data_source, 'resolved', row['id'].to_i]
           )
           stats[:resolved] += 1
         elsif stale

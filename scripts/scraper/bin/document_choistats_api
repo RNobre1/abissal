@@ -1,0 +1,130 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# document_choistats_api — probes the live choistats API (the project's
+# source-of-truth for fixture data + FT actuals) and emits a markdown schema
+# doc. Re-run anytime to detect API drift. Reuses the real ChoistatsApiClient
+# so auth/headers stay in sync with the scraper hot path.
+#
+# Usage:
+#   bundle exec bin/document_choistats_api [FIXTURE_ID] [OUT_PATH]
+#
+# Defaults: a finished Libertadores fixture (FT, so actuals are populated) and
+# docs/external-apis/choistats/choistats-api.md (relative to repo root).
+
+require_relative '../lib/scraper/choistats_api_client'
+
+FIXTURE_ID = (ARGV[0] || '19693460').to_s
+REPO_ROOT  = File.expand_path('../../..', __dir__)
+OUT_PATH   = ARGV[1] || File.join(REPO_ROOT, 'docs/external-apis/choistats/choistats-api.md')
+
+# Markets the AI recommender bets on -> the FT actual field(s) needed to settle.
+ACTUALS_FOR_MARKET = {
+  '1x2'     => %w[homeGoalsFt awayGoalsFt],
+  'over25'  => %w[homeGoalsFt awayGoalsFt],
+  'btts'    => %w[homeGoalsFt awayGoalsFt],
+  'corners' => %w[homeCorners awayCorners],
+  'sot'     => %w[homeShotsOnTarget awayShotsOnTarget],
+  'cards'   => %w[homeYellows awayYellows homeReds awayReds homeBookingPoints awayBookingPoints]
+}.freeze
+
+def type_of(v)
+  case v
+  when Hash then 'object'
+  when Array then "array[#{v.empty? ? '?' : type_of(v.first)}]"
+  when Integer then 'int'
+  when Float then 'float'
+  when String then 'string'
+  when true, false then 'bool'
+  when nil then 'null'
+  else v.class.to_s
+  end
+end
+
+# Walk JSON -> flat list of [path, type, sample]. Arrays sampled at index 0.
+def walk(node, prefix = '', out = [], depth = 0)
+  return out if depth > 6
+
+  case node
+  when Hash
+    node.each do |k, v|
+      path = prefix.empty? ? k.to_s : "#{prefix}.#{k}"
+      if v.is_a?(Hash) || v.is_a?(Array)
+        out << [path, type_of(v), '']
+        walk(v, v.is_a?(Array) ? "#{path}[]" : path, out, depth + 1)
+      else
+        sample = v.is_a?(String) && v.length > 40 ? "#{v[0, 37]}..." : v.inspect
+        out << [path, type_of(v), sample]
+      end
+    end
+  when Array
+    walk(node.first, prefix, out, depth) unless node.empty?
+  end
+  out
+end
+
+def md_table(rows)
+  return "_(empty)_\n" if rows.empty?
+
+  lines = ["| campo | tipo | exemplo |", "|---|---|---|"]
+  rows.each { |path, type, sample| lines << "| `#{path}` | #{type} | #{sample.to_s.gsub('|', '\\|')} |" }
+  lines.join("\n") + "\n"
+end
+
+client = AdamStats::Scraper::ChoistatsApiClient.new
+widgets = client.fetch_all(fixture_id: FIXTURE_ID, logger: ->(m) { warn m })
+
+out = +""
+out << "# choistats API — schema (source of truth)\n\n"
+out << "> Gerado por `scripts/scraper/bin/document_choistats_api`. " \
+       "Re-rode pra detectar drift. Fixture amostra: **#{FIXTURE_ID}**. " \
+       "Gerado em #{Time.now.utc.strftime('%Y-%m-%d %H:%M UTC')}.\n\n"
+out << "Base: `https://api.choistats.com` · auth: header `X-Adamchoi-Api-Token` " \
+       "+ query `token` + `Referer: https://www.adamchoi.co.uk/` (sem isso = 401).\n\n"
+
+# ── Seção crítica: FT actuals ────────────────────────────────────────────────
+out << "## ⚑ FT actuals (settlement de apostas)\n\n"
+out << "Os stats finais de um jogo NÃO ficam no objeto `fixture` (header), que só " \
+       "tem `homeGoalsFt/awayGoalsFt/homeReds/awayReds`. Eles ficam no array " \
+       "`recentHomeResults[0]` / `recentAwayResults[0]` do widget `recent_results` " \
+       "— o jogo recém-disputado aparece como o resultado mais recente do time, " \
+       "com stats completos.\n\n"
+
+recent = widgets[:recent_results]
+played = recent && (recent['recentHomeResults'] || recent['recentHomeAllResults'])&.first
+if played
+  out << "### `recentHomeResults[0]` (= a fixture disputada, id=#{played['id']})\n\n"
+  out << md_table(walk(played).reject { |p, t, _| t == 'object' || t.start_with?('array') })
+  out << "\n### Mapa market -> campo de actual\n\n"
+  out << "| market | campos necessários | presente? |\n|---|---|---|\n"
+  ACTUALS_FOR_MARKET.each do |market, fields|
+    present = fields.all? { |f| played.key?(f) }
+    out << "| #{market} | #{fields.map { |f| "`#{f}`" }.join(', ')} | #{present ? '✅' : '❌'} |\n"
+  end
+  out << "\n"
+else
+  out << "_(não foi possível obter recentHomeResults — fixture sem dados?)_\n\n"
+end
+
+# ── Seção: inventário de todos os widgets ────────────────────────────────────
+out << "## Widgets\n\n"
+%i[recent_results team_records players chances odds].each do |kind|
+  data = widgets[kind]
+  out << "### `#{kind}`\n\n"
+  if data.nil?
+    out << "_(falhou ou vazio)_\n\n"
+    next
+  end
+  out << "Top-level keys: #{(data.is_a?(Hash) ? data.keys : ['(array)']).map { |k| "`#{k}`" }.join(', ')}\n\n"
+  rows = walk(data).reject { |_p, t, _s| t == 'object' || t.start_with?('array') }
+  out << "<details><summary>#{rows.size} campos folha</summary>\n\n"
+  out << md_table(rows.first(120))
+  out << (rows.size > 120 ? "\n_(truncado em 120 de #{rows.size})_\n" : "")
+  out << "\n</details>\n\n"
+end
+
+require 'fileutils'
+FileUtils.mkdir_p(File.dirname(OUT_PATH))
+File.write(OUT_PATH, out)
+warn "[document_choistats_api] wrote #{OUT_PATH} (#{out.bytesize} bytes)"
+puts OUT_PATH
