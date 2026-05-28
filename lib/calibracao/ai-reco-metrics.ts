@@ -21,6 +21,7 @@ import { brierScore } from "@/lib/ai/calibration-metrics";
 export interface AiRecoRow {
   id: number;
   league: string | null;
+  market?: string | null;
   status: "pending" | "resolved" | "unresolvable";
   verdict: "bet" | "skip";
   confidence: "alto" | "medio" | "baixo" | null;
@@ -186,6 +187,151 @@ export function groupAiRecoByConfidence(rows: AiRecoRow[]): ConfidenceRow[] {
     entry.winRate = entry.bets > 0 ? entry.won / entry.bets : null;
   }
   return CONFIDENCE_ORDER.map((c) => map.get(c)!).filter((r) => r.total > 0);
+}
+
+// ── Por mercado ──────────────────────────────────────────────────────────────
+
+export interface MarketRoiRow {
+  market: string; // categoria normalizada (1x2/over25/btts/corners/cards/sot/(outros))
+  label: string; // rótulo legível pt-BR
+  total: number; // resolved (bet + skip)
+  bets: number;
+  won: number;
+  totalPl: number;
+  totalUnitsRisked: number;
+  winRate: number | null;
+  roiPerUnit: number | null;
+}
+
+const MARKET_LABELS: Record<string, string> = {
+  "1x2": "1x2",
+  over25: "over 2.5 gols",
+  btts: "btts",
+  corners: "escanteios",
+  cards: "cartões",
+  sot: "chutes no gol",
+  "(outros)": "(outros)",
+};
+
+// Ordem fixa de exibição (categorias conhecidas primeiro, (outros) por último).
+const MARKET_ORDER = ["1x2", "over25", "btts", "corners", "cards", "sot", "(outros)"];
+
+const BASE_LINE_LABELS: Record<string, string> = {
+  corners: "escanteios",
+  cards: "cartões",
+  sot: "chutes no gol",
+};
+
+const KNOWN_LINES = [
+  "1x2",
+  "over25",
+  "btts",
+  "corners-over",
+  "corners-under",
+  "cards-over",
+  "cards-under",
+  "sot-over",
+  "sot-under",
+];
+const LINE_ORDER = [...KNOWN_LINES, "(outros)"];
+
+/**
+ * Normaliza o `market` cru de `ai_recommendations` para categoria base.
+ * "corners-over"/"corners-under" → "corners" (idem cards/sot). 1x2/over25/btts
+ * passam direto. Vazio/desconhecido → "(outros)".
+ */
+function normalizeMarket(raw: string | null | undefined): string {
+  const m = (raw ?? "").trim().toLowerCase();
+  if (!m) return "(outros)";
+  if (m === "1x2" || m === "over25" || m === "btts") return m;
+  const base = m.split("-")[0];
+  if (base === "corners" || base === "cards" || base === "sot") return base;
+  return "(outros)";
+}
+
+/** Normaliza para a LINHA completa (preserva over/under). Desconhecido → "(outros)". */
+function normalizeLine(raw: string | null | undefined): string {
+  const m = (raw ?? "").trim().toLowerCase();
+  if (!m) return "(outros)";
+  return KNOWN_LINES.includes(m) ? m : "(outros)";
+}
+
+function lineLabel(line: string): string {
+  if (line === "1x2") return "1x2";
+  if (line === "over25") return "over 2.5 gols";
+  if (line === "btts") return "btts";
+  const [base, side] = line.split("-");
+  if (BASE_LINE_LABELS[base] && side) return `${BASE_LINE_LABELS[base]} ${side}`;
+  return line;
+}
+
+/** Agregador genérico: agrupa recos resolvidas por uma chave derivada do `market`. */
+function aggregateByMarket(
+  rows: AiRecoRow[],
+  keyOf: (raw: string | null | undefined) => string,
+  labelOf: (key: string) => string,
+  order: string[],
+): MarketRoiRow[] {
+  const map = new Map<string, MarketRoiRow>();
+  for (const r of rows) {
+    if (r.status !== "resolved") continue;
+    const key = keyOf(r.market);
+    const entry =
+      map.get(key) ?? {
+        market: key,
+        label: labelOf(key),
+        total: 0,
+        bets: 0,
+        won: 0,
+        totalPl: 0,
+        totalUnitsRisked: 0,
+        winRate: null,
+        roiPerUnit: null,
+      };
+    entry.total += 1;
+    if (r.verdict === "bet") {
+      entry.bets += 1;
+      if (r.bet_won === true) entry.won += 1;
+      entry.totalPl += toNum(r.pl_units);
+      entry.totalUnitsRisked += toNum(r.units_final);
+    }
+    map.set(key, entry);
+  }
+  for (const entry of map.values()) {
+    entry.winRate = entry.bets > 0 ? entry.won / entry.bets : null;
+    entry.roiPerUnit =
+      entry.totalUnitsRisked > 0 ? entry.totalPl / entry.totalUnitsRisked : null;
+  }
+  const idx = (k: string) => {
+    const i = order.indexOf(k);
+    return i === -1 ? order.length : i;
+  };
+  return Array.from(map.values()).sort(
+    (a, b) => idx(a.market) - idx(b.market) || a.market.localeCompare(b.market),
+  );
+}
+
+/**
+ * Agrupa recos resolvidas por mercado (categoria base). ROI por unidade =
+ * totalPl / totalUnitsRisked. Skips entram em `total` mas não em `bets`.
+ * Responde "qual o ROI da IA em cada mercado" (1x2/over/btts/escanteios/
+ * cartões/chutes no gol) — habilitado após B19 reconciliar os secundários.
+ */
+export function groupAiRecoByMarket(rows: AiRecoRow[]): MarketRoiRow[] {
+  return aggregateByMarket(
+    rows,
+    normalizeMarket,
+    (k) => MARKET_LABELS[k] ?? k,
+    MARKET_ORDER,
+  );
+}
+
+/**
+ * Agrupa por LINHA (preserva over/under): mostra se a IA acerta mais em
+ * "over escanteios" do que "under escanteios", etc. Mesmas métricas de ROI.
+ */
+export function groupAiRecoByMarketLine(rows: AiRecoRow[]): MarketRoiRow[] {
+  return aggregateByMarket(rows, normalizeLine, lineLabel, LINE_ORDER);
 }
 
 // ── ROI realizado (bets reais vinculadas via ai_recommendation_id, 0025) ─────

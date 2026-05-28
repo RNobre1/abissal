@@ -17,6 +17,8 @@ import {
   brierAiReco,
   groupAiRecoByLeague,
   groupAiRecoByConfidence,
+  groupAiRecoByMarket,
+  groupAiRecoByMarketLine,
   summarizeRealizedRoi,
   groupRealizedRoiByLeague,
   groupRealizedRoiByConfidence,
@@ -395,7 +397,7 @@ export default async function CalibracaoPage() {
     const { data, error } = await admin
       .from("ai_recommendations")
       .select(
-        "id, league, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units",
+        "id, league, market, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units",
       )
       .order("created_at", { ascending: false })
       .limit(2000);
@@ -409,6 +411,8 @@ export default async function CalibracaoPage() {
   const aiRecoBrier = brierAiReco(aiRecoRows);
   const aiRecoByLeague = groupAiRecoByLeague(aiRecoRows).slice(0, 5);
   const aiRecoByConfidence = groupAiRecoByConfidence(aiRecoRows);
+  const aiRecoByMarket = groupAiRecoByMarket(aiRecoRows);
+  const aiRecoByMarketLine = groupAiRecoByMarketLine(aiRecoRows);
 
   // ── A2: ROI realizado = bets manuais vinculadas a uma reco IA via
   // `bets.ai_recommendation_id` (migration 0025). Lê via admin client +
@@ -633,9 +637,9 @@ export default async function CalibracaoPage() {
     <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-8">
         <span className="label">calibração IA</span>
-        <h2 className="mt-2">acerto e calibração do copilot</h2>
+        <h2 className="mt-2">acerto e calibração da IA</h2>
         <p className="mt-1 text-sm text-[var(--color-ink-muted)]">
-          predições do fixture-copilot vs. resultado real (placar final via choistats).
+          predições, simulação e recomendações da IA vs. resultado real (placar final via choistats).
         </p>
       </header>
 
@@ -655,7 +659,7 @@ export default async function CalibracaoPage() {
 
       {isEmpty ? (
         <p className="card mt-8 p-8 text-center text-sm italic text-[var(--color-ink-muted)]">
-          sem predições ainda — faça perguntas ao fixture-copilot para gerar predições.
+          sem predições legadas ainda — geradas pelo pipeline pós-scrape.
         </p>
       ) : (
         <>
@@ -847,6 +851,24 @@ export default async function CalibracaoPage() {
                 por liga (top 5 por volume)
               </h3>
               <AiRecoByLeagueTable rows={aiRecoByLeague} />
+            </div>
+
+            <div data-section="ai-reco-by-market">
+              <h3 className="mb-4 text-base font-semibold">
+                por mercado (ROI da IA em cada tipo de aposta)
+              </h3>
+              <AiRecoByMarketTable rows={aiRecoByMarket} firstColLabel="mercado" />
+            </div>
+
+            <div data-section="ai-reco-by-line">
+              <h3 className="mb-1 text-base font-semibold">
+                por linha (over vs under em cada mercado)
+              </h3>
+              <p className="mb-4 text-sm text-[var(--color-ink-muted)]">
+                Mostra se a IA acerta mais no over ou no under de escanteios,
+                cartões e chutes no gol.
+              </p>
+              <AiRecoByMarketTable rows={aiRecoByMarketLine} firstColLabel="linha" />
             </div>
 
             <div data-section="ai-reco-by-confidence">
@@ -1612,6 +1634,61 @@ function AiRecoByConfidenceTable({
               </Td>
               <Td className="num text-right tabular-nums">
                 {r.winRate == null ? "—" : `${Math.round(r.winRate * 100)}%`}
+              </Td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function AiRecoByMarketTable({
+  rows,
+  firstColLabel = "mercado",
+}: {
+  rows: ReturnType<typeof groupAiRecoByMarket>;
+  firstColLabel?: string;
+}) {
+  // Só mercados/linhas onde a IA de fato apostou — ROI não existe sem bets.
+  const visible = rows.filter((r) => r.bets > 0);
+  if (visible.length === 0) {
+    return (
+      <p className="card p-6 text-center text-sm italic text-[var(--color-ink-muted)]">
+        sem recos resolvidas ainda.
+      </p>
+    );
+  }
+  return (
+    <div className="overflow-x-auto rounded-[var(--radius)] border border-[var(--color-line-subtle)]">
+      <table className="w-full text-left text-sm">
+        <thead>
+          <tr className="border-b border-[var(--color-line-subtle)] text-[var(--color-ink-faint)]">
+            <Th>{firstColLabel}</Th>
+            <Th className="num text-right">bets</Th>
+            <Th className="num text-right">win rate</Th>
+            <Th className="num text-right">P/L (u)</Th>
+            <Th className="num text-right">ROI</Th>
+          </tr>
+        </thead>
+        <tbody>
+          {visible.map((r) => (
+            <tr
+              key={r.market}
+              className="border-b border-[var(--color-line-subtle)] last:border-0"
+            >
+              <Td>{r.label}</Td>
+              <Td className="num text-right tabular-nums">{r.bets}</Td>
+              <Td className="num text-right tabular-nums">
+                {r.winRate == null ? "—" : `${Math.round(r.winRate * 100)}%`}
+              </Td>
+              <Td className="num text-right tabular-nums">
+                {`${r.totalPl >= 0 ? "+" : ""}${r.totalPl.toFixed(2)}`}
+              </Td>
+              <Td className="num text-right tabular-nums">
+                {r.roiPerUnit == null
+                  ? "—"
+                  : `${r.roiPerUnit >= 0 ? "+" : ""}${(r.roiPerUnit * 100).toFixed(1)}%`}
               </Td>
             </tr>
           ))}

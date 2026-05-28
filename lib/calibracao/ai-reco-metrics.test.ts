@@ -7,6 +7,8 @@ import {
   summarizeRealizedRoi,
   groupRealizedRoiByLeague,
   groupRealizedRoiByConfidence,
+  groupAiRecoByMarket,
+  groupAiRecoByMarketLine,
   type AiRecoRow,
   type RealizedBetRow,
 } from "./ai-reco-metrics";
@@ -345,5 +347,120 @@ describe("groupRealizedRoiByConfidence", () => {
       betRow({ confidence: null }),
     ]);
     expect(out).toEqual([]);
+  });
+});
+
+describe("groupAiRecoByMarket", () => {
+  it("retorna [] sem rows", () => {
+    expect(groupAiRecoByMarket([])).toEqual([]);
+  });
+
+  it("normaliza over/under para a categoria base (corners-over + corners-under → corners)", () => {
+    const out = groupAiRecoByMarket([
+      row({ market: "corners-over", bet_won: true, pl_units: 0.9, units_final: 1 }),
+      row({ market: "corners-under", bet_won: false, pl_units: -1, units_final: 1 }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].market).toBe("corners");
+    expect(out[0].label).toBe("escanteios");
+    expect(out[0].bets).toBe(2);
+    expect(out[0].won).toBe(1);
+    expect(out[0].totalPl).toBeCloseTo(-0.1, 6);
+    expect(out[0].totalUnitsRisked).toBe(2);
+  });
+
+  it("calcula ROI por unidade e win rate por mercado", () => {
+    const out = groupAiRecoByMarket([
+      row({ market: "1x2", bet_won: true, pl_units: 1.5, units_final: 1 }),
+      row({ market: "1x2", bet_won: false, pl_units: -1, units_final: 1 }),
+    ]);
+    const m = out.find((r) => r.market === "1x2")!;
+    expect(m.bets).toBe(2);
+    expect(m.winRate).toBeCloseTo(0.5, 6);
+    expect(m.totalPl).toBeCloseTo(0.5, 6);
+    expect(m.roiPerUnit).toBeCloseTo(0.25, 6); // 0.5 / 2
+  });
+
+  it("ignora pending/unresolvable; skips contam em total mas não em bets", () => {
+    const out = groupAiRecoByMarket([
+      row({ market: "btts", status: "pending" }),
+      row({ market: "btts", status: "unresolvable" }),
+      row({ market: "btts", status: "resolved", verdict: "skip" }),
+      row({ market: "btts", status: "resolved", verdict: "bet", bet_won: true, pl_units: 1, units_final: 1 }),
+    ]);
+    const m = out.find((r) => r.market === "btts")!;
+    expect(m.total).toBe(2); // 1 skip + 1 bet resolvidos
+    expect(m.bets).toBe(1);
+    expect(m.won).toBe(1);
+  });
+
+  it("usa rótulo legível para cada categoria conhecida", () => {
+    const out = groupAiRecoByMarket([
+      row({ market: "over25" }),
+      row({ market: "cards-over" }),
+      row({ market: "sot-under" }),
+    ]);
+    const labels = Object.fromEntries(out.map((r) => [r.market, r.label]));
+    expect(labels["over25"]).toBe("over 2.5 gols");
+    expect(labels["cards"]).toBe("cartões");
+    expect(labels["sot"]).toBe("chutes no gol");
+  });
+
+  it("agrupa mercado nulo/desconhecido em '(outros)'", () => {
+    const out = groupAiRecoByMarket([
+      row({ market: null }),
+      row({ market: "" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].market).toBe("(outros)");
+  });
+});
+
+describe("groupAiRecoByMarketLine", () => {
+  it("separa over/under como linhas distintas (escanteios over vs under)", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ market: "corners-over", bet_won: true, pl_units: 0.8, units_final: 1 }),
+      row({ market: "corners-under", bet_won: false, pl_units: -1, units_final: 1 }),
+    ]);
+    const lines = out.map((r) => r.market);
+    expect(lines).toContain("corners-over");
+    expect(lines).toContain("corners-under");
+    const over = out.find((r) => r.market === "corners-over")!;
+    expect(over.label).toBe("escanteios over");
+    expect(over.winRate).toBe(1);
+    const under = out.find((r) => r.market === "corners-under")!;
+    expect(under.label).toBe("escanteios under");
+    expect(under.winRate).toBe(0);
+  });
+
+  it("mantém 1x2/over25/btts como linhas únicas com rótulo legível", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ market: "1x2" }),
+      row({ market: "over25" }),
+      row({ market: "btts" }),
+    ]);
+    const labels = Object.fromEntries(out.map((r) => [r.market, r.label]));
+    expect(labels["1x2"]).toBe("1x2");
+    expect(labels["over25"]).toBe("over 2.5 gols");
+    expect(labels["btts"]).toBe("btts");
+  });
+
+  it("calcula ROI por unidade por linha", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ market: "sot-over", bet_won: true, pl_units: 1.2, units_final: 1 }),
+      row({ market: "sot-over", bet_won: true, pl_units: 0.8, units_final: 1 }),
+    ]);
+    const m = out.find((r) => r.market === "sot-over")!;
+    expect(m.label).toBe("chutes no gol over");
+    expect(m.bets).toBe(2);
+    expect(m.roiPerUnit).toBeCloseTo(1.0, 6);
+  });
+
+  it("ordena over antes de under dentro da mesma categoria", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ market: "cards-under" }),
+      row({ market: "cards-over" }),
+    ]);
+    expect(out.map((r) => r.market)).toEqual(["cards-over", "cards-under"]);
   });
 });
