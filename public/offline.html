@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Abissal — sem conexão</title>
+    <style>
+      :root {
+        --bg: #111118;
+        --ink: #f8f5ef;
+        --muted: #8a8882;
+        --vermelho: #c42b2b;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        background: var(--bg);
+        color: var(--ink);
+        font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1rem;
+        padding: 2rem;
+        text-align: center;
+      }
+      .mark {
+        width: 72px;
+        height: 72px;
+      }
+      h1 { font-weight: 300; font-size: 2rem; letter-spacing: -0.03em; margin: 0; }
+      p { color: var(--muted); max-width: 28ch; margin: 0; line-height: 1.5; }
+      button {
+        margin-top: 0.5rem;
+        background: var(--vermelho);
+        color: var(--ink);
+        border: 0;
+        border-radius: 8px;
+        padding: 0.7rem 1.2rem;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <svg class="mark" viewBox="0 0 512 512" aria-hidden="true">
+      <rect width="512" height="512" rx="96" fill="#111118" />
+      <path d="M256 120 L150 392 M256 120 L362 392" fill="none" stroke="#f8f5ef" stroke-width="34" stroke-linecap="round" stroke-linejoin="round" />
+      <line x1="200" y1="312" x2="312" y2="312" stroke="#c42b2b" stroke-width="30" stroke-linecap="round" />
+    </svg>
+    <h1>sem conexão</h1>
+    <p>Você está offline. A banca, habitada, espera — reconecte para continuar.</p>
+    <button onclick="location.reload()">tentar de novo</button>
+  </body>
+</html>

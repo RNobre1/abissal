@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Fraunces, DM_Sans, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { PwaRegister } from "@/components/pwa-register";
 
 const fraunces = Fraunces({
   variable: "--font-fraunces",
@@ -29,12 +30,22 @@ export const metadata: Metadata = {
   description:
     "Plataforma pessoal de gestão de bankroll de apostas com auditoria total e dashboard de qualidade financeira.",
   robots: { index: false, follow: false },
+  applicationName: "Abissal",
+  appleWebApp: {
+    capable: true,
+    title: "Abissal",
+    statusBarStyle: "black-translucent",
+  },
+  icons: {
+    apple: "/icons/apple-touch-icon.png",
+  },
 };
 
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: "#111118",
 };
 
 export default function RootLayout({
@@ -53,6 +64,7 @@ export default function RootLayout({
           pular para conteúdo
         </a>
         {children}
+        <PwaRegister />
       </body>
     </html>
   );
