@@ -288,6 +288,15 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
   });
 
   test("fluxo completo: upload → confirmação → commit (stub)", async ({ page }) => {
+    // parseBetSlipPhoto é Server Action: a chamada OpenRouter roda no servidor,
+    // que `page.route` NÃO intercepta. O stub do caminho de sucesso nunca dispara
+    // (o estado nunca vira "confirming"). Cobertura real do sucesso: spec
+    // bet-slip-photo-live (PLAYWRIGHT_LIVE_OCR=1) + testes unitários de parse/match.
+    // Follow-up: mock via base URL de teste do OpenRouter ou MSW server-side.
+    test.skip(
+      true,
+      "stub não dispara: OCR é Server Action, page.route não intercepta server-side (ver live OCR + units)",
+    );
     test.skip(
       !authReady,
       "Needs SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL + E2E_USER_EMAIL for magic-link auth",
@@ -349,6 +358,14 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
   });
 
   test("exibe erro gracioso quando parse falha (stub 500)", async ({ page }) => {
+    // Mesmo motivo do teste de sucesso: OCR é Server Action, o page.route 500
+    // não intercepta a chamada server-side. O comportamento aqui depende de uma
+    // chamada OpenRouter REAL (flaky). Cobertura do caminho de erro fica nos
+    // testes unitários de parse-photo-action. Follow-up: mock server-side.
+    test.skip(
+      true,
+      "stub não dispara: OCR é Server Action, page.route não intercepta server-side (flaky com chamada real)",
+    );
     test.skip(
       !authReady,
       "Needs SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL + E2E_USER_EMAIL for magic-link auth",

@@ -113,7 +113,10 @@ GH Actions secrets (produção):
 - `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN` (deploy).
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` (cron telegram-closure).
 - `HEALTHCHECKS_URL` — ping do scrape geral; `HEALTHCHECKS_AI_RECO_URL` — silent-death detector do recomendador IA.
+- `E2E_USER_EMAIL`, `E2E_USER_PASSWORD` — usuário dedicado de E2E (job `e2e` do `ci.yml`). Ver nota abaixo.
 - (var) `SCRAPER_LEAGUE_SLUGS` — CSV whitelist (deixar **unset** em prod — ver Lição B7).
+
+**Usuário E2E dedicado:** `e2e@rnobre.dev` (criado via Supabase admin API, `email_confirm:true`). É **RLS-isolado** — tem banca própria vazia, não toca os dados do Pilot; mas vê os dados compartilhados de fixtures/simulação/calibração (`authenticated SELECT`). Os E2E logam pelo fluxo real de senha (`tests/e2e/helpers/auth.ts#loginAsTestUser`), creds via `.env.local` (local, gitignored) ou GH secrets (CI). Specs read-only — não escrevem na banca; os write-tests (disciplina, bet-slip stub) ficam `skip`-guardados. Viewport mobile = **Galaxy S23 FE** (412×915, projeto `mobile-s23fe` em `playwright.config.ts`).
 
 ## Directory structure
 
@@ -190,7 +193,8 @@ pnpm cf:preview                  # OpenNext build + wrangler dev (emulates Worke
 # Tests
 pnpm test                        # vitest run (unit + API)
 pnpm test:watch                  # vitest watch mode
-pnpm test:e2e                    # Playwright
+pnpm test:e2e                    # Playwright (2 projetos: desktop-chromium + mobile-s23fe)
+pnpm exec playwright test --grep-invert "live OCR"   # suíte E2E sem o teste pago de OCR (o que o CI roda)
 
 # Quality gates
 pnpm lint                        # ESLint
