@@ -1,0 +1,170 @@
+# Annotated example of a GitHub Actions workflow with ALL the red flags from
+# the `optimizing-github-actions` skill.
+# Each problem is marked with "# RED FLAG #N: ..." pointing to the pre-flight
+# checklist item.
+# Compare with `good-workflow.yml` side-by-side to see the corrections.
+#
+# This file does NOT run — it's documentation reference.
+
+name: Example CI (bad — DO NOT COPY)
+
+# ============================================================
+# TRIGGERS
+# ============================================================
+on:
+  # RED FLAG #5a: duplicate trigger will run CI 2x on same SHA
+  # when feature PR → dev merges (PR already tested + push generates new event)
+  pull_request:
+    branches: [main, dev]
+  push:
+    branches: [main, dev]   # ❌ "dev" here causes duplication
+
+# ============================================================
+# CONCURRENCY — MISSING
+# ============================================================
+# RED FLAG #4: without concurrency.cancel-in-progress, push on PR runs
+# previous run to completion even after new push — wastes minutes
+
+# ============================================================
+# PERMISSIONS — MISSING
+# ============================================================
+# RED FLAG (least privilege): without `permissions:`, GITHUB_TOKEN inherits
+# broad default permissions. Safe default would be `permissions: read-all`.
+
+# RED FLAG: secret in workflow-level env: exposes it to ALL steps
+# (including third-party actions below). Move to step that uses it.
+env:
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      # RED FLAG #10: persist-credentials default = true; read-only checkout should
+      # have persist-credentials: false (principle of least privilege)
+      - uses: actions/checkout@v5
+
+      # RED FLAG #1: third-party action WITHOUT SHA pin
+      # tj-actions/changed-files (CVE-2025-30066, March 2025) proved tags are mutable
+      - uses: tj-actions/changed-files@v45   # ❌ Compromised in March 2025
+
+      # RED FLAG #1: another third-party action without SHA pin
+      - uses: dorny/paths-filter@v3   # At least pin SHA
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci   # RED FLAG: running npm ci directly without cache
+
+      # ============================================================
+      # SHARDING WITHOUT care
+      # ============================================================
+      - name: Run tests with sharding
+        # RED FLAG #7: coverage threshold being applied on partial shard
+        # Each shard sees 1/3 of files = false negative
+        run: npx vitest run --coverage --shard=${{ matrix.shard }}/3
+
+      # RED FLAG #6: artifact with NON-unique name — will fail in v4
+      # In matrix with 3 shards, all try to create "test-results" → conflict
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-results   # ❌ Missing shard suffix
+          path: test-results.json
+
+  # ============================================================
+  # Deploy job
+  # ============================================================
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # RED FLAG #2: using AWS_ACCESS_KEY_ID/SECRET (long-lived) when OIDC is supported
+      # No `permissions: id-token: write`, no `aws-actions/configure-aws-credentials@SHA`
+      - name: Deploy to AWS
+        run: |
+          # RED FLAG #8: bash without set -euo pipefail
+          # Loop without `set -e` — if a service fails, others continue → inconsistent state
+          SERVICES=("api" "worker" "scheduler")
+          for svc in "${SERVICES[@]}"; do
+            echo "Deploying $svc..."
+            deploy-cli deploy "$svc"
+          done
+          aws s3 sync ./build s3://my-bucket
+        # AWS keys come from global env: (RED FLAG #2 + wide scope)
+
+  # ============================================================
+  # Eval job — expensive workflow (LLM calls)
+  # ============================================================
+  eval:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # RED FLAG #5b: expensive workflow (LLM ~$2/run) running on push too
+      # Duplicate trigger + expensive workflow = pay 2x for same SHA when PR merges
+      # Solution: trigger only on pull_request, with paths filter
+
+      - name: Run eval
+        run: npm run eval -- --threshold=0.70   # RED FLAG #9 — going to exit 1 below
+        env:
+          API_KEY: ${{ secrets.API_KEY }}
+
+      # RED FLAG #9: blocking gate (exit 1) without empirical PoC confirming
+      # metric DISCRIMINATES between baseline and experiment
+      # Pattern: a hard threshold without empirical data fails healthy PRs
+      # Correct: echo "::warning::..." + exit 0 (informative)
+      # until empirical baseline establishes real threshold
+      - name: Eval gate
+        run: |
+          if [ "$(jq '.score' eval-results.json)" -lt "0.70" ]; then
+            exit 1   # ❌ Blocks merge without PoC
+          fi
+
+      # RED FLAG: workflow_dispatch missing — no way to re-eval ad-hoc
+      # without a new push
+
+  # ============================================================
+  # PR comment job
+  # ============================================================
+  comment:
+    runs-on: ubuntu-latest
+    # RED FLAG #3: pull_request_target + checkout PR head + execute PR code
+    # = classic RCE — attacker via fork gets shell on runner with secrets
+    if: github.event_name == 'pull_request_target'
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}   # ❌ BLOCKING
+
+      - run: npm install   # ❌ Runs PR code (postinstall scripts)
+      - run: npm test       # ❌ Runs PR code
+
+      - run: gh pr comment ${{ github.event.pull_request.number }} --body "Tested!"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}   # ❌ Secret exposed
+
+# ============================================================
+# SUMMARY OF RED FLAGS IN THIS FILE
+# ============================================================
+# #1 (3x): tj-actions/changed-files, dorny/paths-filter without SHA pin; aws-actions too
+# #2: AWS keys long-lived instead of OIDC
+# #3 (BLOCKING): pull_request_target + checkout PR head + execute code
+# #4: no concurrency
+# #5a: push on [main, dev] + pull_request on [main, dev] = duplicate SHA
+# #5b: expensive eval workflow running on push (should be PR-only)
+# #6: artifact without unique name in matrix
+# #7: coverage threshold on partial shard (without COVERAGE_SKIP_THRESHOLDS)
+# #8: bash without set -euo pipefail in loop
+# #9: blocking gate (exit 1) without empirical PoC — would fail healthy PRs
+# #10: persist-credentials not explicitly false in read-only checkout
+# Bonus: AWS secret in top-level env: (scope too wide)
+# Bonus: no permissions: read-all default
+# Bonus: no cache (npm ci runs from scratch on each job)
+# Bonus: no $GITHUB_STEP_SUMMARY
+#
+# Total: 12+ red flags in ~100 lines. Compare with good-workflow.yml.

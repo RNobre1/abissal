@@ -1,0 +1,142 @@
+{
+  "$schema": "https://design-tokens.org/draft/1.0/schema.json",
+  "$metadata": {
+    "name": "Abismo Habitado",
+    "version": "1.0.0",
+    "description": "Design System pessoal. Profundidade cósmica com raiz amazônica.",
+    "author": "Você",
+    "created": "2026-05"
+  },
+
+  "color": {
+    "void": {
+      "$value": "#09090F",
+      "$description": "O abismo. Fundo base de toda interface. Levemente azulado — não preto puro."
+    },
+    "surface": {
+      "1": { "$value": "#111118", "$description": "Superfície primária — painéis, sidebars" },
+      "2": { "$value": "#18181F", "$description": "Superfície secundária — cards, modais" },
+      "3": { "$value": "#21212A", "$description": "Superfície terciária — hover, inputs, bordas internas" }
+    },
+    "text": {
+      "primary":   { "$value": "#F0ECE3", "$description": "Branco intencional. Referência ao branco do Garantido — puro, não envelhecido." },
+      "display":   { "$value": "#F8F5EF", "$description": "Para headlines grandes. Ainda mais puro. Usado com Fraunces em escala monumental." },
+      "secondary": { "$value": "#7A7872", "$description": "Corpo de apoio, descrições, subtítulos" },
+      "muted":     { "$value": "#3F3D3A", "$description": "Metadados, timestamps, placeholders, disabled" }
+    },
+    "accent": {
+      "vermelho": {
+        "default": { "$value": "#C42B2B", "$description": "Vermelho Garantido. Acento primário — raiz, comunidade, identidade. Não é cor de erro." },
+        "hi":      { "$value": "#D43535", "$description": "Hover e estado ativo do vermelho" },
+        "glow":    { "$value": "rgba(196, 43, 43, 0.15)", "$description": "Ambient glow para elementos vermelho" }
+      },
+      "depth": {
+        "default": { "$value": "#1A5FAD", "$description": "Azul abissal. Acento secundário — cosmos, dados, sistemas, estrutura técnica." },
+        "hi":      { "$value": "#2272C8", "$description": "Hover e estado ativo do depth" },
+        "glow":    { "$value": "rgba(26, 95, 173, 0.15)", "$description": "Ambient glow para elementos depth" }
+      }
+    },
+    "border": {
+      "subtle":  { "$value": "#1A1A22", "$description": "Separadores suaves — seções, dividers" },
+      "default": { "$value": "#252530", "$description": "Bordas de componentes — cards, inputs" }
+    },
+    "semantic": {
+      "warning": { "$value": "#B87A1A", "$description": "Estado de alerta/warning. Separado do vermelho de identidade." },
+      "ok":      { "$value": "#1A5FAD", "$description": "Estado nominal — reutiliza depth" }
+    }
+  },
+
+  "typography": {
+    "fontFamily": {
+      "display": {
+        "$value": "'Fraunces', Georgia, serif",
+        "$description": "Fonte de display. Óptica, variável, literária. Para headlines, pull quotes, títulos de seção. Parece ter vivido."
+      },
+      "body": {
+        "$value": "'DM Sans', system-ui, sans-serif",
+        "$description": "Fonte de corpo. Limpa, sem ser genérica. Para parágrafos, UI, labels, botões."
+      },
+      "mono": {
+        "$value": "'JetBrains Mono', 'Cascadia Code', monospace",
+        "$description": "Fonte mono. Para código, métricas, timestamps, tags, numeração estrutural."
+      }
+    },
+    "scale": {
+      "xs":   { "$value": "0.75rem",  "$description": "12px — labels, metadados, tags" },
+      "sm":   { "$value": "0.875rem", "$description": "14px — corpo secundário" },
+      "base": { "$value": "1rem",     "$description": "16px — corpo principal" },
+      "lg":   { "$value": "1.25rem",  "$description": "20px — destaque de corpo" },
+      "xl":   { "$value": "1.5rem",   "$description": "24px — subtítulo" },
+      "2xl":  { "$value": "2rem",     "$description": "32px — título de seção" },
+      "3xl":  { "$value": "3rem",     "$description": "48px — título de página" },
+      "4xl":  { "$value": "4.5rem",   "$description": "72px — display" },
+      "5xl":  { "$value": "7.5rem",   "$description": "120px — escala monumental. Desconforta. Use com intenção." }
+    },
+    "weight": {
+      "light":   { "$value": "300" },
+      "regular": { "$value": "400" },
+      "medium":  { "$value": "500" }
+    },
+    "lineHeight": {
+      "tight":   { "$value": "0.95", "$description": "Display monumental — Fraunces em escala grande" },
+      "heading": { "$value": "1.1",  "$description": "Títulos de seção" },
+      "body":    { "$value": "1.75", "$description": "Corpo principal — DM Sans" },
+      "relaxed": { "$value": "1.85", "$description": "Documentos técnicos, longform" }
+    },
+    "letterSpacing": {
+      "tight":  { "$value": "-0.04em", "$description": "Display monumental" },
+      "snug":   { "$value": "-0.025em" },
+      "normal": { "$value": "0" },
+      "mono":   { "$value": "0.04em",  "$description": "Labels mono em uppercase" },
+      "wide":   { "$value": "0.18em",  "$description": "Labels de seção em uppercase" }
+    }
+  },
+
+  "spacing": {
+    "1":  { "$value": "4px" },
+    "2":  { "$value": "8px" },
+    "3":  { "$value": "12px" },
+    "4":  { "$value": "16px" },
+    "6":  { "$value": "24px" },
+    "8":  { "$value": "32px" },
+    "10": { "$value": "40px" },
+    "12": { "$value": "48px" },
+    "16": { "$value": "64px" },
+    "24": { "$value": "96px" },
+    "32": { "$value": "128px" }
+  },
+
+  "borderRadius": {
+    "sm":  { "$value": "4px",  "$description": "Inputs pequenos, badges" },
+    "md":  { "$value": "8px",  "$description": "Botões, chips" },
+    "lg":  { "$value": "12px", "$description": "Cards, modais, painéis" },
+    "xl":  { "$value": "20px", "$description": "Containers hero, seções largas" }
+  },
+
+  "shadow": {
+    "sm":          { "$value": "0 1px 3px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.03)" },
+    "md":          { "$value": "0 4px 16px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.04)" },
+    "glow-vermelho": { "$value": "0 0 24px rgba(196,43,43,0.15)",  "$description": "Calor" },
+    "glow-depth":    { "$value": "0 0 24px rgba(26,95,173,0.15)",  "$description": "Profundeza" }
+  },
+
+  "texture": {
+    "strata": {
+      "$value": "repeating-linear-gradient(180deg, transparent, transparent 59px, rgba(255,255,255,0.012) 60px)",
+      "$description": "Textura de tempo. Linhas horizontais quase invisíveis — estratos geológicos. Aplique em fundos de seção e superfícies grandes. Substitui grain (que é tendência), entrega memória."
+    }
+  },
+
+  "animation": {
+    "duration": {
+      "fast":   { "$value": "150ms" },
+      "normal": { "$value": "200ms" },
+      "slow":   { "$value": "400ms" },
+      "enter":  { "$value": "900ms", "$description": "Entrada de página — fade + translate" }
+    },
+    "easing": {
+      "default": { "$value": "ease" },
+      "enter":   { "$value": "cubic-bezier(0.16, 1, 0.3, 1)" }
+    }
+  }
+}

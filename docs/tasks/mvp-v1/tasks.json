@@ -1,0 +1,140 @@
+{
+  "feature": "mvp-v1",
+  "doc_level": "completo",
+  "created": "2026-05-11",
+  "tasks": [
+    {
+      "id": "T1",
+      "slug": "scaffolding-monorepo",
+      "title": "Scaffolding monorepo (Gemfile, mise, docker-compose, dir structure)",
+      "status": "pending",
+      "deps": [],
+      "phase": "foundation",
+      "wave": 1,
+      "confidence": "high",
+      "estimate": "M"
+    },
+    {
+      "id": "T2",
+      "slug": "db-migration-fixtures",
+      "title": "DB migration: tabela fixtures (jsonb detail_json, índices, unique)",
+      "status": "pending",
+      "deps": ["T1"],
+      "phase": "foundation",
+      "wave": 2,
+      "confidence": "high",
+      "estimate": "S"
+    },
+    {
+      "id": "T3",
+      "slug": "parser-fixtures-list",
+      "title": "Parser Nokogiri da página /fixtures (TDD com snapshot.html)",
+      "status": "pending",
+      "deps": ["T1"],
+      "phase": "tests+impl",
+      "wave": 2,
+      "confidence": "high",
+      "estimate": "M"
+    },
+    {
+      "id": "T4",
+      "slug": "parser-detail-page",
+      "title": "Parser Nokogiri da detail page (inclui mini-POC inicial pra capturar HTML real)",
+      "status": "pending",
+      "deps": ["T1", "T3"],
+      "phase": "tests+impl",
+      "wave": 3,
+      "confidence": "medium",
+      "estimate": "L",
+      "notes": "Inclui sub-passo de POC manual de detail page antes do TDD (HTML não foi capturado ainda)"
+    },
+    {
+      "id": "T5",
+      "slug": "persister-upsert",
+      "title": "Persister: upsert idempotente de fixtures em Postgres real (container)",
+      "status": "pending",
+      "deps": ["T1", "T2", "T3"],
+      "phase": "tests+impl",
+      "wave": 3,
+      "confidence": "high",
+      "estimate": "M"
+    },
+    {
+      "id": "T6",
+      "slug": "fetcher-playwright",
+      "title": "Fetcher: orquestração Playwright (Ruby) — abre URL, espera seletor, retorna HTML",
+      "status": "pending",
+      "deps": ["T1"],
+      "phase": "tests+impl",
+      "wave": 2,
+      "confidence": "high",
+      "estimate": "M"
+    },
+    {
+      "id": "T7",
+      "slug": "scrape-entrypoint",
+      "title": "Orchestrator + bin/scrape + systemd unit/timer + retention purge + healthchecks ping",
+      "status": "pending",
+      "deps": ["T3", "T4", "T5", "T6"],
+      "phase": "integration",
+      "wave": 4,
+      "confidence": "medium",
+      "estimate": "M"
+    },
+    {
+      "id": "T8",
+      "slug": "api-fixtures-endpoint",
+      "title": "API: GET /api/fixtures?date=today|tomorrow (Sinatra/Roda — decide na task)",
+      "status": "pending",
+      "deps": ["T1", "T2", "T5"],
+      "phase": "integration",
+      "wave": 4,
+      "confidence": "high",
+      "estimate": "M"
+    },
+    {
+      "id": "T9",
+      "slug": "api-analyze-endpoint",
+      "title": "API: POST /api/analyze + cliente OpenRouter (deepseek/deepseek-v3.2)",
+      "status": "pending",
+      "deps": ["T1", "T8"],
+      "phase": "integration",
+      "wave": 5,
+      "confidence": "medium",
+      "estimate": "M"
+    },
+    {
+      "id": "T10",
+      "slug": "web-scaffolding-vite",
+      "title": "Scaffolding frontend: web/package.json, vite.config, vitest setup, smoke test",
+      "status": "pending",
+      "deps": ["T1"],
+      "phase": "foundation",
+      "wave": 2,
+      "confidence": "high",
+      "estimate": "S"
+    },
+    {
+      "id": "T11",
+      "slug": "web-fixtures-list",
+      "title": "Frontend: FixturesList + FixtureCard + api client fetch /api/fixtures",
+      "status": "pending",
+      "deps": ["T8", "T10"],
+      "phase": "integration",
+      "wave": 5,
+      "confidence": "high",
+      "estimate": "M"
+    },
+    {
+      "id": "T12",
+      "slug": "web-analyze-ui",
+      "title": "Frontend: AnalyzePanel + ChatMessage + integração POST /api/analyze",
+      "status": "pending",
+      "deps": ["T9", "T11"],
+      "phase": "integration",
+      "wave": 6,
+      "confidence": "medium",
+      "estimate": "L"
+    }
+  ]
+}

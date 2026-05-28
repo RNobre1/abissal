@@ -1,0 +1,10 @@
+{
+  "feature": "mvp-v1",
+  "doc_level": "completo",
+  "created": "2026-05-11",
+  "last_updated": "2026-05-11",
+  "active_wave": null,
+  "active_task": null,
+  "completed_tasks": [],
+  "notes": "Decomposition created. Ready to dispatch Wave 1 (T1 only — scaffolding-monorepo)."
+}
