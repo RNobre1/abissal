@@ -438,12 +438,6 @@ module AdamStats
           logger.call("[scrape] ai-reco-reconciler failed (non-fatal): #{e.class}: #{e.message}")
         end
 
-        # Wave R (ActualsReconciler) revertido 2026-05-26 — API-Football free
-        # tier não cobre seasons 2025+ ("Free plans do not have access to this
-        # season, try from 2022 to 2024"). Reavaliar em ~1 mês ou upgradar PRO
-        # ($19/mês). ADR-009 marcado REVERTED. Migration 0036 mantida (dead schema
-        # benigno).
-
         deleted = repo.purge_older_than(retention_days)
         # Recompute league baselines após o batch — agrega trends de todas as
         # fixtures atualmente armazenadas. Não trava o pipeline se falhar.

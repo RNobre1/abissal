@@ -117,7 +117,6 @@ bundle exec bin/document_choistats_api       # gera docs/external-apis/choistats
 | `scrape-daily` | `0 10 * * *` | scrape + sim + reconcilers + recomendador IA |
 | `closing-odds-capture` | `0 15,17,19,21 * * *` | captura closing odds (CLV) |
 | `telegram-closure` | `0 2 * * *` | resumo diário no Telegram |
-| `api-football-snapshot` | seg `0 12 * * 1` | snapshot de docs da API-Football |
 | `calibracao-monthly` | dia 5 `0 8 5 * *` | refit calibração isotônica + parâmetros de liga |
 
 > Repo público ⇒ minutos de Actions são gratuitos.
