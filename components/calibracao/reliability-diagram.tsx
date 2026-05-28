@@ -151,9 +151,7 @@ export function ReliabilityDiagram({ bins, labelMetric }: ReliabilityDiagramProp
               strokeOpacity={isLowN ? 0.8 : undefined}
             >
               <title>
-                Previsto: {Math.round(b.predictedAvg! * 100)}% · Observado:{" "}
-                {Math.round(b.observedFreq! * 100)}% · n={b.n}
-                {isLowN ? " (n<30, incerto)" : ""}
+                {`Previsto: ${Math.round(b.predictedAvg! * 100)}% · Observado: ${Math.round(b.observedFreq! * 100)}% · n=${b.n}${isLowN ? " (n<30, incerto)" : ""}`}
               </title>
             </circle>
           );
