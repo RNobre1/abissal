@@ -57,6 +57,18 @@ function heatColor(perc: number): string {
   return `hsl(0, ${s.toFixed(0)}%, ${l.toFixed(0)}%)`;
 }
 
+/**
+ * Variante para cor de TEXTO sobre o card escuro (heatColor é só fundo).
+ * Lightness alta garante contraste AA na superfície escura; a saturação
+ * cresce com perc, preservando a leitura de intensidade.
+ */
+function heatTextColor(perc: number): string {
+  const clamped = Math.min(100, Math.max(0, perc));
+  const s = 50 + (clamped / 100) * 38; // 50 → 88
+  const l = 70 - (clamped / 100) * 6; // 70 → 64
+  return `hsl(0, ${s.toFixed(0)}%, ${l.toFixed(0)}%)`;
+}
+
 const URL_DEFAULTS = { min_perc: String(DEFAULT_MIN_PERC) };
 
 export function StreaksHeatmap({ data }: StreaksHeatmapProps) {
@@ -230,8 +242,10 @@ export function StreaksHeatmap({ data }: StreaksHeatmapProps) {
       ) : (
         <>
           <div
-            className="-mx-1 px-1 @max-[520px]/card:overflow-x-auto @max-[520px]/card:[scrollbar-width:thin]"
-            aria-label="heatmap de streaks"
+            className="-mx-1 px-1 @max-[520px]/card:overflow-x-auto @max-[520px]/card:[scrollbar-width:thin] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-vermelho)]"
+            tabIndex={0}
+            role="region"
+            aria-label="heatmap de streaks (rolável)"
           >
           <div
             data-testid="streaks-heatmap-grid"
@@ -252,10 +266,10 @@ export function StreaksHeatmap({ data }: StreaksHeatmapProps) {
                 <span className="num text-xs font-semibold">
                   {s.overall_perc}%
                 </span>
-                <span className="line-clamp-2 text-[9px] leading-tight opacity-90">
+                <span className="line-clamp-2 text-[9px] leading-tight">
                   {s.desc}
                 </span>
-                <span className="label text-[8px] opacity-70">
+                <span className="text-[8px] uppercase tracking-[0.08em] leading-tight">
                   {s.group}
                 </span>
               </div>
@@ -267,7 +281,10 @@ export function StreaksHeatmap({ data }: StreaksHeatmapProps) {
           <div
             ref={parentRef}
             data-testid="streaks-virtual-list"
-            className="max-h-[320px] overflow-y-auto rounded-[var(--radius-sm)] border border-[var(--color-line)]"
+            tabIndex={0}
+            role="region"
+            aria-label="lista de streaks (rolável)"
+            className="max-h-[320px] overflow-y-auto rounded-[var(--radius-sm)] border border-[var(--color-line)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-vermelho)]"
           >
             <div
               style={{
@@ -334,7 +351,7 @@ function StreakRow({
       <div className="flex shrink-0 items-baseline gap-3">
         <span
           className="num text-base font-semibold"
-          style={{ color: heatColor(streak.overall_perc) }}
+          style={{ color: heatTextColor(streak.overall_perc) }}
         >
           {streak.overall_perc}%
         </span>

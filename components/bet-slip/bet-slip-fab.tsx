@@ -31,7 +31,7 @@ export function BetSlipFAB({ legs, oddCombined, stakeTotal, onOpen }: BetSlipFAB
   return (
     <div
       data-bet-slip-fab
-      className="fixed bottom-5 right-4 z-50 sm:right-6"
+      className="fixed right-4 z-50 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:right-6 lg:bottom-5"
     >
       <button
         type="button"
