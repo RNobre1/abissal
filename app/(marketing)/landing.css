@@ -1,0 +1,100 @@
+/* ============================================================
+   Landing pré-login — animações de scroll (frente E · F3)
+   CSS scroll-driven nativo (animation-timeline), 0 KB de JS.
+   Progressive enhancement: sem suporte ou com prefers-reduced-motion,
+   o conteúdo aparece estático e legível (fallback = estado final).
+   ============================================================ */
+
+/* Estado base = estado FINAL (visível). Só animamos quando há suporte
+   e o usuário não pediu menos movimento — assim o fallback é seguro. */
+.landing-reveal,
+.landing-rise {
+  opacity: 1;
+  transform: none;
+}
+
+/* Overlay de "descida": escurece conforme a página rola (o fundo é fixo). */
+.landing-darken {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    .landing-reveal {
+      animation: landing-reveal-kf linear both;
+      animation-timeline: view();
+      animation-range: entry 5% cover 38%;
+    }
+    .landing-rise {
+      animation: landing-rise-kf linear both;
+      animation-timeline: view();
+      animation-range: entry 0% cover 45%;
+    }
+    .landing-hero-fade {
+      animation: landing-hero-kf linear both;
+      animation-timeline: view();
+      animation-range: exit 0% exit 90%;
+    }
+    .landing-scroll-hint {
+      animation: landing-hint-kf linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0 12svh;
+    }
+    .landing-darken {
+      animation: landing-darken-kf linear both;
+      animation-timeline: scroll(root);
+      animation-range: 0% 100%;
+    }
+  }
+}
+
+@keyframes landing-reveal-kf {
+  from {
+    opacity: 0;
+    transform: translateY(48px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes landing-rise-kf {
+  from {
+    opacity: 0;
+    transform: translateY(72px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-hero-kf {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-32px);
+  }
+}
+
+@keyframes landing-hint-kf {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes landing-darken-kf {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 0.55;
+  }
+}
