@@ -49,3 +49,39 @@ caminho do recomendador em `lib/ai-reco/recommender.ts` + `app/api/ai-reco/compu
 
 Não trocar de modelo nem mexer no prompt/edge/calibração durante a hibernação.
 Relaciona-se à diretriz de hibernação (memória `hibernacao-ia-sim-calibracao`).
+
+---
+
+## Follow-up irmão — timeout HTTP no `OpenrouterClient` (2026-05-29)
+
+> **Status:** ABERTO · **Gated:** pós-hibernação (mesma janela — mexe no caminho
+> da chamada LLM). Registrado após a Parte A (ADR-010, paralelização das R1).
+
+### Problema
+
+`OpenrouterClient` (`lib/scraper/ai_reco/openrouter_client.rb`) usa `Faraday.new`
+**sem `open_timeout`/`read_timeout`**. Com o adapter Net::HTTP default, uma
+conexão R1 travada pode bloquear **indefinidamente** (até o servidor fechar).
+Antes (chamadas seriais) cada call era independente; **após a Parte A** (ADR-010),
+a **fase 3 (gravação) só roda depois que TODAS as chamadas R1 da fase 2 retornam**
+— então uma única call travada gateia o lote inteiro e pode esticar o job em
+direção ao `timeout-minutes: 45` do `ai-reco.yml`.
+
+### Evidência
+
+Não houve incidente: a validação ao vivo de 2026-05-29 (run `26637688431`) fechou
+50 chamadas R1 em **17min56s** (folga grande sob 45min). É um risco **latente**,
+não um bug observado.
+
+### Fix proposto (quando desbloqueado)
+
+1. Configurar `open_timeout` (~10s) e `read_timeout` (~240s — acima do p95 ~195s
+   do R1) no `Faraday.new` do client. Uma call que estourar vira `ok:false`
+   (já tratado → reco de falha com a copy PT-BR), não trava o pool.
+2. (Opcional) timeout global da fase 2 como segunda camada.
+
+### Por que junto deste doc
+
+Ambos são robustez da MESMA chamada LLM (parse de JSON truncado + timeout de
+rede), ambos model-adjacent ⇒ mesma janela de hibernação. Idealmente resolvidos
+no mesmo PR de hardening do `OpenrouterClient`.
