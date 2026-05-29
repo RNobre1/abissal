@@ -15,10 +15,10 @@ concurrency:
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    # Recommender phase scales with the 7-day fixture lookahead, so weekend-heavy
-    # days (120+ fixtures) blew the old 30min cap and got the AI run truncated.
-    # Public repo => runner minutes are free, so headroom is cheap.
-    timeout-minutes: 60
+    # IA-2 DESACOPLADA (Parte B — 2026-05-29, Lição B20): o recomendador R1 saiu
+    # deste workflow pro ai-reco.yml. Sem a inferência LLM lenta, o scrape (coleta
+    # + sim + reconcilers + baseline) volta a terminar em ~10-15min. 20min dá folga.
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: scripts/scraper
@@ -50,17 +50,9 @@ jobs:
           SCRAPER_LEAGUE_SLUGS: ${{ vars.SCRAPER_LEAGUE_SLUGS }}
           SCRAPER_DETAIL_CONCURRENCY: "4"
           HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
-          # A4 — silent-death detector: check SEPARADO em healthchecks.io para
-          # alarmar especificamente quando o AI Recommender cria 0 recos em dia
-          # com > 10 fixtures pendentes. Setup manual: criar check no painel da
-          # healthchecks.io e `gh secret set HEALTHCHECKS_AI_RECO_URL`. Vazio =
-          # degradação graciosa (log no stderr, sem ping HTTP).
-          HEALTHCHECKS_AI_RECO_URL: ${{ secrets.HEALTHCHECKS_AI_RECO_URL }}
-          # IA-2 Recomendador (Wave 2): orchestrator chama AiRecommenderRunner
-          # após reconcilers. Sem essas vars, runner aborta gracioso (não fatal).
-          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          AI_RECO_MODEL: ${{ vars.AI_RECO_MODEL }}
-          AI_RECO_BANKROLL: ${{ vars.AI_RECO_BANKROLL }}
+          # IA-2 DESACOPLADA (Parte B): OPENROUTER_API_KEY / AI_RECO_* /
+          # HEALTHCHECKS_AI_RECO_URL migraram pro ai-reco.yml. O scrape só coleta +
+          # simula + reconcilia + recompute de baseline.
         run: bundle exec bin/scrape
 
       - name: Ping healthchecks (success)

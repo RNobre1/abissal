@@ -13,7 +13,6 @@ require_relative 'playwright_session'
 require_relative 'prediction_reconciler'
 require_relative 'simulation_reconciler'
 require_relative 'ai_recommendation_reconciler'
-require_relative 'ai_recommender_runner'
 require_relative 'simulation/runner'
 require_relative 'simulation/league_calibration'
 require_relative 'uk_time_helper'
@@ -447,59 +446,29 @@ module AdamStats
           logger.call("[scrape] baseline recompute failed: #{e.class}: #{e.message}")
         end
 
-        # AI Recommender — roda no FINAL (após reconciliação + baseline):
-        # itera fixtures upcoming com sim ativa + odds, calcula edge,
-        # chama IA quando edge >= 20%, persiste em ai_recommendations +
-        # llm_request_logs. Não-fatal: erro global não derruba o scrape.
-        #
-        # A4 — silent-death detector: o runner agora retorna
-        # `{ inserted_recos:, errors: }`. Se levantar exceção global (ENV vazia,
-        # OpenRouter 401, panic), capturamos aqui — `reco_stats` fica como
-        # zeros, e o branch de alerta abaixo dispara.
-        reco_stats = { inserted_recos: 0, errors: 0 }
-        begin
-          result = AiRecommenderRunner.new(logger: logger).run
-          reco_stats = result if result.is_a?(Hash)
-        rescue StandardError => e
-          logger.call("[scrape] ai-recommender failed (non-fatal): #{e.class}: #{e.message}")
-        end
-
-        # A4 — silent-death detector. Se ZERO recos foram criadas mas há > 10
-        # fixtures que CABERIAM no runner, algo quebrou silenciosamente
-        # (Lição B18 — ENV vazia, OpenRouter 401, etc.). Ping healthchecks /fail
-        # num check SEPARADO (HEALTHCHECKS_AI_RECO_URL) — o check geral do
-        # scrape continua verde pois persistência/reconciler rodaram OK.
-        ai_reco_silent_death = false
-        fixtures_pending_for_reco = 0
-        if reco_stats[:inserted_recos].to_i.zero?
-          fixtures_pending_for_reco = repo.respond_to?(:count_fixtures_eligible_for_reco) ?
-                                        repo.count_fixtures_eligible_for_reco : 0
-          if fixtures_pending_for_reco > 10
-            ai_reco_silent_death = true
-            warn_msg = "[ai-reco] SILENT DEATH: 0 recos criadas em dia com " \
-                       "#{fixtures_pending_for_reco} fixtures pending sim. " \
-                       'Pingando healthchecks /fail.'
-            logger.call(warn_msg)
-            ai_reco_hc_url = ENV['HEALTHCHECKS_AI_RECO_URL'].to_s.strip
-            healthcheck.ping_failure(ai_reco_hc_url) unless ai_reco_hc_url.empty?
-          end
-        end
-
+        # AI Recommender — DESACOPLADO do scrape (Parte B — 2026-05-29, Lição B20).
+        # Antes rodava aqui inline, mas a inferência R1 (~p95 195s/chamada) inflava
+        # o runtime e estourava o `timeout-minutes` do scrape, truncando a coleta.
+        # Agora vive no seu próprio workflow (.github/workflows/ai-reco.yml →
+        # bin/run_ai_recommender → AiRecommenderJob), num cron logo após este.
+        # O scrape só coleta + simula + reconcilia + recompute de baseline, e volta
+        # a terminar em ~10-15min. `recommendations_created` permanece no RunStats
+        # por compatibilidade, mas é sempre 0 aqui (a IA-2 não roda neste pipeline).
         run_stats = RunStats.new(
           fetched: parsed.size,
           persisted_inserted: stats.inserted,
           persisted_updated: stats.updated,
           deleted: deleted,
-          recommendations_created: reco_stats[:inserted_recos].to_i
+          recommendations_created: 0
         )
 
-        # A4 — log JSON-line final pra observabilidade (grep em CI logs).
+        # Log JSON-line final pra observabilidade (grep em CI logs).
         final_log = {
           scrape_at: Time.now.utc.iso8601,
           fixtures_listed: run_stats.fetched,
-          recommendations_created: run_stats.recommendations_created,
-          fixtures_pending_for_reco: fixtures_pending_for_reco,
-          ai_reco_silent_death: ai_reco_silent_death
+          persisted_inserted: run_stats.persisted_inserted,
+          persisted_updated: run_stats.persisted_updated,
+          deleted: run_stats.deleted
         }
         logger.call("[scrape] FINAL: #{final_log.to_json}")
 

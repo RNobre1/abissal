@@ -1,0 +1,36 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'dotenv/load' if File.exist?(File.expand_path('../.env', __dir__))
+require_relative '../lib/scraper/ai_recommender_job'
+
+if ARGV.include?('--help') || ARGV.include?('-h')
+  puts <<~USAGE
+    Usage: bin/run_ai_recommender
+
+    Roda o recomendador IA-2 (DESACOPLADO do scrape — Parte B, Lição B20):
+      edge-calc em todas as sims da janela -> persiste skips de graça ->
+      chama o R1 (em paralelo, AI_RECO_CONCURRENCY) só pros candidatos com edge ->
+      persiste em ai_recommendations + llm_request_logs -> silent-death detector.
+
+    Roda no seu PRÓPRIO workflow (.github/workflows/ai-reco.yml), num cron logo
+    após o scrape-daily, pra que a inferência LLM lenta nunca derrube a coleta.
+
+    Env vars (ver .env.example):
+      DATABASE_URL               Postgres connection string (required)
+      OPENROUTER_API_KEY         chave do OpenRouter (sem ela o runner aborta gracioso)
+      AI_RECO_MODEL              modelo do recomendador (default deepseek/deepseek-r1)
+      AI_RECO_CONCURRENCY        chamadas R1 concorrentes (default 6)
+      AI_RECO_BANKROLL           banca pro sizing (default 1000)
+      AI_RECO_BLEND_ALPHA        blending sim×mercado (default 0.3)
+      HEALTHCHECKS_AI_RECO_URL   check próprio (start/success/fail). Vazio = sem ping.
+
+    Exit codes:
+      0 sempre (o job é tolerante a falha: silent-death/erro vira ping /fail, não exit≠0)
+  USAGE
+  exit 0
+end
+
+AdamStats::Scraper::AiRecommenderJob.new.run
+exit 0

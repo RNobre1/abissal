@@ -1,0 +1,79 @@
+name: ai-reco
+
+# Recomendador IA-2 DESACOPLADO do scrape (Parte B — 2026-05-29, Lição B20).
+# Antes rodava inline no scrape-daily; a inferência R1 (~p95 195s/chamada) inflava
+# o runtime e estourava o timeout do scrape, truncando a coleta. Agora roda no
+# seu próprio workflow, num cron logo APÓS o scrape (que termina em ~10-15min).
+# A paralelização (AI_RECO_CONCURRENCY) corta o tempo de ~50min pra ~10-15min;
+# este desacoplamento garante que um dia ruim de R1 nunca derrube a coleta.
+on:
+  # 10:45 UTC (07:45 BRT) — ~45min após o scrape-daily (10:00 UTC), que sem a
+  # IA-2 termina em ~10-15min. Sims do dia já estão frescas quando isto roda.
+  schedule:
+    - cron: "45 10 * * *"
+  workflow_dispatch: {}
+
+# Workflow CARO (chamadas LLM): cron/manual only, NUNCA em push/PR — o mesmo SHA
+# não deve pagar inferência R1 duas vezes (checklist optimizing-github-actions 5b).
+concurrency:
+  group: ai-reco
+  # Não cancela uma rodada em andamento: matar no meio desperdiça chamadas R1 já
+  # pagas e pode deixar fixtures sem reco. Um dispatch manual espera o cron acabar.
+  cancel-in-progress: false
+
+jobs:
+  ai-reco:
+    runs-on: ubuntu-latest
+    # IA-2 paralelizada (concurrency 6) roda em ~10-15min; pior caso de cauda de
+    # latência R1 (~50 chamadas / 6 workers × p95 195s) ≈ 29min. 45min dá folga.
+    timeout-minutes: 45
+    defaults:
+      run:
+        working-directory: scripts/scraper
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Read-only: este workflow não dá git push (checklist item 10).
+          persist-credentials: false
+
+      - name: install mise (ruby 4.0.3 + node 22)
+        uses: jdx/mise-action@v2
+        with:
+          working_directory: scripts/scraper
+
+      - name: cache bundle
+        uses: actions/cache@v4
+        with:
+          path: scripts/scraper/vendor/bundle
+          key: ${{ runner.os }}-gems-${{ hashFiles('scripts/scraper/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gems-
+
+      - name: bundle install
+        run: |
+          bundle config set --local path 'vendor/bundle'
+          bundle install --jobs 4 --retry 3
+
+      - name: run ai recommender
+        env:
+          DATABASE_URL: ${{ secrets.SCRAPER_DATABASE_URL }}
+          # OpenRouter é SaaS sem OIDC — API key em secret é o único caminho
+          # (checklist item 2). Sem ela o job aborta gracioso (não fatal).
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          AI_RECO_MODEL: ${{ vars.AI_RECO_MODEL }}
+          AI_RECO_BANKROLL: ${{ vars.AI_RECO_BANKROLL }}
+          # Chamadas R1 concorrentes. Vazio ⇒ runner usa DEFAULT_CONCURRENCY (6).
+          AI_RECO_CONCURRENCY: ${{ vars.AI_RECO_CONCURRENCY }}
+          AI_RECO_BLEND_ALPHA: ${{ vars.AI_RECO_BLEND_ALPHA }}
+          # Check próprio do AiRecommenderJob: ele pinga start/success/fail nesta
+          # URL. Vazio ⇒ degradação graciosa (sem ping HTTP).
+          HEALTHCHECKS_AI_RECO_URL: ${{ secrets.HEALTHCHECKS_AI_RECO_URL }}
+        run: bundle exec bin/run_ai_recommender
+
+      # Belt-and-suspenders: se o job for MORTO (timeout) ou crashar, o ping /fail
+      # interno do Ruby não chega a rodar — este passo cobre esse caso.
+      - name: Ping healthchecks (fail on timeout/crash)
+        if: (failure() || cancelled()) && env.HEALTHCHECKS_AI_RECO_URL != ''
+        env:
+          HEALTHCHECKS_AI_RECO_URL: ${{ secrets.HEALTHCHECKS_AI_RECO_URL }}
+        run: curl -fsS --retry 3 "${HEALTHCHECKS_AI_RECO_URL}/fail" || true
