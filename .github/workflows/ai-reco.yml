@@ -77,3 +77,36 @@ jobs:
         env:
           HEALTHCHECKS_AI_RECO_URL: ${{ secrets.HEALTHCHECKS_AI_RECO_URL }}
         run: curl -fsS --retry 3 "${HEALTHCHECKS_AI_RECO_URL}/fail" || true
+
+  # Wave 1 (2026-05-29): alerta no Telegram com TODAS as recos verdict=bet do dia
+  # (qualquer confiança — ver calibração: IA acerta mais em conf média/baixa).
+  # Job Node SEPARADO (needs: ai-reco) pra não misturar com o job Ruby. Roda só se
+  # o batch terminou OK; se não houver aposta, o script não manda nada (sem spam).
+  reco-alert:
+    needs: ai-reco
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: send reco alerts
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/telegram/send-reco-alerts.ts

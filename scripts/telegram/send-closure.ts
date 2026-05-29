@@ -23,6 +23,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { formatClosureMessage, buildDailySummary } from "../../lib/telegram/closure-message";
+import { sendTelegramMessage } from "../../lib/telegram/client";
 
 // ---------------------------------------------------------------------------
 // Env validation
@@ -132,21 +133,16 @@ async function main(): Promise<void> {
     date: window.label,
   });
 
-  // Send to Telegram
-  const telegramUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`;
-  const res = await fetch(telegramUrl, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      chat_id: TELEGRAM_CHAT_ID,
-      text: message,
-      parse_mode: "HTML",
-    }),
+  // Send to Telegram (client compartilhado — lib/telegram/client.ts)
+  const res = await sendTelegramMessage({
+    token: TELEGRAM_BOT_TOKEN!,
+    chatId: TELEGRAM_CHAT_ID!,
+    text: message,
+    parseMode: "HTML",
   });
 
   if (!res.ok) {
-    const body = await res.text();
-    console.error("[telegram-closure] Telegram API error:", res.status, body);
+    console.error("[telegram-closure] Telegram API error:", res.error);
     process.exit(1);
   }
 
