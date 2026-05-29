@@ -8,7 +8,7 @@ export default function manifest(): MetadataRoute.Manifest {
     short_name: "Abissal",
     description:
       "Gestão de banca de apostas com auditoria + análise pré-jogo de fixtures.",
-    start_url: "/",
+    start_url: "/painel",
     scope: "/",
     display: "standalone",
     orientation: "portrait",

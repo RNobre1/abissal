@@ -9,7 +9,7 @@ import {
   computeWinRate,
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
-import { OportunidadesIa } from "./_components/oportunidades-ia";
+import { OportunidadesIa } from "../_components/oportunidades-ia";
 import { QuietModeCard } from "@/components/disciplina/quiet-mode-card";
 import { isQuietModeActive } from "@/lib/disciplina/quiet-mode";
 

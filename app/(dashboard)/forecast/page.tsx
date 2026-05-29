@@ -42,7 +42,7 @@ export default async function ForecastPage() {
           rodar manualmente no Supabase enquanto o cron não está em pé.
         </p>
         <Link
-          href="/"
+          href="/painel"
           className="label mt-8 inline-block hover:text-[var(--color-ink)]"
         >
           ← voltar

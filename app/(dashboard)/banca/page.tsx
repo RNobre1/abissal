@@ -163,7 +163,7 @@ export default async function BancaPage() {
     <main id="main" tabIndex={-1} className="mx-auto w-full max-w-6xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
       <header className="mb-12 flex items-baseline justify-between">
         <span className="label">banca · relatórios</span>
-        <Link href="/" className="label hover:text-[var(--color-ink)]">← overview</Link>
+        <Link href="/painel" className="label hover:text-[var(--color-ink)]">← overview</Link>
       </header>
 
       {isEmpty ? (

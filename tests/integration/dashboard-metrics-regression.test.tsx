@@ -225,7 +225,7 @@ const DAILY_PL_NEGATIVE: unknown[] = [];
 // Import da página APÓS os mocks
 // ──────────────────────────────────────────────────────────────────────────────
 
-import OverviewPage from "@/app/(dashboard)/page";
+import OverviewPage from "@/app/(dashboard)/painel/page";
 
 beforeEach(() => {
   vi.clearAllMocks();

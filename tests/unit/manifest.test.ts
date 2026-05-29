@@ -7,7 +7,8 @@ describe("PWA manifest", () => {
   it("é instalável: campos mínimos presentes", () => {
     expect(m.name).toBeTruthy();
     expect(m.short_name).toBeTruthy();
-    expect(m.start_url).toBe("/");
+    // start_url = /painel: o PWA abre direto no app autenticado; "/" é a landing pública (frente E).
+    expect(m.start_url).toBe("/painel");
     expect(m.display).toBe("standalone");
   });
 

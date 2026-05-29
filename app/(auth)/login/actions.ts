@@ -33,7 +33,7 @@ export async function loginAction(
     return { error: "Credenciais inválidas." };
   }
 
-  redirect("/");
+  redirect("/painel");
 }
 
 export async function logoutAction() {

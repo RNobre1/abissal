@@ -2,8 +2,7 @@ import { createServerClient, type CookieOptions } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import type { Database } from "@/lib/supabase/types";
-
-const PUBLIC_PATHS = ["/login", "/brand", "/_next", "/favicon.ico"];
+import { decideRedirect } from "@/lib/supabase/redirect-policy";
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
@@ -35,18 +34,10 @@ export async function updateSession(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const path = request.nextUrl.pathname;
-  const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
-
-  if (!user && !isPublic) {
+  const dest = decideRedirect(request.nextUrl.pathname, Boolean(user));
+  if (dest) {
     const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
-  }
-
-  if (user && path === "/login") {
-    const url = request.nextUrl.clone();
-    url.pathname = "/";
+    url.pathname = dest;
     return NextResponse.redirect(url);
   }
 

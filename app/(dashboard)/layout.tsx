@@ -15,7 +15,7 @@ const NAV_GROUPS: Array<{
   {
     label: "operação",
     items: [
-      { href: "/", label: "overview" },
+      { href: "/painel", label: "overview" },
       { href: "/banca", label: "banca" },
       { href: "/houses", label: "casas" },
       { href: "/transactions", label: "transações" },
@@ -85,7 +85,7 @@ export default async function DashboardLayout({
     <div className="flex min-h-screen flex-col lg:flex-row">
       {/* Desktop sidebar */}
       <aside className="hidden border-r border-[var(--color-line-subtle)] bg-[var(--color-surface-1)] lg:flex lg:w-64 lg:flex-col lg:px-6 lg:py-8">
-        <Link href="/" className="block">
+        <Link href="/painel" className="block">
           <span className="label">abissal</span>
           <p
             className="mt-2 font-[var(--font-display)] text-2xl italic leading-none"
