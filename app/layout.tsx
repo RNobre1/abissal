@@ -36,9 +36,7 @@ export const metadata: Metadata = {
     title: "Abissal",
     statusBarStyle: "black-translucent",
   },
-  icons: {
-    apple: "/icons/apple-touch-icon.png",
-  },
+  // Ícones detectados por convenção do Next 16: app/icon.svg, app/apple-icon.png, app/favicon.ico.
 };
 
 export const viewport: Viewport = {

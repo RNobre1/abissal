@@ -227,3 +227,52 @@
     animation: shimmer 1.4s ease-in-out infinite;
   }
 }
+
+/* ============================================================
+   Abissal mark — logo "estratos + farol" (frente D)
+   Usado pelo componente <AbissalMark>. Glow G2.
+   Animação GPU-only; o reset global de prefers-reduced-motion acima
+   já neutraliza (duration ~0, iteration 1 → repousa no estado base).
+   ============================================================ */
+
+@keyframes abissal-rise {
+  from {
+    transform: scaleX(0);
+    opacity: 0;
+  }
+  to {
+    transform: scaleX(1);
+    opacity: 1;
+  }
+}
+
+@keyframes abissal-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    filter: drop-shadow(0 0 1.5px #d43535) drop-shadow(0 0 6px #d43535);
+  }
+  50% {
+    transform: scale(1.2);
+    filter: drop-shadow(0 0 3px #d43535) drop-shadow(0 0 13px #d43535)
+      drop-shadow(0 0 24px rgba(196, 43, 43, 0.5));
+  }
+}
+
+@layer components {
+  .abissal-mark .abissal-strata {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: abissal-rise 0.9s var(--ease-enter) backwards;
+  }
+  .abissal-mark .abissal-beacon {
+    transform-box: fill-box;
+    transform-origin: center;
+    filter: drop-shadow(0 0 1.5px #d43535) drop-shadow(0 0 6px #d43535);
+    animation: abissal-pulse 2.4s ease-in-out 1s infinite;
+  }
+  .abissal-mark[data-animated="false"] .abissal-strata,
+  .abissal-mark[data-animated="false"] .abissal-beacon {
+    animation: none;
+  }
+}
