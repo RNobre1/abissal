@@ -203,6 +203,7 @@ pnpm exec playwright test --grep-invert "live OCR"   # suíte E2E sem o teste pa
 pnpm lint                        # ESLint
 pnpm typecheck                   # tsc --noEmit
 pnpm format                      # prettier write
+pnpm telegram:document-api       # regenera docs/external-apis/telegram/ (Bot API; re-rode p/ detectar drift)
 
 # Scraper (separate Ruby project)
 cd scripts/scraper
@@ -287,7 +288,9 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 - **Recomendador IA-2** (cron Ruby + `/api/ai-reco/compute`): `AI_RECO_MODEL` / `AI_RECO_MODEL_ONDEMAND` = `deepseek/deepseek-r1` (reasoning lento ~p95 195s, barato; aceitável fora do hot path).
 
 **Telegram (closure bot):**
-- Bot API via `TELEGRAM_BOT_TOKEN` → chat `TELEGRAM_CHAT_ID`. Resumo diário (cron `telegram-closure`, `scripts/telegram/send-closure.ts`).
+- **Bot API** via `TELEGRAM_BOT_TOKEN` → chat `TELEGRAM_CHAT_ID`. Resumo diário (cron `telegram-closure`, `scripts/telegram/send-closure.ts` + `lib/telegram/closure-message.ts`).
+- **Bot API ≠ MTProto.** Usamos **só** a Bot API (`api.telegram.org/bot<token>/METHOD`, doc `core.telegram.org/bots/api`, hoje v10.0). **NÃO** usar a MTProto/`core.telegram.org/api` (cliente de conta de usuário) nem clientes tipo `vysheng/tg` (abandonado ~2016, exige login da conta pessoal = superfície de credencial enorme + risco de ToS). Bot token basta pra tudo do escopo (envio, webhook, comandos).
+- **Doc viva:** `docs/external-apis/telegram/telegram-bot-api.md` (gerada por `pnpm telegram:document-api` → `scripts/telegram/document-bot-api.ts`; render puro testável em `lib/telegram/bot-api-doc.ts`). Destaca os métodos que o projeto usa + catálogo completo (176 métodos/303 tipos) + sinaliza drift. Re-rode pra detectar mudança de versão.
 
 **Healthchecks.io:**
 - `https://hc-ping.com/<uuid>` — pings success / `/fail` / `/start`. `HEALTHCHECKS_URL` no scrape; `HEALTHCHECKS_AI_RECO_URL` é o silent-death detector do recomendador IA (ping `/fail` quando 0 recos com fixtures pendentes).
