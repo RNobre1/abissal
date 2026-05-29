@@ -2,10 +2,11 @@
  * Constantes de threshold para o cálculo de badges de fixture.
  *
  * FONTE ÚNICA DA VERDADE para TS. A view SQL correspondente
- * (`supabase/migrations/0017_fixture_badges.sql`, CTEs `strong_streaks` e
- * `referee_flag`) DEVE refletir estes valores literalmente. Ao alterar
- * qualquer constante aqui, edite também o SQL na mesma PR — o teste
- * `lib/fixtures/badge-thresholds.parity.test.ts` falha se houver divergência.
+ * (`supabase/migrations/0043_fixture_badges_view_pushdown.sql`, que reescreveu
+ * a de `0017` para predicate pushdown — Lição B21) DEVE refletir estes valores
+ * literalmente. Ao alterar qualquer constante aqui, edite também o SQL na mesma
+ * PR — o teste `lib/fixtures/badge-thresholds.parity.test.ts` falha se houver
+ * divergência.
  *
  * Mapeamento TS → SQL:
  *   STREAK_PERC_MIN          → `perc >= 70`          (CTEs strong_streaks)

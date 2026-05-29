@@ -1,10 +1,12 @@
 /**
  * Teste de paridade badge-thresholds TS ↔ SQL.
  *
- * Não há harness SQL no repo, então a estratégia é parsear o texto de
- * `0017_fixture_badges.sql` com regex e verificar que CADA literal
- * numérico/string de threshold presente em `badge-thresholds.ts` aparece
- * TAMBÉM no SQL. Se alguém mudar um lado só, este teste falha antes do merge.
+ * Não há harness SQL no repo, então a estratégia é parsear o texto da migration
+ * que DEFINE a view ativa (`0043_fixture_badges_view_pushdown.sql`, que reescreve
+ * a de `0017` para predicate pushdown — ver Lição B21) com regex e verificar que
+ * CADA literal numérico/string de threshold presente em `badge-thresholds.ts`
+ * aparece TAMBÉM no SQL. Se alguém mudar um lado só, este teste falha antes do
+ * merge.
  *
  * Abordagem:
  *   1. Lê o arquivo SQL como texto (via `import` estático de assets ou fs).
@@ -27,9 +29,11 @@ import {
 } from "./badge-thresholds";
 
 // Localiza o SQL relativo à raiz do repositório (worktree-safe).
+// Aponta para a migration que define a view ATIVA — 0043 reescreveu a de 0017
+// para predicate pushdown (B21), mantendo os mesmos literais de threshold.
 const SQL_PATH = join(
   __dirname,
-  "../../supabase/migrations/0017_fixture_badges.sql",
+  "../../supabase/migrations/0043_fixture_badges_view_pushdown.sql",
 );
 
 function loadSql(): string {
