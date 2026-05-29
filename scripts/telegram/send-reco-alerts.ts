@@ -86,10 +86,18 @@ async function main(): Promise<void> {
     return;
   }
 
+  // Preview local sem enviar (útil pra inspecionar o formato; também contorna a
+  // instabilidade IPv6/route do fetch do Node nesta rede — ver B6).
+  if (process.env.TELEGRAM_ALERT_DRY_RUN) {
+    console.log(message);
+    return;
+  }
+
   const res = await sendTelegramMessage({
     token: TELEGRAM_BOT_TOKEN!,
     chatId: TELEGRAM_CHAT_ID!,
     text: message,
+    parseMode: "HTML",
   });
 
   if (!res.ok) {
