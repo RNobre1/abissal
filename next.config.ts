@@ -1,5 +1,6 @@
 import type { NextConfig } from "next";
 import bundleAnalyzer from "@next/bundle-analyzer";
+import { staticAssetHeaders } from "./lib/http/cache-headers";
 
 const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === "true",
@@ -14,6 +15,11 @@ const nextConfig: NextConfig = {
       "recharts",
       "lightweight-charts",
     ],
+  },
+  // B21: favicon vinha com max-age=0, must-revalidate → 74 refetches/sessão.
+  // A URL do favicon é versionada por hash, então cache imutável é seguro.
+  async headers() {
+    return staticAssetHeaders();
   },
 };
 
