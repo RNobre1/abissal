@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { env } from "@/lib/env";
 import type { Database } from "@/lib/supabase/types";
 
-const PUBLIC_PATHS = ["/login", "/_next", "/favicon.ico"];
+const PUBLIC_PATHS = ["/login", "/brand", "/_next", "/favicon.ico"];
 
 type CookieToSet = { name: string; value: string; options: CookieOptions };
 
