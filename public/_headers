@@ -1,0 +1,11 @@
+# Cloudflare Workers static-assets headers (honrado pelo binding `assets` do
+# wrangler.jsonc; OpenNext copia public/ → .open-next/assets).
+# Ver https://developers.cloudflare.com/workers/static-assets/headers/
+#
+# B21 (revisão de perf 2026-05-29): o favicon vinha com
+# `Cache-Control: max-age=0, must-revalidate` → o browser revalidava em toda
+# navegação (74 refetches numa sessão de ~12min). A URL do favicon é versionada
+# por hash (`/favicon.ico?<hash>`), então cache imutável de 1 ano é seguro.
+# NÃO aplicar immutable a sw.js (service worker precisa revalidar).
+/favicon.ico
+  Cache-Control: public, max-age=31536000, immutable

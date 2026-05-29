@@ -1,11 +1,15 @@
 import type { NextConfig } from "next";
 import bundleAnalyzer from "@next/bundle-analyzer";
-import { staticAssetHeaders } from "./lib/http/cache-headers";
 
 const withBundleAnalyzer = bundleAnalyzer({
   enabled: process.env.ANALYZE === "true",
 });
 
+// B21: o cache do favicon NÃO vai aqui. O `app/favicon.ico` é servido como
+// static asset do Cloudflare (`assets` binding → `.open-next/assets`), fora do
+// Worker — então `next.config.headers()` não o alcança (tentativa inócua,
+// revertida). O header imutável vai em `public/_headers` (mecanismo de headers
+// do CF Workers Assets, copiado pro bundle pelo OpenNext).
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   experimental: {
@@ -15,11 +19,6 @@ const nextConfig: NextConfig = {
       "recharts",
       "lightweight-charts",
     ],
-  },
-  // B21: favicon vinha com max-age=0, must-revalidate → 74 refetches/sessão.
-  // A URL do favicon é versionada por hash, então cache imutável é seguro.
-  async headers() {
-    return staticAssetHeaders();
   },
 };
 
