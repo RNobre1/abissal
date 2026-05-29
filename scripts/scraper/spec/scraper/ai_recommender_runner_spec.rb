@@ -538,7 +538,8 @@ module AdamStats::Scraper
         rows = [value_row(1), value_row(2), value_row(3)]
         conn, inserts = setup_conn(rows)
 
-        runner = described_class.new(conn: conn, logger: logger, client: client, llm_budget: 2)
+        # concurrency:1 = serial → o contador do RSpec double é determinístico.
+        runner = described_class.new(conn: conn, logger: logger, client: client, llm_budget: 2, concurrency: 1)
         runner.run
 
         expect(client).to have_received(:call).exactly(2).times
@@ -555,7 +556,7 @@ module AdamStats::Scraper
         rows = [no_value_row(1), value_row(2), no_value_row(3), value_row(4)]
         conn, inserts = setup_conn(rows)
 
-        runner = described_class.new(conn: conn, logger: logger, client: client, llm_budget: 1)
+        runner = described_class.new(conn: conn, logger: logger, client: client, llm_budget: 1, concurrency: 1)
         runner.run
 
         expect(client).to have_received(:call).exactly(1).time
@@ -570,6 +571,155 @@ module AdamStats::Scraper
       it 'usa LLM_CALL_BUDGET como default quando llm_budget não é passado' do
         expect(described_class::LLM_CALL_BUDGET).to be_a(Integer)
         expect(described_class::LLM_CALL_BUDGET).to be > 0
+      end
+    end
+
+    # ── Parte A: paralelização das chamadas R1 (rede paralela, DB serial) ────────
+    # O gargalo é a fila de chamadas R1 (~60-90s cada, serial). Paralelizamos só
+    # a rede (client.call), mantendo a conexão Postgres single-threaded.
+    describe 'paralelização das chamadas R1 (Parte A)' do
+      # Client thread-safe que mede a concorrência observada: incrementa um
+      # contador na entrada, segura um instante pra forçar sobreposição, e
+      # decrementa na saída. NÃO é um RSpec double (o contador interno do double
+      # não é thread-safe) — é um objeto real com Mutex.
+      class CountingClient
+        attr_reader :max_concurrent, :total_calls
+
+        def initialize(delay: 0.05)
+          @delay = delay
+          @cur = 0
+          @max_concurrent = 0
+          @total_calls = 0
+          @m = Mutex.new
+        end
+
+        def call(_prompt, model:, league_calibrated:)
+          @m.synchronize do
+            @cur += 1
+            @total_calls += 1
+            @max_concurrent = [@max_concurrent, @cur].max
+          end
+          sleep @delay
+          @m.synchronize { @cur -= 1 }
+          {
+            ok: true,
+            decision: { verdict: 'bet', market: 'btts', side: 'sim',
+                        units_final: 1.0, prob_estimated: 0.6,
+                        confidence: 'medio', summary_line: 'BTTS 1.0u',
+                        reasoning: 'r' * 80, red_flags: [] },
+            raw_content: 'mock',
+            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            latency_ms: 50,
+            model_returned: 'deepseek/deepseek-r1'
+          }
+        end
+      end
+
+      def setup_conn(rows)
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return(rows)
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        inserts = []
+        mutex = Mutex.new
+        allow(conn).to receive(:exec_params) do |sql, params|
+          mutex.synchronize { inserts << params if sql.include?('INSERT INTO ai_recommendations') }
+          [{ 'id' => 1 }]
+        end
+        [conn, inserts]
+      end
+
+      def value_row(id)
+        {
+          'fixture_id' => id.to_s,
+          'home_team' => 'Home', 'away_team' => 'Away', 'league' => 'L',
+          'kickoff_utc' => '2026-05-30T15:00:00Z',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.75',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'Home' => { 'decimal_odds' => 4.0 },
+                'Draw' => { 'decimal_odds' => 4.0 },
+                'Away' => { 'decimal_odds' => 2.0 }
+              },
+              'Match Goals Overs/Unders' => {
+                'Over 2.5' => { 'decimal_odds' => 2.0 },
+                'Under 2.5' => { 'decimal_odds' => 1.85 }
+              },
+              'BTTS' => {
+                'Yes' => { 'decimal_odds' => 2.0 },
+                'No' => { 'decimal_odds' => 1.9 }
+              }
+            }
+          )
+        }
+      end
+
+      it 'chama o R1 concorrentemente, limitado pelo cap de concorrência' do
+        rows = (1..6).map { |i| value_row(i) }
+        conn, inserts = setup_conn(rows)
+        counting = CountingClient.new(delay: 0.08)
+
+        runner = described_class.new(conn: conn, logger: logger, client: counting,
+                                     llm_budget: 6, concurrency: 3)
+        runner.run
+
+        # Todas as 6 chamadas aconteceram.
+        expect(counting.total_calls).to eq(6)
+        # Concorrência real > 1 prova paralelismo; <= 3 prova o limite.
+        expect(counting.max_concurrent).to be > 1
+        expect(counting.max_concurrent).to be <= 3
+        # Todas as 6 recos (bet) foram gravadas — DB serial, nada se perdeu.
+        verdicts = inserts.map { |p| p[11] }
+        expect(verdicts.count('bet')).to eq(6)
+      end
+
+      it 'paraleliza mais rápido que serial (mesma carga)' do
+        rows = (1..6).map { |i| value_row(i) }
+        conn, _ = setup_conn(rows)
+        counting_par = CountingClient.new(delay: 0.08)
+        t0 = Time.now
+        described_class.new(conn: conn, logger: logger, client: counting_par,
+                            llm_budget: 6, concurrency: 6).run
+        parallel_elapsed = Time.now - t0
+
+        # 6 chamadas de 0.08s: serial ≈ 0.48s; com 6 workers ≈ 0.08s + overhead.
+        # Folga generosa pra não flakear: paralelo deve ficar bem abaixo do serial.
+        expect(parallel_elapsed).to be < 0.35
+      end
+
+      it 'um worker que levanta exceção não derruba os demais (isolamento A5)' do
+        rows = (1..4).map { |i| value_row(i) }
+        conn, inserts = setup_conn(rows)
+        boom = Object.new
+        calls = 0
+        m = Mutex.new
+        boom.define_singleton_method(:call) do |_prompt, model:, league_calibrated:|
+          should_raise = m.synchronize { calls += 1; calls == 2 }
+          raise 'LLM worker boom' if should_raise
+
+          { ok: true,
+            decision: { verdict: 'bet', market: 'btts', side: 'sim', units_final: 1.0,
+                        prob_estimated: 0.6, confidence: 'medio', summary_line: 's',
+                        reasoning: 'r' * 80, red_flags: [] },
+            raw_content: 'm', usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+            latency_ms: 50, model_returned: 'deepseek/deepseek-r1' }
+        end
+
+        runner = described_class.new(conn: conn, logger: logger, client: boom,
+                                     llm_budget: 4, concurrency: 2)
+        result = nil
+        expect { result = runner.run }.not_to raise_error
+        # 3 recos gravadas (1 worker estourou); o batch não abortou.
+        verdicts = inserts.map { |p| p[11] }
+        expect(verdicts.count('bet')).to eq(3)
+        expect(result[:errors]).to eq(1)
+      end
+
+      it 'expõe DEFAULT_CONCURRENCY como inteiro positivo' do
+        expect(described_class::DEFAULT_CONCURRENCY).to be_a(Integer)
+        expect(described_class::DEFAULT_CONCURRENCY).to be > 0
       end
     end
   end

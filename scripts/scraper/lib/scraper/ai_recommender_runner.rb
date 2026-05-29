@@ -1,5 +1,6 @@
 require 'json'
 require 'set'
+require 'thread'
 require_relative 'db'
 require_relative 'ai_reco/edge_calculator'
 require_relative 'ai_reco/pricing'
@@ -56,6 +57,14 @@ module AdamStats
       # capava a query inteira e deixava o overflow sem badge "IA · sem valor".
       # Mantido em 50 = mesmo nº de chamadas R1 do design anterior (custo igual).
       LLM_CALL_BUDGET = 50
+
+      # Concorrência das chamadas R1 (Parte A — 2026-05-29). O gargalo do batch é
+      # a fila de chamadas R1 (~60-90s cada, antes SERIAL → ~50min). Paralelizamos
+      # SÓ a rede (client.call): a conexão Postgres fica single-threaded (escritas
+      # nas fases serial 1 e 3), zero risco de corrupção (PG::Connection não é
+      # thread-safe). Pool limitado respeita rate limit do OpenRouter. Override via
+      # ENV AI_RECO_CONCURRENCY. 6 workers → ~50 chamadas em ~9-13min.
+      DEFAULT_CONCURRENCY = 6
 
       # Cron query priorizada (B19 — 2026-05-25):
       # 1. Fixtures de ligas CALIBRADAS primeiro (tem isotonic_lookup +
@@ -127,7 +136,7 @@ module AdamStats
 
       def initialize(conn: nil, logger: ->(m) { warn m }, client: nil,
                      dry_run: false, bankroll: nil, model: nil, blend_alpha: nil,
-                     llm_budget: nil)
+                     llm_budget: nil, concurrency: nil)
         @conn = conn
         @logger = logger
         @client = client
@@ -142,6 +151,9 @@ module AdamStats
         @bankroll = bankroll || (env_bankroll.empty? ? DEFAULT_BANKROLL : env_bankroll.to_f)
         @model = model || (env_model.empty? ? DEFAULT_MODEL : env_model)
         @blend_alpha = blend_alpha || (env_alpha.empty? ? DEFAULT_BLEND_ALPHA : env_alpha.to_f)
+        env_conc = ENV['AI_RECO_CONCURRENCY'].to_s.strip
+        @concurrency = (concurrency || (env_conc.empty? ? DEFAULT_CONCURRENCY : env_conc.to_i)).to_i
+        @concurrency = 1 if @concurrency < 1
       end
 
       # Retorna { inserted_recos:, errors: }.
@@ -167,12 +179,41 @@ module AdamStats
 
           calibrated_leagues = load_calibrated_leagues(conn)
 
+          # Fase 1 (SERIAL — 1 conn): edge-calc em todas as fixtures. Skips são
+          # persistidos de graça aqui mesmo; candidatos que precisam de R1 viram
+          # "jobs" coletados numa lista (respeitando o budget de tokens).
+          llm_jobs = []
           fixtures.each do |row|
             begin
-              process_fixture(conn, row, calibrated_leagues)
+              job = classify_fixture(conn, row, calibrated_leagues)
+              llm_jobs << job if job
             rescue StandardError => e
               @run_stats[:errors] += 1
-              @logger.call("[ai-reco] fixture #{row['fixture_id']} falhou: #{e.class}: #{e.message}")
+              @logger.call("[ai-reco] fixture #{row['fixture_id']} falhou (fase 1): #{e.class}: #{e.message}")
+            end
+          end
+
+          # Fase 2 (PARALELA — só rede, ZERO DB): dispara as chamadas R1 num pool
+          # limitado. A conexão Postgres NÃO é tocada aqui.
+          completed = run_llm_jobs_parallel(llm_jobs)
+
+          # Fase 3 (SERIAL — 1 conn): grava os resultados do R1.
+          completed.each do |job, result|
+            next unless job
+
+            begin
+              if result.nil?
+                # worker levantou exceção inesperada (client.call já trata
+                # ok:false internamente — nil só vem de raise no worker).
+                @run_stats[:errors] += 1
+                next
+              end
+              cost = compute_cost(result)
+              log_id = insert_llm_log(conn, job[:row], result, job[:prompt], cost)
+              insert_reco(conn, job[:row], job[:all_candidates], job[:league_calibrated], result, log_id, cost)
+            rescue StandardError => e
+              @run_stats[:errors] += 1
+              @logger.call("[ai-reco] fixture #{job[:row]['fixture_id']} falhou (fase 3): #{e.class}: #{e.message}")
             end
           end
         end
@@ -205,12 +246,17 @@ module AdamStats
         end
       end
 
-      def process_fixture(conn, row, calibrated_leagues)
+      # Fase 1 (serial): decide o destino de uma fixture.
+      # Retorna `nil` quando a fixture foi resolvida aqui (skip persistido,
+      # dry-run, ou orçamento de LLM esgotado) — nada a fazer na fase paralela.
+      # Retorna um `job` (Hash com :row/:prompt/:all_candidates/:league_calibrated)
+      # quando precisa de uma chamada R1 — a chamada acontece na fase 2.
+      def classify_fixture(conn, row, calibrated_leagues)
         sim = extract_sim(row)
         odds = extract_odds(row)
         unless sim && odds
           @logger.call("[ai-reco] fixture #{row['fixture_id']}: sem sim ou odds — pulando")
-          return
+          return nil
         end
 
         league_calibrated = calibrated_leagues.include?(row['league'])
@@ -219,36 +265,109 @@ module AdamStats
         bet_candidates = candidates.select { |c| c[:edge_pct] >= EDGE_THRESHOLD }
 
         if bet_candidates.empty?
-          return persist_skip(conn, row, candidates, league_calibrated)
+          persist_skip(conn, row, candidates, league_calibrated)
+          return nil
         end
 
         # Pre-filter (B19 — 2026-05-25): edge irreal em liga sem isotonic_lookup
         # quase certamente é ruído amplificado. Bloqueia antes de gastar tokens.
         top_edge = bet_candidates.first[:edge_pct]
         if !league_calibrated && top_edge.to_f > SANITY_EDGE_THRESHOLD
-          return persist_skip(conn, row, candidates, league_calibrated,
-                              reduction_reason: 'edge_suspect_pre_filtered',
-                              summary_line: "Edge #{top_edge.round(1)}% em liga não-calibrada — provável ruído do simulador",
-                              reasoning: "Top candidate (#{bet_candidates.first[:market]}/#{bet_candidates.first[:side]}) com edge #{top_edge.round(1)}% > #{SANITY_EDGE_THRESHOLD}% em liga sem league_parameters calibrados. Pre-filtro bloqueou pra economizar tokens.")
+          persist_skip(conn, row, candidates, league_calibrated,
+                       reduction_reason: 'edge_suspect_pre_filtered',
+                       summary_line: "Edge #{top_edge.round(1)}% em liga não-calibrada — provável ruído do simulador",
+                       reasoning: "Top candidate (#{bet_candidates.first[:market]}/#{bet_candidates.first[:side]}) com edge #{top_edge.round(1)}% > #{SANITY_EDGE_THRESHOLD}% em liga sem league_parameters calibrados. Pre-filtro bloqueou pra economizar tokens.")
+          return nil
         end
 
         if @dry_run
           @logger.call("[ai-reco] dry-run skipping IA call for fixture #{row['fixture_id']}")
-          return
+          return nil
         end
 
-        # Corte de tokens (Parte 1): só este ramo — o que chama o R1 — é capado.
-        # Os skips acima já foram persistidos de graça pra toda a janela, então o
-        # badge "IA · sem valor" cobre o overflow. Fixtures COM valor além do teto
-        # ficam pra on-demand (têm valor → vale o clique do usuário).
+        # Corte de tokens (Parte 1): só o ramo que chama o R1 é capado. Os skips
+        # acima já foram persistidos de graça pra toda a janela, então o badge
+        # "IA · sem valor" cobre o overflow. Fixtures COM valor além do teto ficam
+        # pra on-demand (têm valor → vale o clique do usuário). O contador roda
+        # SÓ aqui na fase serial → sem race.
         @llm_calls_made ||= 0
         if @llm_calls_made >= @llm_budget
           @logger.call("[ai-reco] orçamento LLM (#{@llm_budget}) atingido — fixture #{row['fixture_id']} fica pra on-demand")
-          return
+          return nil
         end
         @llm_calls_made += 1
 
-        run_ia_for(conn, row, candidates, bet_candidates, league_calibrated)
+        # Prompt é construído na fase serial (PromptBuilder é puro, sem DB) — o
+        # worker da fase 2 só faz a chamada HTTP.
+        prompt = AiReco::PromptBuilder.build(
+          league: row['league'],
+          league_calibrated: league_calibrated,
+          home_team: row['home_team'],
+          away_team: row['away_team'],
+          kickoff_utc: row['kickoff_utc'],
+          referee: extract_referee(row),
+          candidates: bet_candidates,
+          context: build_context(row)
+        )
+
+        { row: row, prompt: prompt, all_candidates: candidates,
+          league_calibrated: league_calibrated }
+      end
+
+      # Fase 2 (paralela): dispara as chamadas R1 num pool limitado de threads.
+      # CADA worker só faz `client.call` (rede pura) — NUNCA toca a conexão
+      # Postgres (escritas ficam nas fases serial 1 e 3). Retorna uma lista de
+      # `[job, result]` na MESMA ordem dos jobs de entrada.
+      def run_llm_jobs_parallel(jobs)
+        return [] if jobs.empty?
+
+        # Caminho serial: 1 worker ou 1 job (determinístico, sem overhead de pool).
+        if @concurrency <= 1 || jobs.length == 1
+          return jobs.map { |job| [job, call_llm_safe(job)] }
+        end
+
+        queue = Queue.new
+        jobs.each_with_index { |job, i| queue << [i, job] }
+        results = Array.new(jobs.length)
+        mutex = Mutex.new
+        workers = [@concurrency, jobs.length].min
+
+        threads = Array.new(workers) do
+          Thread.new do
+            loop do
+              item = begin
+                queue.pop(true)
+              rescue ThreadError
+                nil
+              end
+              break unless item
+
+              idx, job = item
+              r = call_llm_safe(job)
+              mutex.synchronize { results[idx] = [job, r] }
+            end
+          end
+        end
+        threads.each(&:join)
+        results
+      end
+
+      # Chamada R1 isolada (Lição A5): exceção num worker não derruba os demais
+      # nem o batch. `client.call` já trata erros de HTTP/parse internamente
+      # (retorna `ok:false`); `nil` só sai daqui se algo INESPERADO levantar.
+      def call_llm_safe(job)
+        client.call(job[:prompt], model: @model, league_calibrated: job[:league_calibrated])
+      rescue StandardError => e
+        @logger.call("[ai-reco] worker R1 fixture #{job[:row]['fixture_id']} falhou: #{e.class}: #{e.message}")
+        nil
+      end
+
+      def compute_cost(result)
+        AiReco::Pricing.compute_cost_usd(
+          result[:model_returned] || @model,
+          result.dig(:usage, :prompt_tokens) || 0,
+          result.dig(:usage, :completion_tokens) || 0
+        )
       end
 
       # Sanity guard pos-IA: equivalente Ruby ao applySanityGuard de
@@ -273,30 +392,6 @@ module AdamStats
           units_final: 0,
           reduction_reason: 'edge_suspect_high_in_uncalibrated_league'
         )
-      end
-
-      def run_ia_for(conn, row, all_candidates, bet_candidates, league_calibrated)
-        prompt = AiReco::PromptBuilder.build(
-          league: row['league'],
-          league_calibrated: league_calibrated,
-          home_team: row['home_team'],
-          away_team: row['away_team'],
-          kickoff_utc: row['kickoff_utc'],
-          referee: extract_referee(row),
-          candidates: bet_candidates,
-          context: build_context(row)
-        )
-
-        result = client.call(prompt, model: @model, league_calibrated: league_calibrated)
-
-        cost = AiReco::Pricing.compute_cost_usd(
-          result[:model_returned] || @model,
-          result.dig(:usage, :prompt_tokens) || 0,
-          result.dig(:usage, :completion_tokens) || 0
-        )
-
-        log_id = insert_llm_log(conn, row, result, prompt, cost)
-        insert_reco(conn, row, all_candidates, league_calibrated, result, log_id, cost)
       end
 
       def extract_sim(row)
