@@ -1,93 +1,255 @@
 // ============================================================
-// PÁGINA DE PREVIEW / DESCARTÁVEL — conceitos de identidade (frente D).
-// NÃO faz parte do app autenticado: vive fora do route group (dashboard),
-// logo é pública e sem gate de login. Animação 100% CSS (0 KB JS),
-// GPU-only (transform/opacity/filter) e respeita prefers-reduced-motion.
-// Remover (ou trancar atrás de flag) depois que o conceito for escolhido.
+// PÁGINA DE PREVIEW / DESCARTÁVEL — variações de identidade (frente D).
+// NÃO faz parte do app autenticado: vive fora do route group (dashboard)
+// E está em PUBLIC_PATHS do middleware (senão cai no /login).
+// Animação 100% CSS (0 KB JS), GPU-only (transform/opacity/filter),
+// respeita prefers-reduced-motion.
+// Conceito escolhido: "estratos serenos". V1 = a original do 1º preview.
 // Decisões técnicas: docs/pesquisas/identidade-animacao/04-svg-logo-favicon.md
 // ============================================================
 
 import type { Metadata } from "next";
+import type { CSSProperties } from "react";
 
 export const metadata: Metadata = {
-  title: "Abissal — conceitos de identidade",
+  title: "Abissal — variações de identidade",
   robots: { index: false, follow: false },
 };
 
-type Variant = "strata" | "funnel" | "echo";
+type Stroke = "ink" | "depth" | "gradient";
+type Glow = "subtle" | "medium" | "strong";
+type BeaconPos = "below" | "mid";
 
-const LINES: Record<Variant, { y: number; w: number; op: number }[]> = {
-  // estratos serenos — afunilamento suave, quase paralelo (casa com --texture-strata)
-  strata: [
-    { y: 32, w: 64, op: 0.92 },
-    { y: 44, w: 54, op: 0.72 },
-    { y: 56, w: 44, op: 0.54 },
-    { y: 68, w: 34, op: 0.4 },
-  ],
-  // funil — convergência forte pro ponto de luz (direcional, "edge")
-  funnel: [
-    { y: 30, w: 70, op: 0.92 },
-    { y: 44, w: 50, op: 0.72 },
-    { y: 58, w: 32, op: 0.54 },
-    { y: 70, w: 16, op: 0.4 },
-  ],
-  // eco — poucos estratos largos + farol grande emanando anéis (luz protagonista)
-  echo: [
-    { y: 30, w: 66, op: 0.92 },
-    { y: 42, w: 58, op: 0.72 },
-    { y: 54, w: 48, op: 0.54 },
-  ],
+type Variation = {
+  id: string;
+  name: string;
+  count: number;
+  topW: number;
+  botW: number;
+  stroke: Stroke;
+  strokeW: number;
+  beaconR: number;
+  beaconPos: BeaconPos;
+  glow: Glow;
+  pace: string; // ex "2.6s"
+  gc: string; // glow color (hex do farol)
+  gcs: string; // glow soft (rgba externa)
+  original?: boolean;
 };
 
-const BEACON: Record<Variant, { cy: number; r: number }> = {
-  strata: { cy: 82, r: 4 },
-  funnel: { cy: 84, r: 4 },
-  echo: { cy: 72, r: 5.4 },
-};
+const Y_TOP = 26;
+const Y_BOT = 68;
+
+const VARIATIONS: Variation[] = [
+  {
+    id: "v1",
+    name: "Original (no /brand)",
+    count: 4,
+    topW: 64,
+    botW: 34,
+    stroke: "ink",
+    strokeW: 3.2,
+    beaconR: 4,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.6s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+    original: true,
+  },
+  {
+    id: "v2",
+    name: "Raso (3 estratos)",
+    count: 3,
+    topW: 62,
+    botW: 40,
+    stroke: "ink",
+    strokeW: 3.2,
+    beaconR: 4,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.6s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+  },
+  {
+    id: "v3",
+    name: "Profundo (6 estratos)",
+    count: 6,
+    topW: 68,
+    botW: 28,
+    stroke: "ink",
+    strokeW: 3.0,
+    beaconR: 4,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.6s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+  },
+  {
+    id: "v4",
+    name: "Abissal denso (7 finos)",
+    count: 7,
+    topW: 70,
+    botW: 22,
+    stroke: "ink",
+    strokeW: 2.6,
+    beaconR: 3.6,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.8s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+  },
+  {
+    id: "v5",
+    name: "Oceânico (estratos azuis)",
+    count: 4,
+    topW: 64,
+    botW: 34,
+    stroke: "depth",
+    strokeW: 3.2,
+    beaconR: 4.2,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.6s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+  },
+  {
+    id: "v6",
+    name: "Descida (gradiente)",
+    count: 5,
+    topW: 66,
+    botW: 30,
+    stroke: "gradient",
+    strokeW: 3.2,
+    beaconR: 4.2,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.8s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+  },
+  {
+    id: "v7",
+    name: "Farol neon",
+    count: 4,
+    topW: 62,
+    botW: 34,
+    stroke: "ink",
+    strokeW: 3.2,
+    beaconR: 4.6,
+    beaconPos: "below",
+    glow: "strong",
+    pace: "2.2s",
+    gc: "#ff3b3b",
+    gcs: "rgba(255,59,59,.55)",
+  },
+  {
+    id: "v8",
+    name: "Sussurro (glow sutil)",
+    count: 4,
+    topW: 58,
+    botW: 36,
+    stroke: "ink",
+    strokeW: 2.4,
+    beaconR: 3.2,
+    beaconPos: "below",
+    glow: "subtle",
+    pace: "3.0s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.4)",
+  },
+  {
+    id: "v9",
+    name: "Bold (traço grosso)",
+    count: 4,
+    topW: 70,
+    botW: 42,
+    stroke: "ink",
+    strokeW: 4.4,
+    beaconR: 5.4,
+    beaconPos: "below",
+    glow: "medium",
+    pace: "2.4s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.5)",
+  },
+  {
+    id: "v10",
+    name: "Luz no meio",
+    count: 5,
+    topW: 66,
+    botW: 30,
+    stroke: "ink",
+    strokeW: 3.2,
+    beaconR: 4,
+    beaconPos: "mid",
+    glow: "medium",
+    pace: "2.6s",
+    gc: "#d43535",
+    gcs: "rgba(196,43,43,.45)",
+  },
+];
+
+function strataLines(v: Variation) {
+  const n = v.count;
+  return Array.from({ length: n }, (_, i) => {
+    const t = n === 1 ? 0 : i / (n - 1);
+    return {
+      y: Y_TOP + (Y_BOT - Y_TOP) * t,
+      w: v.topW + (v.botW - v.topW) * t,
+      op: 0.95 + (0.34 - 0.95) * t,
+    };
+  });
+}
+
+function strokeColor(v: Variation, size: number) {
+  if (v.stroke === "depth") return "#2272c8";
+  if (v.stroke === "gradient") return `url(#g-${v.id}-${size})`;
+  return "#f8f5ef";
+}
+
+function corLabel(s: Stroke) {
+  return s === "depth" ? "azul-abismo" : s === "gradient" ? "gradiente" : "marfim";
+}
 
 function Mark({
-  variant,
+  v,
   size,
   animated = true,
 }: {
-  variant: Variant;
+  v: Variation;
   size: number;
   animated?: boolean;
 }) {
-  const lines = LINES[variant];
-  const beacon = BEACON[variant];
+  const lines = strataLines(v);
+  const last = lines[lines.length - 1].y;
+  const prev = lines[lines.length - 2]?.y ?? last - 8;
+  const beaconCy = v.beaconPos === "mid" ? (last + prev) / 2 : last + 12;
+  const beaconStyle = {
+    "--gc": v.gc,
+    "--gcs": v.gcs,
+    "--pace": v.pace,
+  } as CSSProperties;
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 100 100"
-      className={`mark${animated ? "" : " static"}`}
+      className={`mark${animated ? "" : " no-anim"}`}
       role="img"
       aria-label="Abissal"
     >
-      {variant === "echo" && animated && (
-        <>
-          <circle
-            className="echo"
-            cx={50}
-            cy={beacon.cy}
-            r={beacon.r}
-            fill="none"
-            stroke="#c42b2b"
-            strokeWidth={2}
-            style={{ animationDelay: "0s" }}
-          />
-          <circle
-            className="echo"
-            cx={50}
-            cy={beacon.cy}
-            r={beacon.r}
-            fill="none"
-            stroke="#c42b2b"
-            strokeWidth={2}
-            style={{ animationDelay: "1.3s" }}
-          />
-        </>
+      {v.stroke === "gradient" && (
+        <defs>
+          <linearGradient id={`g-${v.id}-${size}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f8f5ef" />
+            <stop offset="100%" stopColor="#2272c8" />
+          </linearGradient>
+        </defs>
       )}
       {lines.map((l, i) => (
         <line
@@ -97,46 +259,29 @@ function Mark({
           y1={l.y}
           x2={50 + l.w / 2}
           y2={l.y}
-          stroke="#f8f5ef"
+          stroke={strokeColor(v, size)}
           strokeOpacity={l.op}
-          strokeWidth={3.2}
+          strokeWidth={v.strokeW}
           strokeLinecap="round"
-          style={{ animationDelay: `${0.1 + i * 0.12}s` }}
+          style={{ animationDelay: `${0.1 + i * 0.1}s` }}
         />
       ))}
-      <circle className="beacon" cx={50} cy={beacon.cy} r={beacon.r} fill="#d43535" />
+      <circle
+        className={`beacon glow-${v.glow}`}
+        cx={50}
+        cy={beaconCy}
+        r={v.beaconR}
+        fill={v.gc}
+        style={beaconStyle}
+      />
     </svg>
   );
 }
 
-const CONCEPTS: {
-  variant: Variant;
-  name: string;
-  desc: string;
-  recommended?: boolean;
-}[] = [
-  {
-    variant: "strata",
-    name: "Estratos serenos",
-    desc: "Camadas quase paralelas afunilando devagar — ecoa o --texture-strata do app. Ordenado, editorial.",
-    recommended: true,
-  },
-  {
-    variant: "funnel",
-    name: "Funil / convergência",
-    desc: "Tudo converge agressivamente pro ponto de luz. Direcional, sugere foco e descida ao edge.",
-  },
-  {
-    variant: "echo",
-    name: "Eco / sonar",
-    desc: "Poucos estratos largos e o farol emanando anéis. A luz é protagonista — bioluminescência forte.",
-  },
-];
-
 function Lockup({ size }: { size: number }) {
   return (
     <span className="inline-flex items-center gap-3">
-      <Mark variant="strata" size={size} />
+      <Mark v={VARIATIONS[0]} size={size} />
       <span
         className="wordmark leading-none text-[var(--color-ink-display)]"
         style={{ fontSize: size * 0.62 }}
@@ -154,128 +299,107 @@ function Lockup({ size }: { size: number }) {
 
 const CSS = `
 .mark .strata-line {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: strata-rise .9s cubic-bezier(.16,1,.3,1) backwards;
+  transform-box: fill-box; transform-origin: center;
+  animation: rise .9s cubic-bezier(.16,1,.3,1) backwards;
 }
+@keyframes rise { from{transform:scaleX(0);opacity:0} to{transform:scaleX(1);opacity:1} }
 .mark .beacon {
-  transform-box: fill-box;
-  transform-origin: center;
-  filter: drop-shadow(0 0 3px #c42b2b);
-  animation: beacon-pulse 2.6s ease-in-out 1s infinite;
+  transform-box: fill-box; transform-origin: center;
+  filter: drop-shadow(0 0 3px var(--gc));
 }
-.mark .echo {
-  transform-box: fill-box;
-  transform-origin: center;
-  animation: echo-out 2.6s ease-out infinite;
+.mark .glow-subtle { animation: gs var(--pace,2.6s) ease-in-out 1s infinite; }
+.mark .glow-medium { animation: gm var(--pace,2.6s) ease-in-out 1s infinite; }
+.mark .glow-strong { animation: gst var(--pace,2.6s) ease-in-out 1s infinite; }
+@keyframes gs {
+  0%,100% { transform:scale(1);   filter:drop-shadow(0 0 1.5px var(--gc)); }
+  50%     { transform:scale(1.1); filter:drop-shadow(0 0 3px var(--gc)) drop-shadow(0 0 7px var(--gcs)); }
 }
-.mark.static .strata-line,
-.mark.static .beacon { animation: none; }
-@keyframes strata-rise {
-  from { transform: scaleX(0); opacity: 0; }
-  to   { transform: scaleX(1); opacity: 1; }
+@keyframes gm {
+  0%,100% { transform:scale(1);    filter:drop-shadow(0 0 1px var(--gc)) drop-shadow(0 0 4px var(--gc)); }
+  50%     { transform:scale(1.16); filter:drop-shadow(0 0 2px var(--gc)) drop-shadow(0 0 9px var(--gc)) drop-shadow(0 0 18px var(--gcs)); }
 }
-@keyframes beacon-pulse {
-  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 1px #d43535) drop-shadow(0 0 4px #c42b2b); }
-  50%      { transform: scale(1.16); filter: drop-shadow(0 0 2px #d43535) drop-shadow(0 0 9px #c42b2b) drop-shadow(0 0 18px rgba(196,43,43,.45)); }
+@keyframes gst {
+  0%,100% { transform:scale(1.04); filter:drop-shadow(0 0 2px var(--gc)) drop-shadow(0 0 7px var(--gc)); }
+  50%     { transform:scale(1.22); filter:drop-shadow(0 0 3px var(--gc)) drop-shadow(0 0 15px var(--gc)) drop-shadow(0 0 28px var(--gcs)); }
 }
-@keyframes echo-out {
-  0%   { transform: scale(.5);  opacity: .55; }
-  100% { transform: scale(1.7); opacity: 0; }
-}
+.mark.no-anim .strata-line, .mark.no-anim .beacon { animation: none; }
 @media (prefers-reduced-motion: reduce) {
-  .mark .strata-line, .mark .beacon, .mark .echo { animation: none !important; }
+  .mark .strata-line, .mark .beacon { animation: none !important; }
   .mark .strata-line { opacity: 1; }
-  .mark .echo { opacity: 0; }
+  .mark .beacon { filter: drop-shadow(0 0 4px var(--gc)); }
 }
 .wordmark { font-family: var(--font-fraunces), Georgia, serif; font-weight: 300; letter-spacing: -.02em; }
 .i-wrap { position: relative; }
 .i-dot {
-  position: absolute;
-  left: 50%;
-  top: .02em;
-  width: .15em;
-  height: .15em;
-  transform: translateX(-50%);
-  border-radius: 50%;
-  background: #d43535;
-  filter: drop-shadow(0 0 .05em #c42b2b);
+  position: absolute; left: 50%; top: .02em;
+  width: .15em; height: .15em; transform: translateX(-50%);
+  border-radius: 50%; background: #d43535; filter: drop-shadow(0 0 .05em #c42b2b);
 }
 `;
 
-export default function BrandPreviewPage() {
+export default function BrandVariationsPage() {
   return (
     <>
       <style>{CSS}</style>
-      <main id="main" className="mx-auto max-w-5xl px-6 py-16">
+      <main id="main" className="mx-auto max-w-6xl px-6 py-16">
         <p className="label mb-3 text-[var(--color-ink-muted)]">
           preview descartável · frente D · identidade
         </p>
-        <h1 className="mb-4 text-[clamp(2.5rem,6vw,4.5rem)]">conceitos de logo</h1>
+        <h1 className="mb-4 text-[clamp(2.5rem,6vw,4.5rem)]">estratos serenos · 10 variações</h1>
         <p className="mb-2 max-w-2xl text-[var(--color-ink-muted)]">
-          Direção <strong className="text-[var(--color-ink)]">abismo + bioluminescência</strong>,
-          forma <strong className="text-[var(--color-ink)]">estratos + farol</strong>. Três
-          geometrias da mesma ideia — escolha uma e eu produzo os assets finais. Animação 100% CSS,
-          GPU, respeita <span className="num">prefers-reduced-motion</span>.
+          O conceito escolhido, variado em <strong className="text-[var(--color-ink)]">nº de estratos</strong>,{" "}
+          <strong className="text-[var(--color-ink)]">cor</strong>,{" "}
+          <strong className="text-[var(--color-ink)]">intensidade do glow</strong>, espessura, tamanho/posição do
+          farol e ritmo. Animação 100% CSS, sobre o void real do app.
         </p>
         <p className="mb-12 max-w-2xl text-sm text-[var(--color-ink-faint)]">
-          O fundo é o void real do app (note a textura de estratos horizontais) — o logo nasce dela.
+          <strong className="text-[var(--color-vermelho-hi)]">V1</strong> é a original que estava no /brand. Me diz o
+          número (V1–V10) que mais te pega — dá pra cruzar parâmetros depois (ex: “a V3 com o farol da V7”).
         </p>
 
-        <section className="grid gap-6 sm:grid-cols-3">
-          {CONCEPTS.map((c) => (
+        <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+          {VARIATIONS.map((v, i) => (
             <article
-              key={c.variant}
+              key={v.id}
               className="relative rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-surface-1)] p-6"
             >
-              {c.recommended && (
+              <span className="label absolute left-4 top-4 text-[var(--color-ink-faint)]">
+                V{i + 1}
+              </span>
+              {v.original && (
                 <span className="label absolute right-4 top-4 rounded bg-[var(--color-vermelho)] px-2 py-1 text-[var(--color-ink-display)]">
-                  recomendado
+                  original
                 </span>
               )}
-              <div className="flex h-40 items-center justify-center">
-                <Mark variant={c.variant} size={132} />
+              <div className="flex h-36 items-center justify-center gap-6">
+                <Mark v={v} size={120} />
+                <div className="flex flex-col items-center gap-1">
+                  <Mark v={v} size={32} animated={false} />
+                  <span className="num text-[10px] text-[var(--color-ink-faint)]">32px</span>
+                </div>
               </div>
-              <h2 className="mb-2 mt-2 text-2xl">{c.name}</h2>
-              <p className="mb-5 text-sm text-[var(--color-ink-muted)]">{c.desc}</p>
-
-              <p className="label mb-2 text-[var(--color-ink-faint)]">escala (favicon → header)</p>
-              <div className="flex items-end gap-4 rounded-[var(--radius)] border border-[var(--color-line-subtle)] bg-[var(--color-void)] p-4">
-                {[16, 24, 32, 48].map((s) => (
-                  <div key={s} className="flex flex-col items-center gap-2">
-                    <Mark variant={c.variant} size={s} animated={false} />
-                    <span className="num text-[10px] text-[var(--color-ink-faint)]">{s}px</span>
-                  </div>
-                ))}
-              </div>
+              <h2 className="mb-2 mt-1 text-xl">{v.name}</h2>
+              <p className="num text-xs leading-relaxed text-[var(--color-ink-muted)]">
+                {v.count} estratos · {corLabel(v.stroke)} · glow {v.glow} · traço {v.strokeW} · farol r{v.beaconR}
+                {v.beaconPos === "mid" ? " (no meio)" : ""} · {v.pace}
+              </p>
             </article>
           ))}
         </section>
 
-        {/* Lockup + favicon mock — aplicados ao recomendado */}
         <section className="mt-14 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-surface-1)] p-8">
           <p className="label mb-6 text-[var(--color-ink-faint)]">
-            lockup editorial · Fraunces 300 lowercase · o pingo do “i” é o farol
+            lockup editorial (usando a V1) · Fraunces 300 · o pingo do “i” é o farol
           </p>
-          <div className="flex flex-col gap-10">
-            <Lockup size={84} />
-            <Lockup size={44} />
-            <div className="flex items-center gap-3">
-              <Lockup size={26} />
-            </div>
-          </div>
-
-          <p className="label mb-3 mt-12 text-[var(--color-ink-faint)]">favicon na aba do navegador</p>
-          <div className="inline-flex items-center gap-2 rounded-t-lg border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-2">
-            <Mark variant="strata" size={16} animated={false} />
-            <span className="text-sm text-[var(--color-ink-muted)]">Abissal — gestão de banca</span>
-            <span className="ml-2 text-[var(--color-ink-faint)]">✕</span>
+          <div className="flex flex-col gap-8">
+            <Lockup size={72} />
+            <Lockup size={40} />
           </div>
         </section>
 
         <p className="mt-12 text-sm text-[var(--color-ink-faint)]">
-          Preview descartável. Escolha 1 geometria (ou peça ajustes) e eu produzo favicon,
-          app/icon.svg, versões dark/light + o spec da identidade.
+          Preview descartável. Escolhida a variação (ou o cruzamento), eu produzo favicon, app/icon.svg dark/light,
+          PWA icons + o spec da identidade.
         </p>
       </main>
     </>
