@@ -101,13 +101,17 @@ async function main(): Promise<void> {
         : 0,
   }));
 
-  // Fetch AI recommendations resolved today
+  // Fetch AI recommendations resolved today. Schema real (B19): a coluna de
+  // resolução é `actual_resolved_at` (não `resolved_at`) e o acerto é o booleano
+  // `bet_won` (não existe `outcome`). Só verdict='bet' tem acerto/erro — skips
+  // não entram na acurácia.
   const { data: recosData, error: recosError } = await supabase
     .from("ai_recommendations")
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .select("resolved_at, outcome, side" as any)
-    .gte("resolved_at", window.start)
-    .lte("resolved_at", window.end);
+    .select("actual_resolved_at, bet_won" as any)
+    .eq("verdict", "bet")
+    .gte("actual_resolved_at", window.start)
+    .lte("actual_resolved_at", window.end);
 
   if (recosError) {
     console.error("[telegram-closure] recos query failed:", recosError.message);
@@ -116,8 +120,8 @@ async function main(): Promise<void> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawRecos = (recosData ?? []) as any[];
   const recos = rawRecos.map((r) => ({
-    resolved: r.resolved_at != null,
-    correct: r.outcome === "correct" || r.outcome === "won",
+    resolved: r.actual_resolved_at != null,
+    correct: r.bet_won === true,
   }));
 
   const summary = buildDailySummary({ bets, recos });
