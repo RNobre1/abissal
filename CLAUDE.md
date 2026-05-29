@@ -71,7 +71,8 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 **Hospedagem:**
 - Cloudflare Worker `abissal` (custom domain `abissal.rnobre.dev`) built from Next.js via OpenNext (`@opennextjs/cloudflare`).
 - **GitHub Actions crons** (repo público ⇒ minutos gratuitos):
-  - `scrape-daily.yml` — 10:00 UTC (07:00 BRT). Scrape + simulação + reconcilers + recomendador IA-2. `timeout-minutes: 60` (subiu de 30 em 2026-05-28 — ver Lição B20). Popula Supabase via pooler. `workflow_dispatch` disponível.
+  - `scrape-daily.yml` — 10:00 UTC (07:00 BRT). Scrape + simulação + reconcilers + recompute de baseline. `timeout-minutes: 20` (a IA-2 saiu daqui — ver B20-bis). Popula Supabase via pooler. `workflow_dispatch` disponível.
+  - `ai-reco.yml` — 10:45 UTC (07:45 BRT), ~45min após o scrape. Recomendador IA-2 **desacoplado** (B20-bis): `bin/run_ai_recommender` → `AiRecommenderJob`. Chamadas R1 paralelizadas (`AI_RECO_CONCURRENCY`, default 6). `timeout-minutes: 45`, cron+manual only (sem push — workflow caro de LLM). `workflow_dispatch` disponível.
   - `closing-odds-capture.yml` — 15/17/19/21 UTC. Captura closing odds (CLV) na janela ao redor do KO.
   - `telegram-closure.yml` — 02:00 UTC. Resumo diário no Telegram.
   - `calibracao-monthly.yml` — dia 5, 08:00 UTC. Refita parâmetros por liga (`scripts/calibracao/fit-league-parameters.ts`, ligas com `n≥20`) + calibração isotônica IA (`scripts/calibracao/fit-isotonic.ts`). Manual: `gh workflow run calibracao-monthly.yml -R RNobre1/abissal`. Local: `pnpm exec tsx scripts/calibracao/fit-league-parameters.ts`. Secrets: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; `HEALTHCHECKS_CALIBRATE_URL` opcional.
@@ -91,6 +92,7 @@ OPENROUTER_API_KEY=sk-or-...               # required by /api/analyze e recomend
 OPENROUTER_MODEL=deepseek/deepseek-v3.2    # análise streaming (/api/analyze)
 AI_RECO_MODEL=deepseek/deepseek-r1         # recomendador IA-2 batch (cron noturno)
 AI_RECO_MODEL_ONDEMAND=deepseek/deepseek-r1 # botão "pedir análise IA" em /fixtures/[id]
+AI_RECO_CONCURRENCY=6                       # chamadas R1 concorrentes no batch (cron ai-reco). Vazio ⇒ default 6
 
 # Fixtures source
 ADAMCHOI_API_TOKEN=45834886-68b3-11eb-...  # token público/estático embutido na SPA choistats
@@ -157,7 +159,7 @@ abissal/
 ├── supabase/migrations/                 # 0001-0042 (ver "Data model")
 ├── scripts/
 │   ├── scraper/                         # sub-projeto Ruby 4.0.3 (Gemfile, mise.toml)
-│   │   ├── bin/{scrape, capture_closing_odds, document_choistats_api, reresolve_secondary_markets}
+│   │   ├── bin/{scrape, run_ai_recommender, capture_closing_odds, document_choistats_api, reresolve_secondary_markets}
 │   │   ├── lib/scraper/                 # módulos Ruby (orchestrator, reconcilers, ft_actuals, sim engine…)
 │   │   └── spec/                        # ~565 RSpec examples
 │   ├── calibracao/                      # fit-league-parameters.ts, fit-isotonic.ts (cron mensal)
@@ -167,7 +169,8 @@ abissal/
 └── .github/workflows/
     ├── ci.yml                           # lint + typecheck + tests + next build
     ├── deploy.yml                       # opennextjs-cloudflare build + wrangler deploy
-    ├── scrape-daily.yml                 # cron 10:00 UTC — scrape + sim + reconcilers + IA-2
+    ├── scrape-daily.yml                 # cron 10:00 UTC — scrape + sim + reconcilers + baseline
+    ├── ai-reco.yml                      # cron 10:45 UTC — recomendador IA-2 desacoplado (R1 paralelo)
     ├── closing-odds-capture.yml         # cron 15/17/19/21 UTC — CLV
     ├── telegram-closure.yml             # cron 02:00 UTC — resumo
     └── calibracao-monthly.yml           # cron dia 5 08:00 UTC
@@ -208,6 +211,7 @@ bundle install
 bundle exec rspec                # ~565 examples
 bundle exec bin/scrape           # one-off scrape (env DATABASE_URL required)
 bundle exec bin/capture_closing_odds        # captura closing odds (CLV)
+bundle exec bin/run_ai_recommender          # recomendador IA-2 desacoplado (cron ai-reco; ver B20-bis)
 bundle exec bin/reresolve_secondary_markets # re-resolve corners/cards/sot (ver B19)
 bundle exec bin/document_choistats_api      # regenera docs/external-apis/choistats/
 
@@ -309,6 +313,8 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 
 8. **ADR-008 — Mercados secundários (corners, cards, SOT)** — _2026-05-26_ — ACCEPTED. Extensão do edge-calculator e da calibração pra mercados além de 1x2/over/btts. Deep dive em `docs/adrs/008-mercados-secundarios.md`. Os *actuals* desses mercados são reconciliados via choistats (ver B19), não via fonte externa.
 
+10. **ADR-010 — Recomendador IA-2 desacoplado do scrape + chamadas R1 paralelizadas** — _2026-05-29_ — ACCEPTED. A IA-2 rodava inline no `orchestrator.rb` (fim do `scrape-daily`); a inferência R1 (~p95 195s/chamada, serial) inflava o runtime e estourava o `timeout-minutes` do scrape (cancelado aos 60min em 29/05 — ver B20-bis), truncando a coleta **e** a própria cobertura de skip da Parte 1 (a cauda de skips rápidos roda após as chamadas R1, que morriam no timeout). Decisão em duas alavancas complementares: **(A) paralelizar** as chamadas R1 dentro do `AiRecommenderRunner` num pool limitado (`Thread`+`Queue` stdlib, `AI_RECO_CONCURRENCY` default 6) — refatorado em 3 fases (edge-calc+skip **serial** → fan-out R1 **paralelo, só rede** → gravação **serial**), mantendo a `PG::Connection` (não thread-safe) single-threaded o tempo todo; ~50min → ~10-15min. **(B) desacoplar** a IA-2 num job standalone (`AiRecommenderJob` = runner + silent-death detector + ciclo de healthcheck próprio) rodado por `bin/run_ai_recommender` no workflow dedicado `ai-reco.yml` (cron 10:45 UTC, ~45min após o scrape; `timeout-minutes: 45`, cron/manual-only). O `scrape-daily` perde a IA-2 e cai pra `timeout: 20min` (coleta pura ~10-15min). **Por que ambas:** A deixa cada rodada rápida; B garante que um dia ruim de R1 jamais derrube a coleta. **Hibernação:** A é perf (mesmo modelo/prompt/threshold/nº de chamadas — só o agendamento muda), B é infra pura — ambas permitidas. TDD: 4 specs de paralelização no runner + `ai_recommender_job_spec` (9 ex.) absorvendo a invocação/silent-death que saíram do `orchestrator_spec`. Workflow segue o checklist `optimizing-github-actions`. Commits `31fc71d` (A) + `05b06ac` (B). **Pendência operacional:** GH var `AI_RECO_CONCURRENCY` (opcional, default 6 no código); o cron `ai-reco.yml` precisa das mesmas secrets/vars de LLM que saíram do `scrape-daily` (já existentes: `OPENROUTER_API_KEY`, `AI_RECO_MODEL`, etc.).
+
 9. **ADR-009 — Reconciler de actuals via API-Football** — _2026-05-26 REVERTED · 2026-05-28 REMOVED_ — Tentativa de buscar resultados FT (corners/cards/SOT) na API-Football. Revertida porque o free tier não cobre seasons 2025+; **removida por completo em 2026-05-28** (código, docs, workflow `api-football-snapshot`, GH secrets, key rotacionada — a chave havia vazado no histórico público). Substituída pela extração via choistats `recent_results` (B19). A migration `0036` e a tabela `actuals_fixture_mapping` permanecem como dead schema benigno (não removidas — migrations são append-only).
 
 ## Lessons learned
@@ -366,6 +372,8 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 - **B16 — 2026-05-21 — Reconciler é OBRIGATÓRIO no pipeline, não é opcional.** O `SimulationReconciler` foi criado com specs verdes mas NUNCA cabeado no `orchestrator.rb` (só o `PredictionReconciler` estava). Resultado: 665 simulações ficaram `pending` por dias, bloqueando toda calibração downstream (F4/F8/F13/F14). Fix em `009b1b4`: adicionado bloco `begin/rescue` chamando `SimulationReconciler.new(logger:).run` logo após o PredictionReconciler. **Regra:** ao criar um novo `*Reconciler`, SEMPRE adicionar ao pipeline diário no mesmo PR. Spec do orchestrator deve cobrir a invocação (e o rescue não-fatal). Lição secundária: WebMock `NetConnectNotAllowedError < Exception` (não `StandardError`) vaza dos `rescue StandardError` do reconciler — considerar `rescue Exception` em testes de pipeline ou stubar reconciler globalmente em specs de integração.
 
 - **B20 — 2026-05-28 — `scrape-daily` estourou o `timeout-minutes: 30` por 3 dias seguidos (26-28/05); o pipeline pós-persist inflou o runtime.** Os runs apareciam como `cancelled` em ~30min com a annotation `The job has exceeded the maximum execution time of 30m0s`. O scrape em si era ~5min pra ~564 fixtures (A6), mas o pipeline pós-persist cresceu muito: simulação Monte Carlo + reconcilers (Prediction/Simulation/AiRecommendation) + recompute de baselines + **recomendador IA-2 chamando OpenRouter R1 (p95 ~195s por fixture com edge)** no fim. Fix imediato: `timeout-minutes` 30→60 (commit `eb4818d`). **Nota:** o fix entrou às 14:17 UTC, *depois* do scrape de 28/05 (10:00 UTC) — o primeiro run a rodar com 60min é o de 2026-05-29. **Regra:** ao adicionar etapas pesadas (especialmente chamadas LLM) ao orchestrator, reavaliar o `timeout-minutes` do workflow no mesmo PR. Se 60min apertar, mover o recomendador IA-2 pra um workflow separado do scrape (desacoplar o hot path de coleta da inferência LLM).
+
+- **B20-bis — 2026-05-29 — o scrape estourou os 60min no 1º run com o cap novo; a IA-2 era serial e nunca terminava. Resolvido com paralelização (A) + desacoplamento (B).** O run de 29/05 (1º com `timeout-minutes: 60`) foi `cancelled` aos 60.3min — confirmando que o problema do B20 era **estrutural**, não de tuning: a IA-2 chamava o R1 em **série** (`fixtures.each` → `client.call` bloqueante ~60-90s), então mesmo 60min não bastava (processou 111 de ~340 sims antes de morrer). Pior: a "cauda" de skips rápidos da Parte 1 (skip-coverage) roda **depois** das chamadas R1 — e o job morria *durante* as chamadas, então o overflow ficava sem o badge "IA · sem valor". **Fix (ADR-010), duas camadas:** (A) paralelizar as chamadas R1 num pool limitado (`Thread`+`Queue`, `AI_RECO_CONCURRENCY=6`) — refatorando o runner em 3 fases (edge-calc+skip **serial** → R1 **paralelo só-rede** → gravação **serial**) pra manter a `PG::Connection` single-threaded (ela **não é thread-safe** — a regra de ouro aqui); ~50min → ~10-15min. (B) desacoplar a IA-2 num workflow próprio (`ai-reco.yml` + `bin/run_ai_recommender` + `AiRecommenderJob`), cron 10:45 UTC, pra que um dia ruim de R1 nunca derrube a coleta; `scrape-daily` cai pra `timeout: 20min`. **Regras:** (1) pipeline dominado por I/O lento (LLM, HTTP) → paralelizar a I/O, **nunca** o acesso ao DB (fan-out só na rede, escritas em fase serial); (2) bumpar `timeout-minutes` é band-aid se a etapa é serial-bound — a correção é concorrência ou desacoplamento; (3) feature cujo efeito visível depende de uma "cauda" do pipeline (ex: skips após as chamadas LLM) só entrega se o pipeline **terminar** — medir o run inteiro, não só a fase principal.
 
 ---
 
