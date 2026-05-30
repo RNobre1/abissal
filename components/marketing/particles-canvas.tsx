@@ -56,25 +56,25 @@ function hexToHsl(hex: string): [number, number, number] {
   return [h, s, l];
 }
 
-const [BASE_H, BASE_S, BASE_L] = hexToHsl(BASE_COLOR_HEX);
+const [BASE_H] = hexToHsl(BASE_COLOR_HEX);
 
 function makeParticle(width: number, height: number, randomY = false): Particle {
   return {
     x: Math.random() * width,
     y: randomY ? Math.random() * height : height + Math.random() * 40,
-    radius: 1 + Math.random() * 2,          // 1–3 px
-    speed: 0.3 + Math.random() * 0.5,       // sobe lentamente
+    radius: 1.2 + Math.random() * 2.8,      // 1.2–4 px
+    speed: 0.3 + Math.random() * 0.55,      // sobe lentamente
     drift: 20 + Math.random() * 30,
     phase: Math.random() * Math.PI * 2,
     phaseSpeed: 0.005 + Math.random() * 0.01,
-    opacity: 0.1 + Math.random() * 0.6,
+    opacity: 0.3 + Math.random() * 0.5,
     opacityDir: Math.random() < 0.5 ? 1 : -1,
     opacitySpeed: 0.003 + Math.random() * 0.007,
     hue: BASE_H + (Math.random() - 0.5) * 30, // ±15° em torno do vermelho
   };
 }
 
-export function ParticlesCanvas({ className, density = 50 }: ParticlesCanvasProps) {
+export function ParticlesCanvas({ className, density = 64 }: ParticlesCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
   useEffect(() => {
@@ -123,9 +123,9 @@ export function ParticlesCanvas({ className, density = 50 }: ParticlesCanvasProp
       for (const p of particles) {
         ctx.save();
         ctx.globalAlpha = p.opacity;
-        ctx.shadowBlur = p.radius * 8;
-        ctx.shadowColor = `hsl(${p.hue},${Math.round(BASE_S * 100)}%,${Math.round(BASE_L * 100)}%)`;
-        ctx.fillStyle = `hsl(${p.hue},${Math.round(BASE_S * 100)}%,${Math.round(BASE_L * 100)}%)`;
+        ctx.shadowBlur = p.radius * 10;
+        ctx.shadowColor = `hsl(${p.hue}, 82%, 56%)`;
+        ctx.fillStyle = `hsl(${p.hue}, 80%, 68%)`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();
@@ -161,15 +161,15 @@ export function ParticlesCanvas({ className, density = 50 }: ParticlesCanvasProp
 
         // pulso de opacidade
         p.opacity += p.opacitySpeed * p.opacityDir;
-        if (p.opacity >= 0.85) { p.opacity = 0.85; p.opacityDir = -1; }
-        if (p.opacity <= 0.05) { p.opacity = 0.05; p.opacityDir = 1; }
+        if (p.opacity >= 0.95) { p.opacity = 0.95; p.opacityDir = -1; }
+        if (p.opacity <= 0.2) { p.opacity = 0.2; p.opacityDir = 1; }
 
         // desenhar
         ctx.save();
         ctx.globalAlpha = p.opacity;
-        ctx.shadowBlur = p.radius * 8;
-        ctx.shadowColor = `hsl(${p.hue},${Math.round(BASE_S * 100)}%,${Math.round(BASE_L * 100)}%)`;
-        ctx.fillStyle = `hsl(${p.hue},${Math.round(BASE_S * 100)}%,${Math.round(BASE_L * 100)}%)`;
+        ctx.shadowBlur = p.radius * 10;
+        ctx.shadowColor = `hsl(${p.hue}, 82%, 56%)`;
+        ctx.fillStyle = `hsl(${p.hue}, 80%, 68%)`;
         ctx.beginPath();
         ctx.arc(p.x, p.y, p.radius, 0, Math.PI * 2);
         ctx.fill();

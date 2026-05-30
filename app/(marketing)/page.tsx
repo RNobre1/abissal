@@ -36,15 +36,16 @@ const sceneSize = {
 export default function LandingPage() {
   return (
     <>
-      {/* Fundo ambiente fixo (atrás de tudo). Decorativo. */}
-      <AbyssShader className="fixed inset-0 z-[-30]" />
-      <ParticlesCanvas className="fixed inset-0 z-[-20]" />
+      {/* Fundo ambiente fixo. z positivos baixos: z negativo ficaria ATRÁS do
+          background opaco do <body> (ordem de pintura CSS). Conteúdo em z-10. */}
+      <AbyssShader className="fixed inset-0 z-0" />
+      <ParticlesCanvas className="fixed inset-0 z-[1]" />
       <div
         aria-hidden
-        className="landing-darken pointer-events-none fixed inset-0 z-[-10] bg-black"
+        className="landing-darken pointer-events-none fixed inset-0 z-[2] bg-black"
       />
 
-      <main id="main" className="relative">
+      <main id="main" className="relative z-10">
         {/* Cena 0 — superfície / hero */}
         <section className="flex min-h-[100svh] flex-col items-center justify-center gap-8 px-6 text-center">
           <AbissalMark size={132} title="Abissal" />
