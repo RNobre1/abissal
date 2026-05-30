@@ -1,5 +1,5 @@
 /* ============================================================
-   Landing pré-login — animações de scroll (frente E · F3)
+   Landing pré-login — animações de scroll (frente E · F3 + W3)
    CSS scroll-driven nativo (animation-timeline), 0 KB de JS.
    Progressive enhancement: sem suporte ou com prefers-reduced-motion,
    o conteúdo aparece estático e legível (fallback = estado final).
@@ -8,13 +8,25 @@
 /* Estado base = estado FINAL (visível). Só animamos quando há suporte
    e o usuário não pediu menos movimento — assim o fallback é seguro. */
 .landing-reveal,
-.landing-rise {
+.landing-rise,
+.landing-word {
   opacity: 1;
   transform: none;
+  filter: none;
+}
+
+.landing-word {
+  display: inline-block;
+  white-space: pre;
 }
 
 /* Overlay de "descida": escurece conforme a página rola (o fundo é fixo). */
 .landing-darken {
+  opacity: 0;
+}
+
+/* Marcadores de profundidade (HUD da descida) — fade in/out por cena. */
+.landing-depth {
   opacity: 0;
 }
 
@@ -23,12 +35,19 @@
     .landing-reveal {
       animation: landing-reveal-kf linear both;
       animation-timeline: view();
-      animation-range: entry 5% cover 38%;
+      animation-range: entry 8% cover 42%;
     }
     .landing-rise {
       animation: landing-rise-kf linear both;
       animation-timeline: view();
-      animation-range: entry 0% cover 45%;
+      animation-range: entry 0% cover 48%;
+    }
+    /* Cada palavra emerge da água em cadeia (stagger via --i no range). */
+    .landing-word {
+      animation: landing-word-kf linear both;
+      animation-timeline: view();
+      animation-range: entry calc(4% + var(--i, 0) * 4%)
+        entry calc(46% + var(--i, 0) * 4%);
     }
     .landing-hero-fade {
       animation: landing-hero-kf linear both;
@@ -38,20 +57,28 @@
     .landing-scroll-hint {
       animation: landing-hint-kf linear both;
       animation-timeline: scroll(root);
-      animation-range: 0 12svh;
+      animation-range: 0 10svh;
     }
     .landing-darken {
       animation: landing-darken-kf linear both;
       animation-timeline: scroll(root);
       animation-range: 0% 100%;
     }
+    .landing-depth {
+      animation: landing-depth-kf linear both;
+      animation-timeline: view();
+      animation-range: entry 30% exit 70%;
+    }
   }
 }
 
+/* timing-function dentro do keyframe = curva da interpolação do range
+   (expo-out: rápido no começo do range, assenta no fim — menos robótico). */
 @keyframes landing-reveal-kf {
   from {
     opacity: 0;
-    transform: translateY(48px);
+    transform: translateY(40px);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
   to {
     opacity: 1;
@@ -62,11 +89,26 @@
 @keyframes landing-rise-kf {
   from {
     opacity: 0;
-    transform: translateY(72px) scale(0.96);
+    transform: translateY(64px) scale(0.965);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes landing-word-kf {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+    filter: blur(5px);
+    animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+    filter: blur(0);
   }
 }
 
@@ -90,11 +132,28 @@
   }
 }
 
+/* Para de apagar o farol no clímax: teto menor (0.4) e desacelera no fim. */
 @keyframes landing-darken-kf {
-  from {
+  0% {
     opacity: 0;
   }
-  to {
-    opacity: 0.55;
+  60% {
+    opacity: 0.32;
+  }
+  100% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes landing-depth-kf {
+  0% {
+    opacity: 0;
+  }
+  25%,
+  75% {
+    opacity: 0.5;
+  }
+  100% {
+    opacity: 0;
   }
 }

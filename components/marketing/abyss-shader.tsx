@@ -82,12 +82,14 @@ const FRAGMENT = /* glsl */ `
     float n1 = fbm(p1);
     float n2 = fbm(p2 + n1 * 0.6);
     float caustic = n2 * 0.5 + 0.5;
-    float causticStrength = 0.10 * (1.0 - y * 0.45);
+    // curva de campânula: caustics concentram no terço médio (zona de penetração da luz)
+    float causticStrength = 0.13 * smoothstep(0.0, 0.35, y) * (1.0 - smoothstep(0.6, 1.0, y));
     base += causticStrength * (caustic - 0.5);
     base += vec3(0.02, 0.05, 0.08) * max(caustic - 0.62, 0.0) * (1.0 - y * 0.6);
 
     // farol distante pulsante na base central
-    float pulse = 0.55 + 0.45 * sin(u_time * 0.785);
+    // dois harmônicos desfasados → batimento orgânico (não-metronômico)
+    float pulse = 0.55 + 0.38 * sin(u_time * 0.785) + 0.07 * sin(u_time * 2.31 + 1.3);
     float cx = mix(0.5, u_mouse.x, 0.12); // o farol se inclina sutilmente p/ o cursor
     float cy = 0.90;
     float dx = (uv.x - cx) * (u_resolution.x / u_resolution.y);
@@ -95,13 +97,23 @@ const FRAGMENT = /* glsl */ `
     float dist2 = dx * dx + dy * dy;
     float glow = pulse * 0.5 / (dist2 * 16.0 + 0.14);
     glow = clamp(glow, 0.0, 0.42);
-    base += colorRed * glow;
+    // light cone / god-ray vertical — a luz sobe pela coluna d'água
+    float coneAngle = atan(dx, -dy);
+    float cone = smoothstep(0.6, 0.0, abs(coneAngle));
+    glow *= (cone * 0.5 + 0.5);
+    float shaft = cone * max(0.0, 1.0 - abs(dy) * 2.2) * 0.05 * pulse;
+    base += colorRed * (glow + shaft);
 
     // aura bioluminescente do cursor — o usuário ilumina o abismo
     vec2 asp = vec2(u_resolution.x / u_resolution.y, 1.0);
     float mdist = distance(uv * asp, u_mouse * asp);
     float aura = clamp(0.075 / (mdist * mdist * 15.0 + 0.035), 0.0, 0.40);
     base += vec3(0.58, 0.17, 0.19) * aura;
+
+    // vinheta (foca o olho no centro) + grão (materialidade, evita banding)
+    float vig = 1.0 - smoothstep(0.5, 1.1, length((v_uv - 0.5) * vec2(1.0, 0.85)));
+    base *= mix(0.66, 1.0, vig);
+    base += (hash(v_uv * 841.0 + u_time * 0.017) - 0.5) * 0.018;
 
     gl_FragColor = vec4(clamp(base, 0.0, 1.0), 1.0);
   }
