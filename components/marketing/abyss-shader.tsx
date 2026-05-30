@@ -115,6 +115,19 @@ function webglAvailable(): boolean {
   }
 }
 
+function weakDevice(): boolean {
+  if (typeof navigator === "undefined") return false;
+  const nav = navigator as Navigator & {
+    deviceMemory?: number;
+    connection?: { saveData?: boolean };
+  };
+  return (
+    (nav.hardwareConcurrency ?? 8) <= 4 ||
+    (nav.deviceMemory ?? 8) <= 4 ||
+    nav.connection?.saveData === true
+  );
+}
+
 const FALLBACK_BG = [
   "radial-gradient(ellipse 60% 24% at 50% 100%, rgba(196,43,43,0.20) 0%, transparent 70%)",
   "linear-gradient(to bottom, #0a1018 0%, #050507 100%)",
@@ -127,10 +140,11 @@ export function AbyssShader({ className }: AbyssShaderProps) {
     const container = containerRef.current;
     if (!container) return;
 
-    // Decisão SÓ no cliente — markup SSR/cliente idêntico (sem mismatch).
-    if (prefersReducedMotion() || !webglAvailable()) {
-      container.style.background = FALLBACK_BG;
-      return;
+    // Markup SSR/cliente idêntico (sem mismatch). O fallback CSS já vem no style
+    // inline do <div> (pintado no SSR → sem flash de preto). Aqui só decidimos se
+    // vale subir o WebGL por cima.
+    if (prefersReducedMotion() || !webglAvailable() || weakDevice()) {
+      return; // permanece no fallback CSS já presente
     }
 
     let rafId = 0;
@@ -140,7 +154,7 @@ export function AbyssShader({ className }: AbyssShaderProps) {
     let destroyed = false;
     const teardownRef = { current: () => {} };
 
-    void (async () => {
+    const boot = async () => {
       const { Renderer, Triangle, Program, Mesh } = await import("ogl");
       if (destroyed) return;
 
@@ -215,15 +229,28 @@ export function AbyssShader({ className }: AbyssShaderProps) {
         ext?.loseContext();
         canvas.remove();
       };
-    })();
+    };
+
+    // Adia o WebGL pra depois do paint do hero (protege LCP/INP — Igloo SOTY).
+    const idleId =
+      typeof requestIdleCallback !== "undefined"
+        ? requestIdleCallback(() => void boot(), { timeout: 800 })
+        : (setTimeout(() => void boot(), 200) as unknown as number);
 
     return () => {
       destroyed = true;
+      if (typeof cancelIdleCallback !== "undefined") cancelIdleCallback(idleId);
+      else clearTimeout(idleId);
       teardownRef.current();
     };
   }, []);
 
   return (
-    <div ref={containerRef} aria-hidden className={cn("pointer-events-none", className)} />
+    <div
+      ref={containerRef}
+      aria-hidden
+      className={cn("pointer-events-none", className)}
+      style={{ background: FALLBACK_BG }}
+    />
   );
 }

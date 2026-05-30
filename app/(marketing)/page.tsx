@@ -55,9 +55,12 @@ export default function LandingPage() {
           <p className="landing-reveal max-w-md text-lg text-[var(--color-ink-muted)]">
             A maioria aposta no escuro.
           </p>
+          <p className="landing-reveal label text-[var(--color-ink-faint)]">
+            gestão de banca · análise pré-jogo de futebol
+          </p>
           <Link
             href="/login"
-            className="landing-reveal rounded-[var(--radius)] border border-[var(--color-line-strong)] px-6 py-3 text-[var(--color-ink-display)] backdrop-blur-sm transition-colors hover:border-[var(--color-vermelho)] hover:bg-[var(--color-vermelho)]/10"
+            className="landing-reveal rounded-[var(--radius)] bg-[var(--color-vermelho)] px-8 py-3.5 text-[var(--color-ink-display)] transition-colors hover:bg-[var(--color-vermelho-hi)]"
           >
             entrar
           </Link>

@@ -108,7 +108,20 @@ export function ParticlesCanvas({ className, density = 64 }: ParticlesCanvasProp
     // ── partículas ───────────────────────────────────────────────────────────
     const isMobile =
       typeof window !== "undefined" && window.innerWidth < 640;
-    const count = Math.round(density * (isMobile ? 0.5 : 1));
+    // Degrada por device fraco / data-saver (não só por largura de tela).
+    const nav =
+      typeof navigator !== "undefined"
+        ? (navigator as Navigator & {
+            deviceMemory?: number;
+            connection?: { saveData?: boolean };
+          })
+        : undefined;
+    const weakDevice =
+      (nav?.hardwareConcurrency ?? 8) <= 4 ||
+      (nav?.deviceMemory ?? 8) <= 4 ||
+      nav?.connection?.saveData === true;
+    const factor = weakDevice ? 0.35 : isMobile ? 0.5 : 1;
+    const count = Math.round(density * factor);
     const cw = () => canvas.width / dpr;
     const ch = () => canvas.height / dpr;
 
@@ -123,7 +136,7 @@ export function ParticlesCanvas({ className, density = 64 }: ParticlesCanvasProp
       for (const p of particles) {
         ctx.save();
         ctx.globalAlpha = p.opacity;
-        ctx.shadowBlur = p.radius * 10;
+        ctx.shadowBlur = p.radius * 6;
         ctx.shadowColor = `hsl(${p.hue}, 82%, 56%)`;
         ctx.fillStyle = `hsl(${p.hue}, 80%, 68%)`;
         ctx.beginPath();
@@ -138,12 +151,17 @@ export function ParticlesCanvas({ className, density = 64 }: ParticlesCanvasProp
       return;
     }
 
-    // ── loop animado ─────────────────────────────────────────────────────────
+    // ── loop animado (cap ~30fps — bateria/GPU) ──────────────────────────────
     let rafId = 0;
     let running = false;
+    const TARGET_INTERVAL = 1000 / 30;
+    let lastTime = 0;
 
-    function tick() {
+    function tick(now: number) {
       if (!running || !ctx || !canvas) return;
+      rafId = requestAnimationFrame(tick);
+      if (now - lastTime < TARGET_INTERVAL) return;
+      lastTime = now;
 
       ctx.clearRect(0, 0, cw(), ch());
 
@@ -167,7 +185,7 @@ export function ParticlesCanvas({ className, density = 64 }: ParticlesCanvasProp
         // desenhar
         ctx.save();
         ctx.globalAlpha = p.opacity;
-        ctx.shadowBlur = p.radius * 10;
+        ctx.shadowBlur = p.radius * 6;
         ctx.shadowColor = `hsl(${p.hue}, 82%, 56%)`;
         ctx.fillStyle = `hsl(${p.hue}, 80%, 68%)`;
         ctx.beginPath();
@@ -175,8 +193,6 @@ export function ParticlesCanvas({ className, density = 64 }: ParticlesCanvasProp
         ctx.fill();
         ctx.restore();
       }
-
-      rafId = requestAnimationFrame(tick);
     }
 
     function start() {
