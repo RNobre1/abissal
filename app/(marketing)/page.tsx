@@ -60,7 +60,7 @@ const SCENES: { text: string; depth: string; minH: string }[] = [
     minH: "85svh",
   },
   {
-    text: "Abaixo de certa profundidade, a luz do sol não chega. A maioria afunda.",
+    text: "A luz do sol tem limite. Mais fundo que isso, a maioria afunda.",
     depth: "1 000 m",
     minH: "85svh",
   },
@@ -103,7 +103,7 @@ export default function LandingPage() {
             entrar
           </Link>
           <span className="landing-scroll-hint label mt-8 animate-pulse text-[var(--color-ink-faint)]">
-            ↓ role para descer
+            ↓ desça
           </span>
         </section>
 
@@ -133,20 +133,27 @@ export default function LandingPage() {
           </p>
         </section>
 
-        {/* Cena 5 — convite */}
-        <section className="flex min-h-[100svh] flex-col items-center justify-center gap-8 px-6 text-center">
+        {/* Cena 5 — convite (respirada: sem repetir o wordmark; o mantra fecha) */}
+        <section className="flex min-h-[100svh] flex-col items-center justify-center gap-6 px-6 text-center">
           <AbissalMark size={96} title="Abissal" className="landing-reveal" />
-          <h2 className="landing-reveal lowercase" style={{ fontSize: "clamp(2.5rem,7vw,4.5rem)" }}>
-            abissal
-          </h2>
+          <p
+            className="landing-reveal font-[family-name:var(--font-display)] font-light text-[var(--color-ink-display)]"
+            style={{ fontSize: "clamp(1.75rem,5vw,3rem)", letterSpacing: "-0.02em" }}
+          >
+            Aposte com luz própria.
+          </p>
           <Link
             href="/login"
-            className="landing-reveal rounded-[var(--radius)] bg-[var(--color-vermelho)] px-8 py-3.5 text-[var(--color-ink-display)] transition-colors hover:bg-[var(--color-vermelho-hi)]"
+            className="landing-reveal mt-1 rounded-[var(--radius)] bg-[var(--color-vermelho)] px-8 py-3.5 text-[var(--color-ink-display)] transition-colors hover:bg-[var(--color-vermelho-hi)]"
           >
             entrar
           </Link>
-          <p className="landing-reveal label text-[var(--color-ink-faint)]">
-            gestão de banca · análise pré-jogo
+          <p className="landing-reveal label mt-2 text-[var(--color-ink-faint)]">
+            monte carlo · dixon-coles · clv
+          </p>
+          <p className="landing-reveal max-w-sm text-xs leading-relaxed text-[var(--color-ink-faint)]">
+            edge não é garantia — a variância vence no curto prazo. é por isso que
+            existe disciplina.
           </p>
         </section>
       </main>
