@@ -36,6 +36,7 @@ const FRAGMENT = /* glsl */ `
 
   uniform float u_time;
   uniform vec2  u_resolution;
+  uniform vec2  u_mouse;
   varying vec2  v_uv;
 
   float hash(vec2 p) {
@@ -87,7 +88,7 @@ const FRAGMENT = /* glsl */ `
 
     // farol distante pulsante na base central
     float pulse = 0.55 + 0.45 * sin(u_time * 0.785);
-    float cx = 0.5;
+    float cx = mix(0.5, u_mouse.x, 0.12); // o farol se inclina sutilmente p/ o cursor
     float cy = 0.90;
     float dx = (uv.x - cx) * (u_resolution.x / u_resolution.y);
     float dy = (1.0 - uv.y) - cy;
@@ -95,6 +96,12 @@ const FRAGMENT = /* glsl */ `
     float glow = pulse * 0.5 / (dist2 * 16.0 + 0.14);
     glow = clamp(glow, 0.0, 0.42);
     base += colorRed * glow;
+
+    // aura bioluminescente do cursor — o usuário ilumina o abismo
+    vec2 asp = vec2(u_resolution.x / u_resolution.y, 1.0);
+    float mdist = distance(uv * asp, u_mouse * asp);
+    float aura = clamp(0.075 / (mdist * mdist * 15.0 + 0.035), 0.0, 0.40);
+    base += vec3(0.58, 0.17, 0.19) * aura;
 
     gl_FragColor = vec4(clamp(base, 0.0, 1.0), 1.0);
   }
@@ -177,6 +184,7 @@ export function AbyssShader({ className }: AbyssShaderProps) {
         u_resolution: {
           value: [gl.canvas.width, gl.canvas.height] as [number, number],
         },
+        u_mouse: { value: [0.5, 0.5] as [number, number] },
       };
       const program = new Program(gl, { vertex: VERTEX, fragment: FRAGMENT, uniforms });
       const mesh = new Mesh(gl, { geometry, program });
@@ -191,6 +199,18 @@ export function AbyssShader({ className }: AbyssShaderProps) {
       resizeHandler = resize;
       window.addEventListener("resize", resize);
 
+      // cursor: o usuário ilumina o abismo (desativado em touch)
+      const mouse = { x: 0.5, y: 0.5, tx: 0.5, ty: 0.5 };
+      const coarse = window.matchMedia("(pointer: coarse)").matches;
+      let pointerHandler: ((e: PointerEvent) => void) | null = null;
+      if (!coarse) {
+        pointerHandler = (e: PointerEvent) => {
+          mouse.tx = e.clientX / window.innerWidth;
+          mouse.ty = 1 - e.clientY / window.innerHeight;
+        };
+        window.addEventListener("pointermove", pointerHandler, { passive: true });
+      }
+
       const TARGET_INTERVAL = 1000 / 33;
       let lastTime = 0;
       function tick(now: number) {
@@ -200,6 +220,9 @@ export function AbyssShader({ className }: AbyssShaderProps) {
         if (delta < TARGET_INTERVAL) return;
         lastTime = now - (delta % TARGET_INTERVAL);
         uniforms.u_time.value = now * 0.001;
+        mouse.x += (mouse.tx - mouse.x) * 0.06;
+        mouse.y += (mouse.ty - mouse.y) * 0.06;
+        uniforms.u_mouse.value = [mouse.x, mouse.y];
         renderer.render({ scene: mesh });
       }
       function start() {
@@ -225,6 +248,7 @@ export function AbyssShader({ className }: AbyssShaderProps) {
         stop();
         observer?.disconnect();
         if (resizeHandler) window.removeEventListener("resize", resizeHandler);
+        if (pointerHandler) window.removeEventListener("pointermove", pointerHandler);
         const ext = gl.getExtension("WEBGL_lose_context");
         ext?.loseContext();
         canvas.remove();
