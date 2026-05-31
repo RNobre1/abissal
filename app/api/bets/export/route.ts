@@ -24,7 +24,9 @@ import { buildBetsCsv, type BetCsvRow } from "@/lib/bets/csv-export";
  * Auth: requires valid Supabase session.
  */
 
-export const runtime = "edge";
+// NB: NÃO declarar `runtime = "edge"` — o OpenNext/Cloudflare roda tudo no
+// Worker em runtime Node.js, e `runtime="edge"` é incompatível (retornava 500
+// em prod, mesmo deslogado, antes de chegar no auth gate). Ver Lição B22.
 export const maxDuration = 30;
 
 // Loose any for supabase (no generated types for all views yet)
@@ -51,9 +53,8 @@ function resolveStatusValues(
 export async function GET(request: Request): Promise<Response> {
   const supabase = (await createClient()) as AnySupabase;
 
-  // Auth gate. NB: esta rota é `runtime = "edge"` e o `getClaims()` é
-  // incompatível com o edge runtime do OpenNext (retorna 500) — então aqui
-  // mantemos `getUser()`, que funciona. Ver Lição B22.
+  // Auth gate via getUser() — endpoint de download pontual (não é hot-path de
+  // navegação), então a validação server-side completa é aceitável aqui.
   const { data: { user } = { user: null } } = await supabase.auth.getUser();
   if (!user?.id) {
     return new Response(JSON.stringify({ error: "sessão expirada" }), {

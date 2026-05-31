@@ -1,11 +1,11 @@
 /**
  * Tests for GET /api/bets/export — auth gate.
  *
- * Regressão (Lição B22): esta rota é `runtime = "edge"`. Uma migração de
- * `getUser()` para `getClaims()` deslogado passava no typecheck/build mas
- * retornava 500 no edge runtime do OpenNext (getClaims é incompatível lá).
- * Não havia teste do handler, então o 500 vazou pra prod. Este teste fixa o
- * contrato mínimo: deslogado → 401 (JSON), NUNCA 500 nem vazamento de dados.
+ * Regressão (Lição B22): esta rota tinha `runtime = "edge"`, incompatível com
+ * o OpenNext/Cloudflare — retornava 500 em prod (mesmo deslogado, ANTES do auth
+ * gate), independente de getUser/getClaims. O edge runtime foi removido (roda
+ * no Node.js do Worker). Não havia teste do handler, então o 500 vazou pra
+ * prod. Este teste fixa o contrato: deslogado → 401, NUNCA 500 nem vazamento.
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
