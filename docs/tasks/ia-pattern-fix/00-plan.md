@@ -22,7 +22,7 @@ Consequências medidas (224 bets, 6 dias):
 
 ## Fixes (ordem por alavanca/risco)
 
-- [ ] **Fix 1 — Ligar a isotônica no batch Ruby.** `IsotonicLookup.load(conn,
+- [x] **Fix 1 — Ligar a isotônica no batch Ruby.** ✅ SHIPPED (PR#19, f7e4989). `IsotonicLookup.load(conn,
   model_version)` → `Hash<String,Proc>` (interpolação linear das `pairs`, mesmo
   algoritmo do TS `applyIsotonic`); wire no runner (memoizado por model_version)
   → passar em `EdgeCalculator.build(..., isotonic_lookup: lookup)`. Aplica as
