@@ -31,6 +31,61 @@ module AdamStats::Scraper
       conn
     end
 
+    describe 'fiação da calibração isotônica (B25)' do
+      # O batch chamava EdgeCalculator.build SEM isotonic_lookup → probs cruas.
+      # Garante que agora carrega a curva ativa do model_version e a repassa.
+      let(:sim_row) do
+        {
+          'fixture_id' => '777',
+          'home_team' => 'A', 'away_team' => 'B',
+          'league' => 'Premier League',
+          'kickoff_utc' => '2026-05-30T15:00:00Z',
+          'model_version' => 'sim-v7',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.50',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'A' => { 'decimal_odds' => 2.0 },
+                'Draw' => { 'decimal_odds' => 3.0 },
+                'B' => { 'decimal_odds' => 3.2 }
+              },
+              'Match Goals Overs/Unders' => {
+                'Over 2.5' => { 'decimal_odds' => 2.0 },
+                'Under 2.5' => { 'decimal_odds' => 1.85 }
+              },
+              'BTTS' => {
+                'Yes' => { 'decimal_odds' => 1.9 },
+                'No' => { 'decimal_odds' => 1.9 }
+              }
+            }
+          )
+        }
+      end
+
+      it 'carrega a curva do model_version e repassa isotonic_lookup ao EdgeCalculator' do
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([sim_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+
+        fake_lookup = { '1x2-home' => ->(_p) { 0.5 } }
+        allow(AiReco::IsotonicLookup).to receive(:load).with(conn, 'sim-v7').and_return(fake_lookup)
+
+        received_lookup = :not_passed
+        allow(AiReco::EdgeCalculator).to receive(:build).and_wrap_original do |orig, *args, **kwargs|
+          received_lookup = kwargs[:isotonic_lookup]
+          orig.call(*args, **kwargs)
+        end
+
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        runner.run
+
+        expect(AiReco::IsotonicLookup).to have_received(:load).with(conn, 'sim-v7')
+        expect(received_lookup).to eq(fake_lookup)
+      end
+    end
+
     describe 'dry_run mode' do
       it 'nao chama insert no DB e nao chama IA' do
         conn = conn_double

@@ -3,6 +3,7 @@ require 'set'
 require 'thread'
 require_relative 'db'
 require_relative 'ai_reco/edge_calculator'
+require_relative 'ai_reco/isotonic_lookup'
 require_relative 'ai_reco/pricing'
 require_relative 'ai_reco/prompt_builder'
 
@@ -239,6 +240,16 @@ module AdamStats
         Set.new
       end
 
+      # B25: lookup isotônico por model_version, memoizado (a fase 1 é serial,
+      # então o cache simples é seguro — sem corrida na PG::Connection). Na
+      # prática quase só há um model_version ativo (v7), mas a chave protege
+      # caso o batch misture versões. Degrada gracioso pra {} (IsotonicLookup).
+      def isotonic_lookup_for(conn, model_version)
+        @isotonic_cache ||= {}
+        @isotonic_cache[model_version] ||=
+          AiReco::IsotonicLookup.load(conn, model_version)
+      end
+
       def client
         @client ||= begin
           require_relative 'ai_reco/openrouter_client'
@@ -261,7 +272,16 @@ module AdamStats
 
         league_calibrated = calibrated_leagues.include?(row['league'])
 
-        candidates = AiReco::EdgeCalculator.build(sim, odds, @bankroll, blend_alpha: @blend_alpha)
+        # B25: aplica a calibração isotônica ativa (model_calibration) também no
+        # batch. Sem isso o cron rodava com prob CRUA (overconfident), ignorando
+        # as curvas que o calibracao-weekly fita. Memoizado por model_version
+        # (fase 1 é serial → cache simples é seguro). Lookup vazio = identidade.
+        isotonic_lookup = isotonic_lookup_for(conn, row['model_version'])
+        candidates = AiReco::EdgeCalculator.build(
+          sim, odds, @bankroll,
+          isotonic_lookup: isotonic_lookup,
+          blend_alpha: @blend_alpha,
+        )
         bet_candidates = candidates.select { |c| c[:edge_pct] >= EDGE_THRESHOLD }
 
         if bet_candidates.empty?
