@@ -414,6 +414,19 @@ describe("groupAiRecoByMarket", () => {
     expect(out).toHaveLength(1);
     expect(out[0].market).toBe("(outros)");
   });
+
+  it("mantém 1x2 como UMA linha na tabela base, mesmo com sides diferentes", () => {
+    // A tabela "por mercado" (base) não divide por side — o split é só na
+    // tabela "por linha" (groupAiRecoByMarketLine).
+    const out = groupAiRecoByMarket([
+      row({ market: "1x2", side: "home" }),
+      row({ market: "1x2", side: "draw" }),
+      row({ market: "1x2", side: "away" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].market).toBe("1x2");
+    expect(out[0].bets).toBe(3);
+  });
 });
 
 describe("groupAiRecoByMarketLine", () => {
@@ -462,5 +475,53 @@ describe("groupAiRecoByMarketLine", () => {
       row({ market: "cards-over" }),
     ]);
     expect(out.map((r) => r.market)).toEqual(["cards-over", "cards-under"]);
+  });
+
+  it("divide 1x2 por side em linhas distintas (casa/empate/fora)", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ market: "1x2", side: "home", bet_won: true, pl_units: 1.4, units_final: 1 }),
+      row({ market: "1x2", side: "draw", bet_won: false, pl_units: -1, units_final: 1 }),
+      row({ market: "1x2", side: "away", bet_won: true, pl_units: 2.0, units_final: 1 }),
+    ]);
+    const keys = out.map((r) => r.market);
+    expect(keys).toContain("1x2-home");
+    expect(keys).toContain("1x2-draw");
+    expect(keys).toContain("1x2-away");
+
+    const home = out.find((r) => r.market === "1x2-home")!;
+    expect(home.label).toBe("1x2 casa");
+    expect(home.bets).toBe(1);
+    expect(home.won).toBe(1);
+    expect(home.roiPerUnit).toBeCloseTo(1.4, 6);
+
+    const draw = out.find((r) => r.market === "1x2-draw")!;
+    expect(draw.label).toBe("1x2 empate");
+    expect(draw.won).toBe(0);
+    expect(draw.roiPerUnit).toBeCloseTo(-1.0, 6);
+
+    const away = out.find((r) => r.market === "1x2-away")!;
+    expect(away.label).toBe("1x2 fora");
+    expect(away.won).toBe(1);
+  });
+
+  it("ordena 1x2 na sequência casa → empate → fora", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ id: 3, market: "1x2", side: "away" }),
+      row({ id: 1, market: "1x2", side: "home" }),
+      row({ id: 2, market: "1x2", side: "draw" }),
+    ]);
+    expect(out.map((r) => r.market)).toEqual(["1x2-home", "1x2-draw", "1x2-away"]);
+  });
+
+  it("cai pra linha única '1x2' quando side ausente/desconhecido", () => {
+    const out = groupAiRecoByMarketLine([
+      row({ market: "1x2", side: null }),
+      row({ market: "1x2", side: "" }),
+      row({ market: "1x2", side: "lixo" }),
+    ]);
+    expect(out).toHaveLength(1);
+    expect(out[0].market).toBe("1x2");
+    expect(out[0].label).toBe("1x2");
+    expect(out[0].bets).toBe(3);
   });
 });

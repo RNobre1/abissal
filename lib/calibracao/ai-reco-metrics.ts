@@ -22,6 +22,8 @@ export interface AiRecoRow {
   id: number;
   league: string | null;
   market?: string | null;
+  /** 'home'|'draw'|'away'|'over'|'under'… — usado pra dividir o 1x2 na tabela por linha. */
+  side?: string | null;
   status: "pending" | "resolved" | "unresolvable";
   verdict: "bet" | "skip";
   confidence: "alto" | "medio" | "baixo" | null;
@@ -222,8 +224,9 @@ const BASE_LINE_LABELS: Record<string, string> = {
   sot: "chutes no gol",
 };
 
+// Mercados secundários cuja linha já embute o side no próprio `market`
+// ("corners-over"). O 1x2 é tratado à parte (split por `side` em normalizeLine).
 const KNOWN_LINES = [
-  "1x2",
   "over25",
   "btts",
   "corners-over",
@@ -233,7 +236,22 @@ const KNOWN_LINES = [
   "sot-over",
   "sot-under",
 ];
-const LINE_ORDER = [...KNOWN_LINES, "(outros)"];
+// Ordem de exibição. As 3 linhas do 1x2 vêm primeiro (sequência natural
+// casa→empate→fora), com "1x2" plano como fallback quando o side falta.
+const LINE_ORDER = [
+  "1x2-home",
+  "1x2-draw",
+  "1x2-away",
+  "1x2",
+  ...KNOWN_LINES,
+  "(outros)",
+];
+
+const ONE_X_TWO_SIDE_LABELS: Record<string, string> = {
+  home: "1x2 casa",
+  draw: "1x2 empate",
+  away: "1x2 fora",
+};
 
 /**
  * Normaliza o `market` cru de `ai_recommendations` para categoria base.
@@ -249,15 +267,30 @@ function normalizeMarket(raw: string | null | undefined): string {
   return "(outros)";
 }
 
-/** Normaliza para a LINHA completa (preserva over/under). Desconhecido → "(outros)". */
-function normalizeLine(raw: string | null | undefined): string {
+/**
+ * Normaliza para a LINHA completa. Preserva over/under dos secundários
+ * ("corners-over") e divide o 1x2 por `side` em "1x2-home"/"1x2-draw"/
+ * "1x2-away". Quando o 1x2 não traz side reconhecível, cai pra "1x2" plano.
+ * Desconhecido → "(outros)".
+ */
+function normalizeLine(
+  raw: string | null | undefined,
+  side: string | null | undefined,
+): string {
   const m = (raw ?? "").trim().toLowerCase();
   if (!m) return "(outros)";
+  if (m === "1x2") {
+    const s = (side ?? "").trim().toLowerCase();
+    return s === "home" || s === "draw" || s === "away" ? `1x2-${s}` : "1x2";
+  }
   return KNOWN_LINES.includes(m) ? m : "(outros)";
 }
 
 function lineLabel(line: string): string {
   if (line === "1x2") return "1x2";
+  if (line.startsWith("1x2-")) {
+    return ONE_X_TWO_SIDE_LABELS[line.slice("1x2-".length)] ?? "1x2";
+  }
   if (line === "over25") return "over 2.5 gols";
   if (line === "btts") return "btts";
   const [base, side] = line.split("-");
@@ -268,14 +301,14 @@ function lineLabel(line: string): string {
 /** Agregador genérico: agrupa recos resolvidas por uma chave derivada do `market`. */
 function aggregateByMarket(
   rows: AiRecoRow[],
-  keyOf: (raw: string | null | undefined) => string,
+  keyOf: (row: AiRecoRow) => string,
   labelOf: (key: string) => string,
   order: string[],
 ): MarketRoiRow[] {
   const map = new Map<string, MarketRoiRow>();
   for (const r of rows) {
     if (r.status !== "resolved") continue;
-    const key = keyOf(r.market);
+    const key = keyOf(r);
     const entry =
       map.get(key) ?? {
         market: key,
@@ -320,7 +353,7 @@ function aggregateByMarket(
 export function groupAiRecoByMarket(rows: AiRecoRow[]): MarketRoiRow[] {
   return aggregateByMarket(
     rows,
-    normalizeMarket,
+    (r) => normalizeMarket(r.market),
     (k) => MARKET_LABELS[k] ?? k,
     MARKET_ORDER,
   );
@@ -331,7 +364,12 @@ export function groupAiRecoByMarket(rows: AiRecoRow[]): MarketRoiRow[] {
  * "over escanteios" do que "under escanteios", etc. Mesmas métricas de ROI.
  */
 export function groupAiRecoByMarketLine(rows: AiRecoRow[]): MarketRoiRow[] {
-  return aggregateByMarket(rows, normalizeLine, lineLabel, LINE_ORDER);
+  return aggregateByMarket(
+    rows,
+    (r) => normalizeLine(r.market, r.side),
+    lineLabel,
+    LINE_ORDER,
+  );
 }
 
 // ── ROI realizado (bets reais vinculadas via ai_recommendation_id, 0025) ─────

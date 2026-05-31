@@ -397,7 +397,7 @@ export default async function CalibracaoPage() {
     const { data, error } = await admin
       .from("ai_recommendations")
       .select(
-        "id, league, market, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units",
+        "id, league, market, side, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units",
       )
       .order("created_at", { ascending: false })
       .limit(2000);
@@ -862,11 +862,12 @@ export default async function CalibracaoPage() {
 
             <div data-section="ai-reco-by-line">
               <h3 className="mb-1 text-base font-semibold">
-                por linha (over vs under em cada mercado)
+                por linha (lado de cada mercado)
               </h3>
               <p className="mb-4 text-sm text-[var(--color-ink-muted)]">
-                Mostra se a IA acerta mais no over ou no under de escanteios,
-                cartões e chutes no gol.
+                Quebra o 1x2 em casa / empate / fora e os mercados de
+                escanteios, cartões e chutes no gol em over vs under — pra ver
+                em qual lado a IA realmente acerta.
               </p>
               <AiRecoByMarketTable rows={aiRecoByMarketLine} firstColLabel="linha" />
             </div>
