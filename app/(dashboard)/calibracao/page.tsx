@@ -207,30 +207,43 @@ export default async function CalibracaoPage() {
       /* degrada graciosamente */
     }
 
-    // Último reconcile: max(resolved_at) das recos resolvidas
+    // Último reconcile: max(actual_resolved_at) das recos resolvidas.
+    // BUG (corrigido): a coluna é `actual_resolved_at`, não `resolved_at` — a
+    // query errada caía no catch e o card mostrava "reconciler: nunca/falha"
+    // mesmo com o reconciler rodando todo dia. Ver lição B27.
     try {
       const { data } = await admin
         .from("ai_recommendations")
-        .select("resolved_at")
+        .select("actual_resolved_at")
         .eq("status", "resolved")
-        .not("resolved_at", "is", null)
-        .order("resolved_at", { ascending: false })
+        .not("actual_resolved_at", "is", null)
+        .order("actual_resolved_at", { ascending: false })
         .limit(1)
         .single();
-      lastReconciledAt = (data as { resolved_at: string } | null)?.resolved_at ?? null;
+      lastReconciledAt =
+        (data as { actual_resolved_at: string } | null)?.actual_resolved_at ?? null;
     } catch {
       /* degrada graciosamente */
     }
 
-    // Recos pending pós-KO (3h de grace para evitar falsos alarmes)
+    // Recos genuinamente TRAVADAS: pending E com KO ANTES do último reconcile.
+    // O reconcile roda 1×/dia (no scrape); jogos que começam DEPOIS dele ficam
+    // pending até o scrape de amanhã — isso é normal, não falha. Só conta como
+    // travado o que já tinha começado quando o reconciler rodou e mesmo assim
+    // não resolveu (resultado indisponível na fonte). Fallback: 3h de grace se
+    // ainda não houver nenhum reconcile registrado. Ver lição B27.
     try {
+      // O jogo precisa ter TERMINADO (KO + ~3h de jogo/acréscimos/atraso) antes
+      // do último reconcile — só aí faz sentido cobrar que devia estar resolvido.
+      const MATCH_DURATION_MS = 3 * 60 * 60 * 1000;
       // eslint-disable-next-line react-hooks/purity
-      const threeHoursAgo = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+      const base = lastReconciledAt ? new Date(lastReconciledAt).getTime() : Date.now();
+      const cutoff = new Date(base - MATCH_DURATION_MS).toISOString();
       const { count } = await admin
         .from("ai_recommendations")
         .select("id", { count: "exact", head: true })
         .eq("status", "pending")
-        .lt("kickoff_utc", threeHoursAgo);
+        .lt("kickoff_utc", cutoff);
       recoPendingPastKickoff = count ?? 0;
     } catch {
       /* degrada graciosamente */
