@@ -40,9 +40,14 @@ Usar os **dados da sim** (não os edges da IA). Top-10 desc por chance.
 - **Dashboard:** `components/fixtures/stats/panels/splits-1h-2h.tsx` (médias) — adicionar painel/seção de **frequência empírica**.
 - **Agentes:** `.claude/agents/*.md` + `scripts/analysis/pre-match-scan.ts` (supabase-js service role, padrão `scripts/calibracao/`).
 
-## Status
+## Status — SHIPPED 2026-05-31 (PR #25 + #26)
 
-- [x] Migration 0046 escrita (pendente APLICAR em prod — gate Pilot)
-- [ ] Motor Ruby (worker) + RSpec + backfill
-- [ ] TS: DTO + lib empírico + lib ranking + script + 2 agentes + painel dashboard + testes
-- [ ] Gate combinado + aplicar migration + backfill + deploy
+- [x] Migration 0046 aplicada em prod (4 colunas, via pooler).
+- [x] Motor Ruby (worker, TDD): f_plus/f_minus/f_either vs enumeração bruta (56 ex) + persist + backfill.
+- [x] Backfill rodado: **388 atualizados / 0 pulados / 0 erros**. Fix de id-space (casa pelo id do choistats, não fixtures.id — lição B29).
+- [x] TS: DTO + SELECT (×2) + lib empírico (8) + lib ranking (7) + script + 2 agentes + painel dashboard (4). Gate: vitest 1633/1633, build ok, lint 0 erros.
+- [x] PR #25 mergeado (10c82ac) + deploy CF **success**. PR #26 = follow-up `--upcoming`.
+- [x] E2E real contra prod (próximos de 31/05): corners discrimina forte (Valur×Víkingur 40,5%); duplo-green 3-6% no topo.
+
+**Como usar:** agentes `duplo-green` / `escanteios-ambos-tempos`, ou direto:
+`pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric duplo-green|corners [--date YYYY-MM-DD] [--upcoming] [--limit N]`
