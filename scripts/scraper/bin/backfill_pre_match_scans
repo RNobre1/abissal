@@ -1,0 +1,122 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# backfill_pre_match_scans — re-computes the 4 new pre-match scalars
+# (p_duplo_green, p_duplo_green_home, p_duplo_green_away,
+#  p_both_2corners_both_halves) for all fixtures that already have a
+# fixture_simulations row (most recent per fixture) but were persisted before
+# migration 0046 added those columns.
+#
+# Operation:
+#   1. Loads all fixtures.id + detail_json from `fixtures` where
+#      detail_json IS NOT NULL.
+#   2. For each fixture, re-runs Simulation::Runner.simulate on the stored
+#      detail_json (same deterministic seed — output is identical to the
+#      original run for all existing scalars).
+#   3. UPDATEs only the 4 new columns on the most-recent fixture_simulations
+#      row for that fixture (identified by fixture_id when available, or
+#      home/away/kickoff when not). Never inserts new rows.
+#   4. Prints a summary: updated / skipped (unsimulable or no sim row) / errors.
+#
+# Idempotent: re-running overwrites with identical values.
+#
+# Usage:
+#   DATABASE_URL=<pooler_url> bundle exec bin/backfill_pre_match_scans [--dry-run]
+#
+# NÃO roda o backfill sem DATABASE_URL — a conexão PG exige a variável.
+
+require_relative '../lib/scraper/db'
+require_relative '../lib/scraper/simulation/runner'
+
+dry_run = ARGV.include?('--dry-run')
+warn "[backfill] dry_run=#{dry_run}"
+
+UPDATE_SQL = <<~SQL.freeze
+  UPDATE fixture_simulations
+  SET p_duplo_green               = $1,
+      p_duplo_green_home          = $2,
+      p_duplo_green_away          = $3,
+      p_both_2corners_both_halves = $4
+  WHERE id = (
+    SELECT fs.id FROM fixture_simulations fs
+    WHERE ($5::integer IS NOT NULL AND fs.fixture_id = $5::integer)
+       OR ($5::integer IS NULL
+           AND fs.home_team   = $6
+           AND fs.away_team   = $7
+           AND fs.kickoff_utc = $8::timestamptz)
+    ORDER BY fs.created_at DESC
+    LIMIT 1
+  )
+SQL
+
+SELECT_FIXTURES_SQL = <<~SQL.freeze
+  SELECT
+    f.id          AS fixture_id,
+    f.home_team,
+    f.away_team,
+    f.kickoff_utc,
+    f.detail_json
+  FROM fixtures f
+  WHERE f.detail_json IS NOT NULL
+  ORDER BY f.id
+SQL
+
+updated = 0
+skipped = 0
+errors  = 0
+
+AdamStats::Scraper::DB.with_connection do |conn|
+  rows = conn.query(SELECT_FIXTURES_SQL).to_a
+  warn "[backfill] #{rows.size} fixtures com detail_json encontradas"
+
+  rows.each do |row|
+    fixture_id  = row['fixture_id']&.to_i
+    home_team   = row['home_team']
+    away_team   = row['away_team']
+    kickoff_utc = row['kickoff_utc']
+
+    begin
+      detail = JSON.parse(row['detail_json'])
+    rescue JSON::ParserError => e
+      warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: JSON parse error — #{e.message}"
+      errors += 1
+      next
+    end
+
+    sim = AdamStats::Scraper::Simulation::Runner.simulate(detail)
+    if sim.nil? || sim[:status] == 'unsimulable'
+      warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: unsimulable — pulando"
+      skipped += 1
+      next
+    end
+
+    p_dg      = sim[:p_duplo_green]
+    p_dg_home = sim[:p_duplo_green_home]
+    p_dg_away = sim[:p_duplo_green_away]
+    p_both    = sim[:p_both_2corners_both_halves]
+
+    unless dry_run
+      result = conn.exec_params(
+        UPDATE_SQL,
+        [p_dg, p_dg_home, p_dg_away, p_both,
+         fixture_id, home_team, away_team, kickoff_utc]
+      )
+      if result.cmd_tuples == 0
+        warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: nenhuma linha fixture_simulations encontrada — pulando"
+        skipped += 1
+        next
+      end
+    end
+
+    updated += 1
+    warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: " \
+         "dg=#{p_dg} dg_home=#{p_dg_home} dg_away=#{p_dg_away} both2c=#{p_both}" \
+         "#{dry_run ? ' [dry-run]' : ''}"
+  rescue StandardError => e
+    warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: ERRO — #{e.class}: #{e.message}"
+    errors += 1
+  end
+end
+
+warn "[backfill] resumo: #{updated} atualizados / #{skipped} pulados / #{errors} erros"
+exit(errors.positive? ? 1 : 0)

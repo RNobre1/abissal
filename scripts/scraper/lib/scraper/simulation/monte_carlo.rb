@@ -20,6 +20,14 @@ module AdamStats
           rng = Random.new(seed)
           matrix = ScoreModel.matrix(lambda_home, lambda_away, rho)
           cdf = build_cdf(matrix)
+          # Clear per-call memo caches for f_plus/f_minus/f_either (thread-local).
+          # Each fixture gets fresh memoisation; old entries from a prior fixture
+          # on the same thread are harmless but waste memory.
+          Thread.current[:mc_f_plus_memo]   = {}
+          Thread.current[:mc_f_minus_memo]  = {}
+          Thread.current[:mc_f_either_memo] = {}
+          # Pre-compute duplo-green scalars from the matrix (analytic, no MC needed).
+          dg = compute_duplo_green(matrix)
 
           home_wins = draws = away_wins = 0
           btts = over25 = 0
@@ -47,6 +55,7 @@ module AdamStats
           end
 
           nf = n.to_f
+          both2c = compute_both_2corners_both_halves(sec_samples, per_half_available, n)
           {
             p_home: round4(home_wins / nf),
             p_draw: round4(draws / nf),
@@ -57,7 +66,11 @@ module AdamStats
             sim_stats: aggregate_sec(sec_samples, goal_samples, per_half_available),
             per_half_available: per_half_available,
             market_anchor: market_anchor,
-            player_events: aggregate_players(player_acc, players, nf)
+            player_events: aggregate_players(player_acc, players, nf),
+            p_duplo_green: dg[:p_duplo_green],
+            p_duplo_green_home: dg[:p_duplo_green_home],
+            p_duplo_green_away: dg[:p_duplo_green_away],
+            p_both_2corners_both_halves: both2c
           }
         end
 
@@ -278,6 +291,131 @@ module AdamStats
           (v.to_f).round(4)
         end
         private_class_method :round4
+
+        # ── pre-match analytic scalars ─────────────────────────────────────────
+
+        # compute_duplo_green — analytic pass over the score-model matrix.
+        # Returns { p_duplo_green:, p_duplo_green_home:, p_duplo_green_away: }.
+        #
+        # For each cell (h, a) in the matrix:
+        #   home_not_winning = h <= a  → contributes to p_duplo_green_home via f_plus(h,a,0)
+        #   away_not_winning = h >= a  → contributes to p_duplo_green_away via f_minus(h,a,0)
+        #   match-level (either): h<a → f_plus; h>a → f_minus; h==a → f_either
+        def compute_duplo_green(matrix)
+          sum_home = 0.0
+          sum_away = 0.0
+          sum_either = 0.0
+
+          matrix.each_with_index do |row, h|
+            row.each_with_index do |prob, a|
+              next if prob <= 0.0
+
+              sum_home   += prob * f_plus(h, a, 0)  if h <= a
+              sum_away   += prob * f_minus(h, a, 0) if h >= a
+              sum_either += prob * if h < a
+                                     f_plus(h, a, 0)
+                                   elsif h > a
+                                     f_minus(h, a, 0)
+                                   else
+                                     f_either(h, a, 0)
+                                   end
+            end
+          end
+
+          {
+            p_duplo_green:      round4(sum_either),
+            p_duplo_green_home: round4(sum_home),
+            p_duplo_green_away: round4(sum_away)
+          }
+        end
+        private_class_method :compute_duplo_green
+
+        # f_plus(rh, ra, diff) — P(home lead ever reaches ≥ +2 in a uniform
+        # interleaving of rh home goals + ra away goals starting from `diff`).
+        # Memoised per call frame via a thread-local cache to avoid re-computing
+        # the same sub-problems across matrix cells.
+        def f_plus(rh, ra, diff)
+          return 1.0 if diff >= 2
+          return 0.0 if rh + ra == 0
+
+          f_plus_memo[[rh, ra, diff]] ||= begin
+            p = rh.to_f / (rh + ra)
+            p * f_plus(rh - 1, ra, diff + 1) + (1 - p) * f_plus(rh, ra - 1, diff - 1)
+          end
+        end
+        private_class_method :f_plus
+
+        def f_minus(rh, ra, diff)
+          return 1.0 if diff <= -2
+          return 0.0 if rh + ra == 0
+
+          f_minus_memo[[rh, ra, diff]] ||= begin
+            p = rh.to_f / (rh + ra)
+            p * f_minus(rh - 1, ra, diff + 1) + (1 - p) * f_minus(rh, ra - 1, diff - 1)
+          end
+        end
+        private_class_method :f_minus
+
+        def f_either(rh, ra, diff)
+          return 1.0 if diff >= 2 || diff <= -2
+          return 0.0 if rh + ra == 0
+
+          f_either_memo[[rh, ra, diff]] ||= begin
+            p = rh.to_f / (rh + ra)
+            p * f_either(rh - 1, ra, diff + 1) + (1 - p) * f_either(rh, ra - 1, diff - 1)
+          end
+        end
+        private_class_method :f_either
+
+        # Thread-local memo caches for f_plus/f_minus/f_either.
+        # Fresh for each MonteCarlo.run call (cleared at compute_duplo_green entry
+        # via the initializer pattern: if the key doesn't exist, it's created fresh).
+        # Using thread_variable_get/set so parallel Worker threads don't share state.
+        def f_plus_memo
+          Thread.current[:mc_f_plus_memo] ||= {}
+        end
+        private_class_method :f_plus_memo
+
+        def f_minus_memo
+          Thread.current[:mc_f_minus_memo] ||= {}
+        end
+        private_class_method :f_minus_memo
+
+        def f_either_memo
+          Thread.current[:mc_f_either_memo] ||= {}
+        end
+        private_class_method :f_either_memo
+
+        # compute_both_2corners_both_halves — counts iterations where both teams
+        # had ≥ 2 corners in each half.
+        #
+        # Returns nil (honest degradation) when:
+        #   - per_half_available is false
+        #   - the corners metric is absent from sec_samples
+        #   - any of the four per-half arrays (h1/h2 for home and away) is missing/empty
+        def compute_both_2corners_both_halves(sec_samples, per_half_available, n)
+          return nil unless per_half_available
+
+          # Tolerate symbol or string keys (symbol = normal path; string = JSON round-trip).
+          corners = sec_samples[:corners] || sec_samples['corners']
+          return nil unless corners
+
+          home = corners[:home] || corners['home']
+          away = corners[:away] || corners['away']
+          return nil unless home && away
+
+          h1h = home[:h1] || home['h1']
+          h2h = home[:h2] || home['h2']
+          a1h = away[:h1] || away['h1']
+          a2h = away[:h2] || away['h2']
+
+          return nil if h1h.nil? || h2h.nil? || a1h.nil? || a2h.nil?
+          return nil if h1h.empty? || h2h.empty? || a1h.empty? || a2h.empty?
+
+          count = (0...n).count { |i| h1h[i] >= 2 && h2h[i] >= 2 && a1h[i] >= 2 && a2h[i] >= 2 }
+          round4(count.to_f / n)
+        end
+        private_class_method :compute_both_2corners_both_halves
       end
     end
   end
