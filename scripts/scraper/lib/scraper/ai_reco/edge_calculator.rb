@@ -68,7 +68,13 @@ module AdamStats
           ou_devig = alpha < 1.0 ? devig_proportional([odds[:over25], odds[:under25]]) : nil
           if finite?(sim[:p_over_25])
             cal_over = calibrate('over25', sim[:p_over_25], isotonic_lookup)
-            cal_under = 1.0 - cal_over
+            # Fix 2/3: o under tem curva PRÓPRIA ('over25-under') porque a
+            # calibração é assimétrica (over ~ok, under era 1/18 na IA). Sem a
+            # curva, fallback pra 1 − cal_over (comportamento pré-Fix2).
+            raw_under = 1.0 - sim[:p_over_25]
+            cal_under = has_curve?(isotonic_lookup, 'over25-under') ?
+                          calibrate('over25-under', raw_under, isotonic_lookup) :
+                          (1.0 - cal_over)
             if finite?(odds[:over25])
               mp = ou_devig && ou_devig[0]
               blended = blend(cal_over, mp, alpha)
@@ -83,21 +89,26 @@ module AdamStats
             end
           end
 
-          # BTTS (sem isotônica por enquanto)
+          # BTTS — Fix 2/3: agora calibrado ('btts' sim / 'btts-nao'). Sem curva,
+          # cai no raw (sim) e em 1 − cal_sim (nao) — preserva comportamento.
           btts_devig = alpha < 1.0 ? devig_proportional([odds[:btts_sim], odds[:btts_nao]]) : nil
           if finite?(sim[:p_btts])
             sim_p = sim[:p_btts]
             nao_p = 1.0 - sim_p
+            cal_sim = calibrate('btts', sim_p, isotonic_lookup)
+            cal_nao = has_curve?(isotonic_lookup, 'btts-nao') ?
+                        calibrate('btts-nao', nao_p, isotonic_lookup) :
+                        (1.0 - cal_sim)
             if finite?(odds[:btts_sim])
               mp = btts_devig && btts_devig[0]
-              blended = blend(sim_p, mp, alpha)
-              out << build_candidate('btts', 'sim', sim_p, sim_p, mp, blended,
+              blended = blend(cal_sim, mp, alpha)
+              out << build_candidate('btts', 'sim', sim_p, cal_sim, mp, blended,
                                      odds[:btts_sim], bankroll, kelly_fraction, alpha)
             end
             if finite?(odds[:btts_nao])
               mp = btts_devig && btts_devig[1]
-              blended = blend(nao_p, mp, alpha)
-              out << build_candidate('btts', 'nao', nao_p, nao_p, mp, blended,
+              blended = blend(cal_nao, mp, alpha)
+              out << build_candidate('btts', 'nao', nao_p, cal_nao, mp, blended,
                                      odds[:btts_nao], bankroll, kelly_fraction, alpha)
             end
           end
@@ -209,6 +220,15 @@ module AdamStats
 
         def finite?(x)
           x.is_a?(Numeric) && x.respond_to?(:finite?) ? x.finite? : x.is_a?(Numeric)
+        end
+
+        # True quando existe curva própria pra metric_key no lookup (usado pra
+        # decidir entre curva independente do lado vs fallback complementar).
+        def has_curve?(lookup, metric_key)
+          return false unless lookup.is_a?(Hash)
+
+          fn = lookup[metric_key] || lookup[metric_key.to_sym]
+          fn.respond_to?(:call)
         end
 
         def calibrate(metric_key, prob, lookup)

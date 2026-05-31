@@ -22,7 +22,7 @@ Consequências medidas (224 bets, 6 dias):
 
 ## Fixes (ordem por alavanca/risco)
 
-- [ ] **Fix 1 — Ligar a isotônica no batch Ruby.** `IsotonicLookup.load(conn,
+- [x] **Fix 1 — Ligar a isotônica no batch Ruby.** ✅ SHIPPED (PR#19, f7e4989). `IsotonicLookup.load(conn,
   model_version)` → `Hash<String,Proc>` (interpolação linear das `pairs`, mesmo
   algoritmo do TS `applyIsotonic`); wire no runner (memoizado por model_version)
   → passar em `EdgeCalculator.build(..., isotonic_lookup: lookup)`. Aplica as
@@ -30,7 +30,15 @@ Consequências medidas (224 bets, 6 dias):
   (bug fix).** TDD: RSpec do loader (interp + clamp + load) + spec do runner
   passando o lookup. **← ESTE PR primeiro.**
 
-- [ ] **Fix 2 — Estender o fit (`fit-isotonic.ts`) com curvas independentes por
+- [x] **Fix 2/3 (over25/btts) — SHIPPED.** Split independente `over25-over`/
+  `over25-under` + `btts`/`btts-nao` (curvas próprias, não `1−over`) no fit +
+  aplicação nos dois edge-calcs (Ruby + TS) + `buildIsotonicLookup` genérico.
+  Migration 0044 (drop CHECK) aplicada. Validado contra prod: over25-under
+  0,726→0,571 (deflaciona as bets −EV), over25-over 0,46→0,574 (corrige p/
+  cima), Brier under 0,2487→0,2361. Secundários (corners/cards/sot, 180 amostras)
+  = Fix 2b, próximo.
+
+- [ ] **Fix 2 (ORIGINAL) — Estender o fit (`fit-isotonic.ts`) com curvas independentes por
   lado + secundários, gated em amostra.** Split `over25`→`over25-over` +
   `over25-under` (curvas próprias, não `1−over`); `btts`→`btts-sim`/`btts-nao`.
   Add `corners/cards/sot` por linha-padrão (over/under), computando a prob da sim
@@ -48,6 +56,19 @@ Consequências medidas (224 bets, 6 dias):
   confirmar que o edge de corners-under/over25-under **murcha** (bets −EV param
   de passar no gate sozinhas) — a prova do "consertar, não skippar". Rodar o
   recomendador num replay e comparar.
+
+- [ ] **Fix 6 — Forma da distribuição de placar do sim (o "MUITOS 1x1").**
+  SEPARADO dos isotônicos e mais arriscado (mexe no motor). Diagnóstico (737
+  sims v7): médias de gol CERTAS (2,72 prev ≈ 2,72 real) e ρ médio normal
+  (−0,077, só 2 ligas no floor −0,3) — **não é taxa nem ρ exagerado**. É a
+  **forma**: too draw-heavy. Sim prevê over 46,1% vs 52,2% real; empate 26,8%
+  vs 23,3%; fora 21,4% vs 28,0%. O Dixon-Coles infla 1-1/0-0 e concentra em
+  empate de baixo placar. **A isotônica (Fix 2/3) conserta isso pra APOSTA**
+  (mapeia p_over↑/p_draw↓/p_away↑), mas NÃO conserta o top_scoreline EXIBIDO
+  (vem do MC cru). Conserto da forma = variância/DC/home-adv — investigação
+  dedicada, gated, com CRPS antes/depois. **NÃO agora** (Fix 2 primeiro).
+  Nota: a acurácia de placar É medida (CRPS/Brier/correct_winner) mas é
+  **display-only** — sem feedback automático; melhora só via refit + isotônica.
 
 - [ ] **Fix 5 — Botão "forçar análise"** (independente, paralelo). Spec em
   `docs/tasks/ai-reco-hardening/02-*.md`. Flag `forced` + **excluir de

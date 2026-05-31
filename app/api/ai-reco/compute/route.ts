@@ -20,10 +20,6 @@ import {
   type AiDecision,
 } from "@/lib/ai-reco/recommender";
 import { computeCostUsd } from "@/lib/ai-reco/pricing";
-import {
-  getActiveCurves,
-  type ActiveCurves,
-} from "@/lib/calibracao/active-curves-repository";
 import { applyIsotonic } from "@/lib/calibracao/isotonic";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
@@ -588,31 +584,46 @@ async function loadBankroll(supabase: AnySupabase): Promise<number> {
  * Converts the `ActiveCurves` DTO into the `isotonicLookup` shape that
  * `buildEdgeTable` consumes ('1x2-home', '1x2-draw', '1x2-away', 'over25').
  */
+// Fix 2/3: lê TODAS as curvas ativas de model_calibration por metric (genérico),
+// não só os 4 slots tipados — pega over25-under/btts/btts-nao e os secundários
+// (corners/cards/sot) sem precisar estender o DTO. Espelha o Ruby
+// AiReco::IsotonicLookup.load. Keyed por metric string (igual ao calibrate()).
 async function buildIsotonicLookup(
   modelVersion: string | null,
   supabase: AnySupabase,
 ): Promise<Partial<Record<string, (p: number) => number>>> {
   if (!modelVersion) return {};
-  const { curves } = await getActiveCurves(modelVersion, supabase);
+  const { data, error } = await supabase
+    .from("model_calibration")
+    .select("metric, pairs")
+    .eq("model_version", modelVersion)
+    .is("effective_until", null);
+  if (error || !data) return {};
   const lookup: Partial<Record<string, (p: number) => number>> = {};
-  if (curves.oneX2Home) {
-    lookup["1x2-home"] = (p: number) =>
-      applyIsotonic(curves.oneX2Home as Array<[number, number]>, p);
+  for (const row of data as Array<{ metric: string | null; pairs: unknown }>) {
+    const metric = String(row.metric ?? "");
+    const pairs = asPairs(row.pairs);
+    if (!metric || pairs.length === 0) continue;
+    lookup[metric] = (p: number) => applyIsotonic(pairs, p);
   }
-  if (curves.draw) {
-    lookup["1x2-draw"] = (p: number) =>
-      applyIsotonic(curves.draw as Array<[number, number]>, p);
-  }
-  if (curves.away) {
-    lookup["1x2-away"] = (p: number) =>
-      applyIsotonic(curves.away as Array<[number, number]>, p);
-  }
-  if (curves.over25) {
-    lookup["over25"] = (p: number) =>
-      applyIsotonic(curves.over25 as Array<[number, number]>, p);
-  }
-  void (null as unknown as ActiveCurves);
   return lookup;
+}
+
+/** jsonb `pairs` → Array<[number,number]> validado; [] se inválido. */
+function asPairs(raw: unknown): Array<[number, number]> {
+  if (!Array.isArray(raw)) return [];
+  const out: Array<[number, number]> = [];
+  for (const p of raw) {
+    if (
+      Array.isArray(p) &&
+      p.length >= 2 &&
+      typeof p[0] === "number" &&
+      typeof p[1] === "number"
+    ) {
+      out.push([p[0], p[1]]);
+    }
+  }
+  return out;
 }
 
 /**
