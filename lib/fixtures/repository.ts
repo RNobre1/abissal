@@ -101,12 +101,16 @@ async function fetchBadgeView(
 }
 
 /**
- * Returns a `Map<choistatsId, "bet" | "skip">` for fixtures with an active
- * recommendation in `ai_recommendations` (kickoff still in the future). `bet`
- * wins over `skip` when a fixture has both (the value chip beats the
- * "sem valor" chip). Scalar-only select (`fixture_id, verdict`) — never pulls
- * detail_json, so the /fixtures list stays cheap (B12/B14). Degrades to an
- * empty Map on missing table / transient error so the list never crashes.
+ * Returns a `Map<choistatsId, "bet" | "skip">` for fixtures that have a
+ * recommendation in `ai_recommendations`. NB: NO `kickoff_utc > now` filter —
+ * the chip reflects that the AI *analysed* the game (skip/bet), so it must stay
+ * visible AFTER kickoff too (otherwise the "today" list loses every chip once
+ * the games start — B22). `bet` wins over `skip` when a fixture has both (the
+ * value chip beats the "sem valor" chip). Scalar-only select
+ * (`fixture_id, verdict`) — never pulls detail_json, so the /fixtures list
+ * stays cheap (B12/B14); `.in(fixture_id, choistatsIds)` already restricts to
+ * the page's games. Degrades to an empty Map on missing table / transient
+ * error so the list never crashes.
  *
  * Skips the round-trip entirely when there are zero parseable choistats ids
  * to look up (avoids an empty `IN ()` clause).
@@ -118,11 +122,9 @@ async function fetchAiVerdicts(
   const out = new Map<number, "bet" | "skip">();
   if (choistatsIds.length === 0) return out;
   try {
-    const nowIso = new Date().toISOString();
     const { data, error } = await supabase
       .from("ai_recommendations")
       .select("fixture_id, verdict")
-      .gt("kickoff_utc", nowIso)
       .in("fixture_id", choistatsIds);
     if (error) return out;
     for (const r of (data ?? []) as Array<{

@@ -292,7 +292,7 @@ describe("fixturesForBrtDay — high_signal exposed for /fixtures realce", () =>
 });
 
 describe("fixturesForBrtDay — ai_has_bet from ai_recommendations (Wave 4)", () => {
-  it("queries ai_recommendations with scalar select (fixture_id, verdict) + kickoff>now + choistats IN, mapping bet", async () => {
+  it("queries ai_recommendations with scalar select (fixture_id, verdict) + choistats IN (SEM filtro de tempo — badge reflete análise, aparece pós-KO), mapping bet", async () => {
     const { client, captured, gts, ins } = buildMultiMock({
       fixtures: [
         compactRow({
@@ -317,11 +317,13 @@ describe("fixturesForBrtDay — ai_has_bet from ai_recommendations (Wave 4)", ()
     expect(captured.ai_recommendations).toContain("fixture_id");
     expect(captured.ai_recommendations).toContain("verdict");
 
-    // Filtros: kickoff_utc>now + fixture_id IN [...]. SEM filtro de verdict
-    // (buscamos bet E skip numa query só).
+    // Filtros: fixture_id IN [...]. SEM filtro de verdict (buscamos bet E skip
+    // numa query só) e SEM filtro de kickoff_utc — o badge reflete que a IA
+    // ANALISOU o jogo (skip/bet), então deve aparecer mesmo depois do KO. O
+    // `.in(fixture_id, choistatsIds)` já restringe aos jogos da página (B22).
     expect(
       gts.ai_recommendations.some((g) => g.column === "kickoff_utc"),
-    ).toBe(true);
+    ).toBe(false);
     expect(
       ins.ai_recommendations.some(
         (i) =>
