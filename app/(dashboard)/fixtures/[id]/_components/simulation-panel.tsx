@@ -2,6 +2,11 @@ import type {
   FixtureSimulationDTO,
   SimPlayerEvent,
 } from "@/lib/fixtures/simulation-repository";
+import {
+  playerMarketHints,
+  type PlayerOdds,
+  type PlayerOddsMap,
+} from "@/lib/fixtures/stats/player-market-value";
 import { InfoPopover } from "@/components/fixtures/stats/_primitives/info-popover";
 import { PanelShell } from "@/components/fixtures/stats/panels/_shell";
 import {
@@ -42,6 +47,9 @@ interface SimulationPanelProps {
   awayTeam: string;
   /** num_matches de avgs (T1) — tamanho de amostra do modelo, p/ honestidade. */
   sampleSize: { home: number | null; away: number | null };
+  /** odds de jogador (detail_json.player_extra.outcome_odds_by_player), nome→odds.
+   *  Esparso (~10% dos fixtures). Quando presente, vira caça-valor manual. */
+  playerOdds?: PlayerOddsMap;
   /**
    * "shell" (default): renderiza o conteúdo dentro do PanelShell padrão.
    * "bare": entrega só o body — o pai (SimulationDisclosure) fornece a casca.
@@ -173,6 +181,7 @@ interface SimulationBodyProps {
   homeTeam: string;
   awayTeam: string;
   sampleSize: { home: number | null; away: number | null };
+  playerOdds?: PlayerOddsMap;
 }
 
 function SimulationBody({
@@ -180,6 +189,7 @@ function SimulationBody({
   homeTeam,
   awayTeam,
   sampleSize,
+  playerOdds,
 }: SimulationBodyProps) {
   const top = sim.top_scorelines[0] ?? null;
   const homeStats = sim.sim_stats?.home as
@@ -344,7 +354,11 @@ function SimulationBody({
           className="grid grid-cols-2 gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[color-mix(in_srgb,var(--color-depth)_8%,transparent)] p-3 sm:grid-cols-3"
         >
           {xiToShow.map((p, idx) => (
-            <PlayerChip key={`${p.name}-${idx}`} player={p} />
+            <PlayerChip
+              key={`${p.name}-${idx}`}
+              player={p}
+              odds={playerOdds?.[p.name]}
+            />
           ))}
         </div>
       </section>
@@ -357,6 +371,7 @@ export function SimulationPanel({
   homeTeam,
   awayTeam,
   sampleSize,
+  playerOdds,
   chrome = "shell",
 }: SimulationPanelProps) {
   if (!sim) {
@@ -379,6 +394,7 @@ export function SimulationPanel({
       homeTeam={homeTeam}
       awayTeam={awayTeam}
       sampleSize={sampleSize}
+      playerOdds={playerOdds}
     />
   );
 
@@ -427,9 +443,21 @@ function CalibrationBadge({ n }: { n: number | null }) {
   );
 }
 
-function PlayerChip({ player }: { player: SimPlayerEvent }) {
+function PlayerChip({
+  player,
+  odds,
+}: {
+  player: SimPlayerEvent;
+  odds?: PlayerOdds;
+}) {
   const likelyScorer = player.p_goal >= 0.25;
   const cardProne = player.p_card >= 0.25;
+  // Caça-valor manual (sim vs odd da casa) — só quando há odds. Não é
+  // recomendação da IA, não é calibrado, não usa histórico. Ver player-market-value.ts.
+  const hints = playerMarketHints(
+    { p_goal: player.p_goal, p_card: player.p_card, p_sot: player.p_sot },
+    odds,
+  );
   return (
     <div className="flex flex-col gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2 py-1.5">
       <div className="flex items-center justify-between gap-1">
@@ -458,11 +486,40 @@ function PlayerChip({ player }: { player: SimPlayerEvent }) {
         </span>
       </div>
       <span className="num label text-[var(--color-ink-faint)]">
-        gol {pct(player.p_goal)} · cartão {pct(player.p_card)}
+        gol {pct(player.p_goal)} · chute {pct(player.p_sot)} · cartão{" "}
+        {pct(player.p_card)}
         {Number.isFinite(player.expected_goals)
           ? ` · xG ${Number(player.expected_goals.toFixed(2))}`
           : null}
       </span>
+      {hints.length > 0 ? (
+        <div data-player-value className="flex flex-col gap-0.5 pt-0.5">
+          {hints.map((h) => (
+            <span
+              key={h.market}
+              data-market={h.market}
+              data-value={h.value ? "true" : "false"}
+              className="num label flex items-center gap-1"
+              title="prob do simulador vs prob implícita da odd (inclui margem da casa). Não é recomendação."
+            >
+              <span className="text-[var(--color-ink-faint)]">{h.market}</span>
+              <span className="text-[var(--color-ink-muted)]">
+                sim {pct(h.simProb)} · @{Number(h.odd.toFixed(2))} (impl{" "}
+                {pct(h.implied)})
+              </span>
+              {h.value ? (
+                <span
+                  aria-label="sim vê valor"
+                  title="sim acima do implícito (com folga sobre a margem)"
+                  style={{ color: "var(--color-positive, #4ade80)" }}
+                >
+                  ▲
+                </span>
+              ) : null}
+            </span>
+          ))}
+        </div>
+      ) : null}
       {player.confidence ? (
         <span
           data-player-confidence={player.confidence}
