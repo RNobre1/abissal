@@ -126,8 +126,8 @@ vi.mock("next/navigation", () => ({
     throw new NotFoundError();
   },
   // Stub the Client Component hooks consumed by wave-4 panels
-  // (StreaksHeatmap, Players, MarketsBrowser). The Server Component itself
-  // doesn't call them; they execute when React renders the panel subtrees.
+  // (StreaksHeatmap, Players). The Server Component itself doesn't call them;
+  // they execute when React renders the panel subtrees.
   useSearchParams: () => new URLSearchParams(),
   useRouter: () => ({ replace: () => {}, push: () => {}, refresh: () => {} }),
   usePathname: () => "/",
@@ -359,9 +359,9 @@ describe("StatsPage server component", () => {
 
     await renderPage("42");
 
-    // 1X2 odds from odds_summary.Match Result. These odd values also surface
-    // in the MarketsBrowser headline cards (wave 4), so we use getAllByText
-    // and assert at least one occurrence.
+    // 1X2 odds from odds_summary.Match Result surfaced no Hero (deriveHeroKpis);
+    // usamos getAllByText e exigimos ≥1 ocorrência (a mesma odd pode aparecer
+    // em outro painel).
     expect(screen.getAllByText("2.05").length).toBeGreaterThan(0);
     expect(screen.getAllByText("3.40").length).toBeGreaterThan(0);
     expect(screen.getAllByText("3.60").length).toBeGreaterThan(0);
@@ -394,22 +394,21 @@ describe("StatsPage server component", () => {
     // 12-column grid IDs declared by page.tsx. Optional ones (I, J, N) only
     // mount when their source data is non-empty — the makeDetail() fixture
     // populates referee_record but not predictions/insights, so we assert
-    // only the always-present panels here. F (streaks), G+ (players) and H
-    // (markets-browser) are wave-4 plugins; they always mount, panels handle
-    // empty data themselves.
+    // only the always-present panels here. F (streaks), G+ (players) são
+    // wave-4 plugins; sempre montam e tratam dados vazios. (H/markets-browser
+    // foi REMOVIDO — B23: nunca usado, odds já no Hero.)
     const expected = [
       "B",          // momentum chart
       "A-home",     // team record home
       "A-away",     // team record away
       "D",          // h2h
       "E",          // splits 1h/2h
-      "M",          // distributions
+      "M",          // distributions (lazy ssr:false)
       "K",          // radar
       "L",          // scatter
       "I",          // referee — present in this fixture
-      "F",          // streaks heatmap (wave 4)
+      "F",          // streaks heatmap (lazy ssr:false)
       "G+",         // players (wave 4)
-      "H",          // markets browser (wave 4)
       "C-home",     // recent matches home
       "C-away",     // recent matches away
     ];
@@ -466,20 +465,8 @@ describe("StatsPage optional panel handling", () => {
     expect(container.querySelector("[data-prediction]")).toBeNull();
   });
 
-  it("omits markets-browser content when odds_summary is an empty object", async () => {
-    const detail = makeDetail();
-    detail.odds_summary = {};
-    setRow(makeRow({ detail_json: detail as unknown }));
-
-    const { container } = await renderPage("42");
-
-    // Wave-4 slot H still mounts; the MarketsBrowser internally returns
-    // null when there are zero markets (total === 0).
-    const slot = container.querySelector('[data-panel="H"]');
-    expect(slot).not.toBeNull();
-    // No category buttons / market cards inside.
-    expect(slot?.querySelectorAll("button").length).toBe(0);
-  });
+  // (Removido B23) O teste do MarketsBrowser saiu junto com o painel — o
+  // componente não é mais renderizado (odds vivem no Hero/deriveHeroKpis).
 });
 
 // ─── T8: explanatory layer integration + float regression guard ──────────
