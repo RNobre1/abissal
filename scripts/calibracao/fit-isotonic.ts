@@ -9,6 +9,14 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { fitIsotonic } from "@/lib/calibracao/isotonic";
+import {
+  SECONDARY_MARKETS,
+  secondaryMetricKey,
+  secondaryPred,
+  secondaryObserved,
+  secondaryMeanFromSimStats,
+  type SecondaryActuals,
+} from "@/lib/calibracao/secondary-fit";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_SR = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -22,7 +30,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SR, {
   auth: { persistSession: false },
 });
 
-interface ResolvedRow {
+interface ResolvedRow extends SecondaryActuals {
   model_version: string | null;
   p_home: number | null;
   p_draw: number | null;
@@ -32,6 +40,8 @@ interface ResolvedRow {
   actual_home_goals: number | null;
   actual_away_goals: number | null;
   actual_btts: boolean | null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  sim_stats: any | null;
 }
 
 // Binary metrics suitable for isotonic calibration (PAV).
@@ -87,7 +97,17 @@ async function main() {
   const c = supabase as unknown as { from: (t: string) => any };
   const { data, error } = await c
     .from("fixture_simulations")
-    .select("model_version, p_home, p_draw, p_away, p_over_25, p_btts, actual_home_goals, actual_away_goals, actual_btts")
+    .select([
+      "model_version",
+      "p_home", "p_draw", "p_away", "p_over_25", "p_btts",
+      "actual_home_goals", "actual_away_goals", "actual_btts",
+      // Secondary markets actuals
+      "actual_corners_home", "actual_corners_away",
+      "actual_cards_home", "actual_cards_away",
+      "actual_sot_home", "actual_sot_away",
+      // sim_stats for p50 means
+      "sim_stats",
+    ].join(", "))
     .eq("status", "resolved")
     .order("actual_resolved_at", { ascending: false })
     .limit(5000);
@@ -152,6 +172,58 @@ async function main() {
         console.error(`[fail] ${version} ${metric}:`, insErr);
       } else {
         console.log(`[ok] ${version} ${metric}: ${pairs.length} samples, ${curve.length} curve points`);
+      }
+    }
+
+    // ── Secondary markets (corners / cards / SOT) ──────────────────────────
+    // For each stat × line, fit over + under separately (asymmetric calibration
+    // — same rationale as over25/over25-under, btts/btts-nao above).
+    for (const { stat, line, label } of SECONDARY_MARKETS) {
+      for (const side of ["over", "under"] as const) {
+        const metricKey = secondaryMetricKey(stat, side, label);
+        const pairs: Array<[number, number]> = [];
+
+        for (const r of rowsV) {
+          // Derive Poisson mean from sim_stats p50 (home+away)
+          const mean = secondaryMeanFromSimStats(r.sim_stats, stat);
+          if (mean === null) continue;
+
+          const pred = secondaryPred(mean, line, side);
+          if (!Number.isFinite(pred)) continue;
+
+          const obs = secondaryObserved(stat, line, side, r);
+          if (obs === null) continue;
+
+          pairs.push([pred, obs]);
+        }
+
+        if (pairs.length < 30) {
+          console.log(`[skip] ${version} ${metricKey}: only ${pairs.length} samples (need ≥30)`);
+          continue;
+        }
+
+        const curve = fitIsotonic(pairs);
+
+        // Mark previous active as expired
+        await c
+          .from("model_calibration")
+          .update({ effective_until: new Date().toISOString() })
+          .eq("model_version", version)
+          .eq("metric", metricKey)
+          .is("effective_until", null);
+
+        // Insert new active
+        const { error: insErr2 } = await c.from("model_calibration").insert({
+          metric: metricKey,
+          model_version: version,
+          pairs: curve,
+          n: pairs.length,
+        });
+        if (insErr2) {
+          console.error(`[fail] ${version} ${metricKey}:`, insErr2);
+        } else {
+          console.log(`[ok] ${version} ${metricKey}: ${pairs.length} samples, ${curve.length} curve points`);
+        }
       }
     }
   }
