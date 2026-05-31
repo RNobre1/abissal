@@ -168,6 +168,14 @@ function calibrate(
   return Number.isFinite(out) ? Math.max(0, Math.min(1, out)) : prob;
 }
 
+/** True quando existe curva própria pra metricKey (curva independente do lado). */
+function hasCurve(
+  lookup: BuildOptions["isotonicLookup"],
+  metricKey: string,
+): boolean {
+  return typeof lookup?.[metricKey] === "function";
+}
+
 /**
  * Devig proporcional: probs_i = (1/odd_i) / sum(1/odd_j).
  * Inputs inválidos (null/undefined/NaN/odd<=1) viram NaN no output, mas a
@@ -304,11 +312,13 @@ export function buildEdgeTable(
       });
     }
     if (isFiniteNum(odds.under25)) {
-      // Under é simétrico: prob_calibrated_under = 1 − cal(over25) (não há
-      // curva "over25-under" registrada, então usamos a complementar).
+      // Fix 2/3: o under tem curva PRÓPRIA ('over25-under') — calibração
+      // assimétrica vs over. Sem a curva, fallback pra 1 − cal(over25).
       const underSim = 1 - sim.p_over_25;
       const calOver = calibrate("over25", sim.p_over_25, lookup);
-      const calUnder = 1 - calOver;
+      const calUnder = hasCurve(lookup, "over25-under")
+        ? calibrate("over25-under", underSim, lookup)
+        : 1 - calOver;
       const marketUnder = ouDevig?.[1];
       const blendedUnder =
         alpha < 1.0 && marketUnder !== undefined && Number.isFinite(marketUnder)
@@ -328,23 +338,28 @@ export function buildEdgeTable(
     }
   }
 
-  // ---- BTTS (sem isotônica por enquanto — não há curva treinada pra btts) ----
+  // ---- BTTS — Fix 2/3: calibrado ('btts' sim / 'btts-nao'). Sem curva, cai no
+  // raw (sim) e em 1 − cal_sim (nao) — preserva o comportamento anterior. ----
   const bttsDevig =
     alpha < 1.0 ? devigProportional([odds.btts_sim, odds.btts_nao]) : null;
   if (isFiniteNum(sim.p_btts)) {
     const sim_p = sim.p_btts;
     const nao_p = 1 - sim_p;
+    const calSim = calibrate("btts", sim_p, lookup);
+    const calNao = hasCurve(lookup, "btts-nao")
+      ? calibrate("btts-nao", nao_p, lookup)
+      : 1 - calSim;
     if (isFiniteNum(odds.btts_sim)) {
       const marketSim = bttsDevig?.[0];
       const blended =
         alpha < 1.0 && marketSim !== undefined && Number.isFinite(marketSim)
-          ? alpha * sim_p + (1 - alpha) * marketSim
-          : sim_p;
+          ? alpha * calSim + (1 - alpha) * marketSim
+          : calSim;
       out.push({
         market: "btts",
         side: "sim",
         prob_estimated: sim_p,
-        prob_calibrated: sim_p,
+        prob_calibrated: calSim,
         prob_market: alpha < 1.0 ? marketSim : undefined,
         prob_blended: alpha < 1.0 ? blended : undefined,
         odd: odds.btts_sim,
@@ -356,13 +371,13 @@ export function buildEdgeTable(
       const marketNao = bttsDevig?.[1];
       const blended =
         alpha < 1.0 && marketNao !== undefined && Number.isFinite(marketNao)
-          ? alpha * nao_p + (1 - alpha) * marketNao
-          : nao_p;
+          ? alpha * calNao + (1 - alpha) * marketNao
+          : calNao;
       out.push({
         market: "btts",
         side: "nao",
         prob_estimated: nao_p,
-        prob_calibrated: nao_p,
+        prob_calibrated: calNao,
         prob_market: alpha < 1.0 ? marketNao : undefined,
         prob_blended: alpha < 1.0 ? blended : undefined,
         odd: odds.btts_nao,

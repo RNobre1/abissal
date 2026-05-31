@@ -64,6 +64,54 @@ module AdamStats::Scraper::AiReco
       expect(home[:edge_pct]).to be_within(0.1).of(15.5)
     end
 
+    # Fix 2/3 — curvas INDEPENDENTES por lado (over25-under / btts-nao têm
+    # calibração assimétrica vs over/sim; não pode ser 1 − cal_over).
+    describe 'calibração independente por lado (Fix 2/3)' do
+      it 'over25-under usa a curva PRÓPRIA quando fornecida (não 1 − cal_over)' do
+        lookup = { 'over25' => ->(p) { p + 0.10 }, 'over25-under' => ->(p) { p - 0.10 } }
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, isotonic_lookup: lookup)
+        under = out.find { |c| c[:market] == 'over25' && c[:side] == 'under' }
+        # raw under = 1 - 0.60 = 0.40 → curva própria: 0.40 - 0.10 = 0.30
+        # (se fosse 1 − cal_over daria 1 - 0.70 = 0.30 por coincidência; uso
+        #  curva própria com offset distinto abaixo pra desambiguar)
+        expect(under[:prob_calibrated]).to be_within(0.001).of(0.30)
+      end
+
+      it 'over25-under com curva própria diverge de 1 − cal_over' do
+        lookup = { 'over25' => ->(p) { p + 0.10 }, 'over25-under' => ->(p) { p + 0.07 } }
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, isotonic_lookup: lookup)
+        under = out.find { |c| c[:market] == 'over25' && c[:side] == 'under' }
+        # raw under 0.40 + 0.07 = 0.47 (curva própria). 1 − cal_over seria 0.30.
+        expect(under[:prob_calibrated]).to be_within(0.001).of(0.47)
+      end
+
+      it 'over25-under SEM curva própria cai em 1 − cal_over (fallback, não quebra)' do
+        lookup = { 'over25' => ->(p) { p + 0.10 } }
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, isotonic_lookup: lookup)
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        under = out.find { |c| c[:market] == 'over25' && c[:side] == 'under' }
+        expect(over[:prob_calibrated]).to be_within(0.001).of(0.70)
+        expect(under[:prob_calibrated]).to be_within(0.001).of(0.30) # 1 - 0.70
+      end
+
+      it 'btts sim e nao usam curvas próprias quando fornecidas' do
+        lookup = { 'btts' => ->(p) { p + 0.05 }, 'btts-nao' => ->(p) { p - 0.05 } }
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, isotonic_lookup: lookup)
+        sim = out.find { |c| c[:market] == 'btts' && c[:side] == 'sim' }
+        nao = out.find { |c| c[:market] == 'btts' && c[:side] == 'nao' }
+        expect(sim[:prob_calibrated]).to be_within(0.001).of(0.60) # 0.55 + 0.05
+        expect(nao[:prob_calibrated]).to be_within(0.001).of(0.40) # 0.45 - 0.05
+      end
+
+      it 'btts SEM curva mantém prob crua (fallback, não quebra)' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000)
+        sim = out.find { |c| c[:market] == 'btts' && c[:side] == 'sim' }
+        nao = out.find { |c| c[:market] == 'btts' && c[:side] == 'nao' }
+        expect(sim[:prob_calibrated]).to be_within(0.001).of(0.55)
+        expect(nao[:prob_calibrated]).to be_within(0.001).of(0.45)
+      end
+    end
+
     # -----------------------------------------------------------------------
     # Blending sim × mercado (v1 universal, α=0.5 default in plumbing)
     # -----------------------------------------------------------------------

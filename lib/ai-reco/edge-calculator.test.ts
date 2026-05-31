@@ -312,6 +312,48 @@ describe("buildEdgeTable", () => {
     expect(home.edge_pct).toBeCloseTo(15.5, 1);
   });
 
+  // Fix 2/3 — curvas INDEPENDENTES por lado (paridade com o Ruby edge_calculator)
+  describe("calibração independente por lado (Fix 2/3)", () => {
+    it("over25-under usa curva própria quando fornecida (≠ 1 − cal_over)", () => {
+      const lookup = {
+        over25: (p: number) => p + 0.10,
+        "over25-under": (p: number) => p + 0.07,
+      };
+      const out = buildEdgeTable(baseSim, baseOdds, 1000, { isotonicLookup: lookup });
+      const under = out.find(c => c.market === "over25" && c.side === "under")!;
+      // raw under = 1 - 0.60 = 0.40 → curva própria 0.40 + 0.07 = 0.47
+      // (1 − cal_over daria 1 - 0.70 = 0.30 — diverge, confirma curva própria)
+      expect(under.prob_calibrated).toBeCloseTo(0.47, 3);
+    });
+
+    it("over25-under SEM curva cai em 1 − cal_over (fallback, não quebra)", () => {
+      const lookup = { over25: (p: number) => p + 0.10 };
+      const out = buildEdgeTable(baseSim, baseOdds, 1000, { isotonicLookup: lookup });
+      const under = out.find(c => c.market === "over25" && c.side === "under")!;
+      expect(under.prob_calibrated).toBeCloseTo(0.30, 3); // 1 - 0.70
+    });
+
+    it("btts sim e nao usam curvas próprias quando fornecidas", () => {
+      const lookup = {
+        btts: (p: number) => p + 0.05,
+        "btts-nao": (p: number) => p - 0.05,
+      };
+      const out = buildEdgeTable(baseSim, baseOdds, 1000, { isotonicLookup: lookup });
+      const sim = out.find(c => c.market === "btts" && c.side === "sim")!;
+      const nao = out.find(c => c.market === "btts" && c.side === "nao")!;
+      expect(sim.prob_calibrated).toBeCloseTo(0.60, 3); // 0.55 + 0.05
+      expect(nao.prob_calibrated).toBeCloseTo(0.40, 3); // 0.45 - 0.05
+    });
+
+    it("btts SEM curva mantém prob crua (fallback, não quebra)", () => {
+      const out = buildEdgeTable(baseSim, baseOdds, 1000);
+      const sim = out.find(c => c.market === "btts" && c.side === "sim")!;
+      const nao = out.find(c => c.market === "btts" && c.side === "nao")!;
+      expect(sim.prob_calibrated).toBeCloseTo(0.55, 3);
+      expect(nao.prob_calibrated).toBeCloseTo(0.45, 3);
+    });
+  });
+
   // ── Wave O+E: mercados secundários (corners, cards, SOT) ───────────────────
 
   describe("mercados secundários — corners/cards/SOT", () => {

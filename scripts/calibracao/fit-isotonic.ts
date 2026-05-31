@@ -38,7 +38,17 @@ interface ResolvedRow {
 // COUNT metrics (corners, cards, SOT) are evaluated via CRPS — see sim-reliability.ts.
 // Rationale: isotonic regression calibrates P(event) → observed frequency, which
 // requires a binary outcome. Count distributions need CRPS/CORP decomposition.
-type Metric = "1x2-home" | "1x2-draw" | "1x2-away" | "over25" | "btts";
+// over25-under e btts-nao ganham curva PRÓPRIA (não 1 − cal_over): a calibração
+// é ASSIMÉTRICA (a IA acertava over25-over mas dava 1/18 no under). PAV sobre
+// (1 − p) vs outcome-do-under ≠ 1 − PAV(p, outcome-do-over).
+type Metric =
+  | "1x2-home"
+  | "1x2-draw"
+  | "1x2-away"
+  | "over25"
+  | "over25-under"
+  | "btts"
+  | "btts-nao";
 
 function observedFor(metric: Metric, hg: number, ag: number, row: ResolvedRow): 0 | 1 {
   switch (metric) {
@@ -46,10 +56,15 @@ function observedFor(metric: Metric, hg: number, ag: number, row: ResolvedRow): 
     case "1x2-draw": return hg === ag ? 1 : 0;
     case "1x2-away": return hg < ag ? 1 : 0;
     case "over25": return hg + ag > 2.5 ? 1 : 0;
+    case "over25-under": return hg + ag <= 2.5 ? 1 : 0;
     case "btts": {
       // Prefer actual_btts column; fall back to deriving from goals.
       if (row.actual_btts != null) return row.actual_btts ? 1 : 0;
       return hg > 0 && ag > 0 ? 1 : 0;
+    }
+    case "btts-nao": {
+      if (row.actual_btts != null) return row.actual_btts ? 0 : 1;
+      return hg > 0 && ag > 0 ? 0 : 1;
     }
   }
 }
@@ -60,7 +75,9 @@ function predFor(metric: Metric, r: ResolvedRow): number | null {
     case "1x2-draw": return r.p_draw;
     case "1x2-away": return r.p_away;
     case "over25": return r.p_over_25;
+    case "over25-under": return r.p_over_25 == null ? null : 1 - r.p_over_25;
     case "btts": return r.p_btts;
+    case "btts-nao": return r.p_btts == null ? null : 1 - r.p_btts;
   }
 }
 
@@ -92,7 +109,15 @@ async function main() {
     byVersion.set(r.model_version, list);
   }
 
-  const metrics: Metric[] = ["1x2-home", "1x2-draw", "1x2-away", "over25", "btts"];
+  const metrics: Metric[] = [
+    "1x2-home",
+    "1x2-draw",
+    "1x2-away",
+    "over25",
+    "over25-under",
+    "btts",
+    "btts-nao",
+  ];
   for (const [version, rowsV] of byVersion.entries()) {
     for (const metric of metrics) {
       const pairs: Array<[number, number]> = [];
