@@ -4,6 +4,7 @@ import type {
   UserDecision,
 } from "@/lib/ai-reco/feedback-repository";
 import { OnDemandButton } from "./on-demand-button";
+import { ForceAnalysisButton } from "./force-analysis-button";
 import {
   AiRecoActions,
   type LinkedBetSummary,
@@ -170,6 +171,7 @@ export function AiRecoPanel({
         <p className="text-sm text-[var(--color-ink-muted)]">
           {reco.reasoning_full ?? "Nenhum mercado com vantagem estimada >= 5%."}
         </p>
+        <ForceAnalysisButton fixtureId={fixtureId} />
         {feedbackFooter(feedback)}
         <AiRecoActions
           aiRecommendationId={reco.id}
