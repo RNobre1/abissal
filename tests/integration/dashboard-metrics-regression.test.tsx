@@ -138,6 +138,7 @@ vi.mock("@/lib/supabase/server", () => ({
     from: (table: TableName) => buildQueryBuilder(table),
     auth: {
       getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
+      getClaims: vi.fn().mockResolvedValue({ data: { claims: { sub: "user-1" } }, error: null }),
     },
   })),
 }));
@@ -324,6 +325,7 @@ describe("Dashboard — denominadores negativos (paridade com código original)"
       from: (table: TableName) => buildNegativeQueryBuilder(table),
       auth: {
         getUser: vi.fn().mockResolvedValue({ data: { user: { id: "user-1" } }, error: null }),
+        getClaims: vi.fn().mockResolvedValue({ data: { claims: { sub: "user-1" } }, error: null }),
       },
     });
 

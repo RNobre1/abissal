@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { redirect } from "next/navigation";
 import { DisciplinaSettingsForm } from "./_components/disciplina-settings-form";
 import type { DisciplinaSettingsValues } from "./_components/disciplina-settings-form";
@@ -10,11 +11,9 @@ export const metadata = {
 
 export default async function DisciplinaSettingsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await authedUserId(supabase);
 
-  if (!user) redirect("/login");
+  if (!userId) redirect("/login");
 
   // Busca settings existentes (graceful: tabela pode não existir em dev sem migration)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -23,7 +22,7 @@ export default async function DisciplinaSettingsPage() {
     .select(
       "stop_loss_daily_pct, max_bets_per_day, cooldown_after_loss_min, quiet_mode_drawdown_pct, thesis_gate_enabled, quiet_mode_enabled",
     )
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .maybeSingle();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

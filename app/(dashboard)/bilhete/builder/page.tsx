@@ -7,6 +7,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { BuilderForm } from "./_components/builder-form";
 
 export const dynamic = "force-dynamic";
@@ -18,16 +19,14 @@ interface BetBuilderPageProps {
 
 export default async function BetBuilderPage({ searchParams }: BetBuilderPageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await authedUserId(supabase);
 
-  if (!user) redirect("/login");
+  if (!userId) redirect("/login");
 
   const { data: houses } = await supabase
     .from("houses")
     .select("id, name")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .is("archived_at", null)
     .order("name");
 

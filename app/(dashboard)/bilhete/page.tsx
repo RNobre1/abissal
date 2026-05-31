@@ -8,6 +8,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { getDraftSlip } from "@/lib/bet-slip/actions";
 import { BetSlipPageClient } from "./_components/bet-slip-page-client";
 
@@ -15,11 +16,9 @@ export const dynamic = "force-dynamic";
 
 export default async function BilhetePage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await authedUserId(supabase);
 
-  if (!user) redirect("/login");
+  if (!userId) redirect("/login");
 
   // Fetch draft slip with legs
   const slip = await getDraftSlip();
@@ -28,7 +27,7 @@ export default async function BilhetePage() {
   const { data: houses } = await supabase
     .from("houses")
     .select("id, name")
-    .eq("user_id", user.id)
+    .eq("user_id", userId)
     .is("archived_at", null)
     .order("name");
 

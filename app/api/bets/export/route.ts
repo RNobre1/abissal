@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { buildBetsCsv, type BetCsvRow } from "@/lib/bets/csv-export";
 
 /**
@@ -51,9 +52,9 @@ function resolveStatusValues(
 export async function GET(request: Request): Promise<Response> {
   const supabase = (await createClient()) as AnySupabase;
 
-  // Auth gate
-  const { data: { user } = { user: null } } = await supabase.auth.getUser();
-  if (!user?.id) {
+  // Auth gate (read-path — validação local do JWT, sem round-trip)
+  const userId = await authedUserId(supabase);
+  if (!userId) {
     return new Response(JSON.stringify({ error: "sessão expirada" }), {
       status: 401,
       headers: { "content-type": "application/json" },

@@ -84,6 +84,11 @@ const mockServerClient = {
         data: { user: mockUser },
         error: null,
       }),
+    getClaims: () =>
+      Promise.resolve({
+        data: mockUser ? { claims: { sub: mockUser.id } } : null,
+        error: null,
+      }),
   },
   from: (table: string) => {
     if (table === "alert_dismissals") {

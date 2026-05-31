@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { fixturesWithBadgesForDashboard } from "@/lib/fixtures/repository";
 import { todayBrt, formatUtcAsBrt } from "@/lib/fixtures/time";
 import type { FixtureDTO } from "@/lib/fixtures/types";
@@ -36,15 +37,13 @@ export async function DestaquesDoDia() {
   let dismissedIds = new Set<number>();
   try {
     const supabase = await createClient();
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+    const userId = await authedUserId(supabase);
 
-    if (user) {
+    if (userId) {
       const { data } = await supabase
         .from("alert_dismissals")
         .select("fixture_id")
-        .eq("user_id", user.id);
+        .eq("user_id", userId);
       if (data) {
         dismissedIds = new Set(
           (data as { fixture_id: number }[]).map((r) => r.fixture_id),

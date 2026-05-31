@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 
 /**
@@ -82,10 +83,8 @@ function pct(numerator: number, denominator: number): string {
 export default async function TelemetryDashboardPage() {
   // Auth guard
   const userClient = await createClient();
-  const {
-    data: { user },
-  } = await userClient.auth.getUser();
-  if (!user) redirect("/login");
+  const userId = await authedUserId(userClient);
+  if (!userId) redirect("/login");
 
   const admin = createAdminClient();
 

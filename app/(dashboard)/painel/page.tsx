@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import { fmt } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Sparkline } from "@/components/sparkline";
@@ -17,12 +18,10 @@ export default async function OverviewPage() {
   const supabase = await createClient();
 
   // Quiet mode check — antes das queries pesadas para short-circuit se ativo
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const userId = await authedUserId(supabase);
 
-  const quietMode = user
-    ? await isQuietModeActive(supabase, user.id)
+  const quietMode = userId
+    ? await isQuietModeActive(supabase, userId)
     : { active: false };
 
   const [housesQuery, summaryQuery, recentTxQuery, dailyPlQuery] =
