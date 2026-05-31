@@ -56,6 +56,7 @@ import { getFeedbackForReco } from "@/lib/ai-reco/feedback-repository";
 import { computeDefaultStake, DEFAULT_BANKROLL } from "@/lib/ai-reco/stake-calculator";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 import { SimulationPanel } from "./_components/simulation-panel";
+import type { PlayerOddsMap } from "@/lib/fixtures/stats/player-market-value";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
 import { AiRecoPanel } from "./_components/ai-reco-panel";
 
@@ -342,6 +343,20 @@ function readAvgsSampleSize(
 }
 
 /**
+ * Odds de jogador (`detail_json.player_extra.outcome_odds_by_player`) — não
+ * tipadas no DetailJson (o scraper escreve, o tipo TS é subset). Cast defensivo,
+ * igual a `readAvgsSampleSize` com `avgs`. Esparso (~10% dos fixtures).
+ */
+function playerOddsFromDetail(detail: DetailJson | null): PlayerOddsMap | undefined {
+  const m = (
+    detail as unknown as {
+      player_extra?: { outcome_odds_by_player?: PlayerOddsMap };
+    } | null
+  )?.player_extra?.outcome_odds_by_player;
+  return m && typeof m === "object" ? m : undefined;
+}
+
+/**
  * Fetches the AI recommendation for the fixture by choistats id. Returns
  * null (never throws) when source_url has no id, the table is missing, or
  * the query errors — the panel renders the on-demand call-to-action.
@@ -509,6 +524,7 @@ function buildPanels(
           homeTeam={homeTeam}
           awayTeam={awayTeam}
           sampleSize={readAvgsSampleSize(detail)}
+          playerOdds={playerOddsFromDetail(detail)}
           chrome="bare"
         />
       </SimulationDisclosure>
