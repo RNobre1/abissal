@@ -438,3 +438,64 @@ describe("fixturesWithBadgesForDashboard — ai_has_bet from ai_recommendations 
     expect(out.find((f) => f.id === 2)!.ai_no_value).toBe(false);
   });
 });
+
+describe("fixturesForBrtDay — ai_edge_pct (maior edge entre mercados bet)", () => {
+  it("select inclui edge_pct e expõe o MAIOR edge entre os bets da fixture", async () => {
+    const { client, captured } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/555/a-vs-b",
+        }),
+      ],
+      ai_recommendations: [
+        { fixture_id: 555, verdict: "bet", edge_pct: 6.2 },
+        { fixture_id: 555, verdict: "bet", edge_pct: 18.4 },
+        { fixture_id: 555, verdict: "skip", edge_pct: null },
+      ],
+    });
+
+    const out = await fixturesForBrtDay("2026-05-12", client);
+
+    // a query escalar agora puxa edge_pct também (sem detail_json).
+    expect(captured.ai_recommendations).toContain("edge_pct");
+    expect(captured.ai_recommendations).not.toContain("detail_json");
+
+    const f1 = out.find((f) => f.id === 1)!;
+    expect(f1.ai_has_bet).toBe(true);
+    expect(f1.ai_edge_pct).toBe(18.4);
+  });
+
+  it("sem bet (só skip) -> ai_edge_pct undefined", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/556/a-vs-b",
+        }),
+      ],
+      ai_recommendations: [{ fixture_id: 556, verdict: "skip", edge_pct: null }],
+    });
+    const out = await fixturesForBrtDay("2026-05-12", client);
+    expect(out[0].ai_no_value).toBe(true);
+    expect(out[0].ai_edge_pct).toBeUndefined();
+  });
+
+  it("bet com edge_pct ausente/null -> ai_has_bet true, ai_edge_pct undefined", async () => {
+    const { client } = buildMultiMock({
+      fixtures: [
+        compactRow({
+          id: 1,
+          hd_probe: "Home",
+          source_url: "https://www.adamchoi.co.uk/fixture/557/a-vs-b",
+        }),
+      ],
+      ai_recommendations: [{ fixture_id: 557, verdict: "bet", edge_pct: null }],
+    });
+    const out = await fixturesForBrtDay("2026-05-12", client);
+    expect(out[0].ai_has_bet).toBe(true);
+    expect(out[0].ai_edge_pct).toBeUndefined();
+  });
+});

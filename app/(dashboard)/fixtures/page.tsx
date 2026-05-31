@@ -3,7 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { fixturesForBrtDay } from "@/lib/fixtures/repository";
 import { parseDateParam, todayBrt } from "@/lib/fixtures/time";
 import { DateChips } from "@/components/fixtures/date-chips";
-import { FixturesList } from "@/components/fixtures/fixtures-list";
+import { FixturesBrowser } from "@/components/fixtures/fixtures-browser";
 
 interface FixturesPageProps {
   searchParams: Promise<{ date?: string }>;
@@ -50,7 +50,7 @@ export default async function FixturesPage({ searchParams }: FixturesPageProps) 
         />
       </div>
 
-      <FixturesList fixtures={fixtures} />
+      <FixturesBrowser fixtures={fixtures} />
     </main>
   );
 }

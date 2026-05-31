@@ -40,6 +40,12 @@ export interface FixtureDTO {
    */
   ai_no_value?: boolean;
   /**
+   * Maior edge (%) entre os mercados `verdict='bet'` da fixture. Presente só
+   * quando `ai_has_bet`. Escalar puxado junto do verdict na mesma query da
+   * lista (sem detail_json) — alimenta o chip `⚡IA +X%` e o sort por edge.
+   */
+  ai_edge_pct?: number;
+  /**
    * Full badge objects — only populated by the dashboard query
    * (`fixturesWithBadgesForDashboard`), never by the /fixtures list.
    */

@@ -2,6 +2,7 @@ import Link from "next/link";
 import type { FixtureDTO } from "@/lib/fixtures/types";
 import type { Badge as BadgeType, BadgeTone } from "@/lib/fixtures/badges";
 import { formatUtcAsBrt } from "@/lib/fixtures/time";
+import { countryToFlag } from "@/lib/fixtures/leagues";
 
 interface FixtureCardProps {
   fixture: FixtureDTO;
@@ -20,6 +21,16 @@ interface FixtureCardProps {
    * valor" de "ainda não analisado" (sem chip). `aiHasBet` tem precedência.
    */
   aiNoValue?: boolean;
+  /**
+   * Maior edge (%) da reco `bet`. Quando presente (e `aiHasBet`), o chip vira
+   * `⚡ IA +18%`. Vem de `fixture.ai_edge_pct`, repassado pelo caller.
+   */
+  aiEdgePct?: number;
+  /**
+   * No modo cronológico plano (sem agrupamento por liga), mostra a bandeira do
+   * país inline — já que o card não está mais sob um header de liga.
+   */
+  showLeague?: boolean;
 }
 
 const TONE_DESCRIPTION: Record<BadgeTone, string> = {
@@ -29,14 +40,23 @@ const TONE_DESCRIPTION: Record<BadgeTone, string> = {
   "first-half": "Os dois lados vêm de sequência forte de gols no 1º tempo.",
 };
 
+/** Formata o edge pro chip: compacto, inteiro, sempre com sinal. Ex.: +18%. */
+function formatEdge(pct: number): string {
+  const sign = pct >= 0 ? "+" : "−";
+  return `${sign}${Math.abs(Math.round(pct))}%`;
+}
+
 export function FixtureCard({
   fixture,
   highSignal,
   aiHasBet,
   aiNoValue,
+  aiEdgePct,
+  showLeague,
 }: FixtureCardProps) {
   const ko = formatUtcAsBrt(fixture.kickoff_utc) ?? fixture.ko_time ?? "TBD";
   const badges = fixture.badges ?? [];
+  const leagueTitle = [fixture.league, fixture.country].filter(Boolean).join(" · ");
 
   return (
     <Link
@@ -57,6 +77,16 @@ export function FixtureCard({
         >
           {ko}
         </span>
+        {showLeague ? (
+          <span
+            data-league-flag="true"
+            aria-hidden
+            title={leagueTitle || undefined}
+            className="shrink-0 text-sm leading-none"
+          >
+            {countryToFlag(fixture.country)}
+          </span>
+        ) : null}
         <span className="flex min-w-0 flex-1 items-baseline gap-2">
           <span className="min-w-0 flex-1 truncate text-right text-sm text-[var(--color-ink)]">
             {fixture.home_team}
@@ -73,9 +103,13 @@ export function FixtureCard({
             data-ai-bet="true"
             title="IA recomenda aposta nesta fixture"
             className="label shrink-0 inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[10px] text-[var(--color-vermelho)] lg:text-[11px]"
-            aria-label="IA recomenda aposta nesta fixture"
+            aria-label={
+              aiEdgePct != null
+                ? `IA recomenda aposta — edge ${formatEdge(aiEdgePct)}`
+                : "IA recomenda aposta nesta fixture"
+            }
           >
-            ⚡ IA
+            ⚡ IA{aiEdgePct != null ? ` ${formatEdge(aiEdgePct)}` : ""}
           </span>
         ) : aiNoValue ? (
           <span

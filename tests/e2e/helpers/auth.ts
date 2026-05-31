@@ -23,7 +23,11 @@ export async function loginAsTestUser(page: Page) {
   await page.fill('input[name="email"]', email);
   await page.fill('input[name="password"]', password);
   await page.click('button[type="submit"]');
-  await page.waitForURL((url) => new URL(url).pathname === "/", {
+  // Login bem-sucedido = saiu do /login. O landing pós-login mudou de "/" para
+  // "/painel" (sessão getClaims/B22), então esperar pathname==="/" dava timeout
+  // e derrubava TODOS os specs. "Deixou /login" é o contrato robusto a qualquer
+  // rota de destino.
+  await page.waitForURL((url) => new URL(url).pathname !== "/login", {
     timeout: 15_000,
   });
 }
