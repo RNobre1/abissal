@@ -158,10 +158,15 @@ module AdamStats
           (fixture_id, home_team, away_team, league, kickoff_utc, model_version,
            p_home, p_draw, p_away, p_btts, p_over_25,
            top_scorelines, sim_stats, per_half_available, market_anchor,
-           player_events, status, created_at)
+           player_events, status,
+           p_duplo_green, p_duplo_green_home, p_duplo_green_away,
+           p_both_2corners_both_halves,
+           created_at)
         VALUES ($1, $2, $3, $4, $5::timestamptz, $6,
                 $7, $8, $9, $10, $11,
-                $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17, now())
+                $12::jsonb, $13::jsonb, $14, $15::jsonb, $16::jsonb, $17,
+                $18, $19, $20, $21,
+                now())
       SQL
 
       module_function
@@ -287,7 +292,11 @@ module AdamStats
           sim[:per_half_available],
           JSON.generate(sim[:market_anchor] || {}),
           JSON.generate(sim[:player_events] || []),
-          sim[:status] || 'pending'
+          sim[:status] || 'pending',
+          sim[:p_duplo_green],
+          sim[:p_duplo_green_home],
+          sim[:p_duplo_green_away],
+          sim[:p_both_2corners_both_halves]
         ]
       end
       private_class_method :build_params

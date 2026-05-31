@@ -93,6 +93,16 @@ export interface FixtureSimulationDTO {
   correct_over_under: boolean | null;
   actual_resolved_at: string | null;
   /**
+   * Scans pré-jogo (migration 0046). Derivados da distribuição da sim —
+   * ranking/display-only, FORA de calibração/ROI/Brier. Nullable: NULL em
+   * linhas antigas (pré-backfill); `p_both_2corners_both_halves` também NULL
+   * quando `per_half_available=false`.
+   */
+  p_duplo_green: number | null;
+  p_duplo_green_home: number | null;
+  p_duplo_green_away: number | null;
+  p_both_2corners_both_halves: number | null;
+  /**
    * F3-prod: true sse PELO MENOS UMA das 3 curvas isotônicas 1X2
    * (`1x2-home`/`draw`/`away`) ativa em `model_calibration` para o
    * `model_version` desta sim row foi aplicada. Over25 sozinho NÃO
@@ -157,6 +167,10 @@ function mapRow(row: Record<string, unknown>): FixtureSimulationDTO {
         ? row.correct_over_under
         : null,
     actual_resolved_at: (row.actual_resolved_at as string | null) ?? null,
+    p_duplo_green: num(row.p_duplo_green),
+    p_duplo_green_home: num(row.p_duplo_green_home),
+    p_duplo_green_away: num(row.p_duplo_green_away),
+    p_both_2corners_both_halves: num(row.p_both_2corners_both_halves),
     // F3-prod: defaults; podem ser sobrescritos por applyCalibration() abaixo.
     calibrated_via_isotonic: false,
     calibration_n: null,
@@ -311,7 +325,8 @@ export async function getFixtureSimulation(
             "p_over_25, top_scorelines, sim_stats, per_half_available, " +
             "market_anchor, player_events, status, actual_home_goals, " +
             "actual_away_goals, correct_winner, correct_over_under, " +
-            "actual_resolved_at",
+            "actual_resolved_at, p_duplo_green, p_duplo_green_home, " +
+            "p_duplo_green_away, p_both_2corners_both_halves",
         )
         .eq("fixture_id", apiId)
         .order("created_at", { ascending: false, nullsFirst: false })
@@ -332,7 +347,8 @@ export async function getFixtureSimulation(
           "p_over_25, top_scorelines, sim_stats, per_half_available, " +
           "market_anchor, player_events, status, actual_home_goals, " +
           "actual_away_goals, correct_winner, correct_over_under, " +
-          "actual_resolved_at",
+          "actual_resolved_at, p_duplo_green, p_duplo_green_home, " +
+          "p_duplo_green_away, p_both_2corners_both_halves",
       )
       .eq("home_team", key.homeTeam)
       .eq("away_team", key.awayTeam);

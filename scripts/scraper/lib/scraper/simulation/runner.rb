@@ -89,7 +89,11 @@ module AdamStats
             sim_stats: mc[:sim_stats],
             per_half_available: mc[:per_half_available],
             market_anchor: mc[:market_anchor],
-            player_events: mc[:player_events]
+            player_events: mc[:player_events],
+            p_duplo_green: mc[:p_duplo_green],
+            p_duplo_green_home: mc[:p_duplo_green_home],
+            p_duplo_green_away: mc[:p_duplo_green_away],
+            p_both_2corners_both_halves: mc[:p_both_2corners_both_halves]
           }
         rescue StandardError
           # Honest degradation — one bad fixture must never raise (Lição #11).

@@ -46,6 +46,19 @@ RSpec.describe AdamStats::Scraper::Simulation::Runner do
       expect(JSON.generate(result).bytesize).to be < 60_000
     end
 
+    it 'includes the 4 pre-match scan scalars from MonteCarlo' do
+      expect(result).to have_key(:p_duplo_green)
+      expect(result).to have_key(:p_duplo_green_home)
+      expect(result).to have_key(:p_duplo_green_away)
+      expect(result).to have_key(:p_both_2corners_both_halves)
+      # duplo-green scalars must be in [0,1] when present
+      %i[p_duplo_green p_duplo_green_home p_duplo_green_away].each do |k|
+        v = result[k]
+        expect(v).not_to be_nil
+        expect(v).to be_between(0.0, 1.0)
+      end
+    end
+
     it 'is reproducible (deterministic seed derived from the fixture)' do
       a = described_class.simulate(enriched_detail)
       b = described_class.simulate(enriched_detail)

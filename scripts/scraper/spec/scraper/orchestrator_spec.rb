@@ -725,6 +725,46 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       end.not_to raise_error
       expect(logged.any? { |m| m.include?('non-fatal') }).to be(true)
     end
+
+    # Pre-match scans — contrato do INSERT_SQL e build_params (4 novos escalares)
+    it 'INSERT_SQL includes p_duplo_green columns and $18-$21 placeholders' do
+      sql = described_class::INSERT_SQL
+      expect(sql).to include('p_duplo_green')
+      expect(sql).to include('p_duplo_green_home')
+      expect(sql).to include('p_duplo_green_away')
+      expect(sql).to include('p_both_2corners_both_halves')
+      expect(sql).to include('$18')
+      expect(sql).to include('$19')
+      expect(sql).to include('$20')
+      expect(sql).to include('$21')
+    end
+
+    it 'build_params returns 21 elements and includes nil for absent new scalars' do
+      sim = { status: 'pending', model_version: 'v', p_home: 0.5, p_draw: 0.3, p_away: 0.2,
+              p_btts: 0.5, p_over_25: 0.5, top_scorelines: [], sim_stats: {},
+              per_half_available: false, market_anchor: {}, player_events: [] }
+      params = described_class.send(:build_params, fixture, sim)
+      expect(params.length).to eq(21)
+      # positions 17-20 (0-based) = $18-$21 = new scalars = nil when not in sim hash
+      expect(params[17]).to be_nil
+      expect(params[18]).to be_nil
+      expect(params[19]).to be_nil
+      expect(params[20]).to be_nil
+    end
+
+    it 'build_params correctly positions non-nil new scalars' do
+      sim = { status: 'pending', model_version: 'v', p_home: 0.5, p_draw: 0.3, p_away: 0.2,
+              p_btts: 0.5, p_over_25: 0.5, top_scorelines: [], sim_stats: {},
+              per_half_available: false, market_anchor: {}, player_events: [],
+              p_duplo_green: 0.1234, p_duplo_green_home: 0.0567,
+              p_duplo_green_away: 0.0890, p_both_2corners_both_halves: 0.3456 }
+      params = described_class.send(:build_params, fixture, sim)
+      expect(params.length).to eq(21)
+      expect(params[17]).to eq(0.1234)
+      expect(params[18]).to eq(0.0567)
+      expect(params[19]).to eq(0.0890)
+      expect(params[20]).to eq(0.3456)
+    end
   end
 
   describe "#{described_class}'s upsert idempotence (real test DB)" do
@@ -742,6 +782,9 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       # quando o test DB foi provisionado pré-0021 (índice antigo sem MV
       # ainda existe — `create … if not exists` no 0018 não o substituiria).
       DBHelper.apply_migration!('0021_fixture_simulations_model_version_dedup.sql')
+      # 0046 — adiciona as 4 colunas de escalares pré-jogo (duplo-green + corners 2+/tempo).
+      # ADD COLUMN IF NOT EXISTS é idempotente — seguro re-aplicar em test DB já atualizado.
+      DBHelper.apply_migration!('0046_fixture_simulations_pre_match_scans.sql')
     end
 
     before(:each) do

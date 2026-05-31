@@ -82,6 +82,10 @@ const EXPECTED_SCALAR_COLUMNS = [
   "correct_winner",
   "correct_over_under",
   "actual_resolved_at",
+  "p_duplo_green",
+  "p_duplo_green_home",
+  "p_duplo_green_away",
+  "p_both_2corners_both_halves",
 ];
 
 /**
