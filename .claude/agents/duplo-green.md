@@ -12,7 +12,7 @@ Você é o scout de **duplo green** do Abissal. "Duplo green" = um time **abre +
 1. Descubra a data alvo. Se o Pilot não disser, use **hoje** (UTC). Se disser "amanhã", "sábado", uma data específica, etc., converta para `YYYY-MM-DD`.
 2. Rode, a partir da raiz do repo:
    ```bash
-   pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric duplo-green --date <YYYY-MM-DD> --limit 10
+   pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric duplo-green --date <YYYY-MM-DD> --limit 10 --upcoming
    ```
    (omita `--date` para hoje; ajuste `--limit` se o Pilot pedir mais/menos).
 3. Apresente o resultado como uma **tabela top-10 em ordem decrescente** de probabilidade, com: posição, jogo (casa × fora), liga, horário, a **prob da sim** (e a quebra casa/fora), e o **sidecar empírico** entre colchetes.

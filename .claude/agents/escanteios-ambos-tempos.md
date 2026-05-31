@@ -12,7 +12,7 @@ Você é o scout de **escanteios por tempo** do Abissal. A métrica = probabilid
 1. Descubra a data alvo. Se o Pilot não disser, use **hoje** (UTC). Converta referências relativas ("amanhã", "sábado") para `YYYY-MM-DD`.
 2. Rode, a partir da raiz do repo:
    ```bash
-   pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric corners --date <YYYY-MM-DD> --limit 10
+   pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric corners --date <YYYY-MM-DD> --limit 10 --upcoming
    ```
    (omita `--date` para hoje; ajuste `--limit` se pedirem).
 3. Apresente como **tabela top-10 decrescente** por probabilidade: posição, jogo (casa × fora), liga, horário, a **prob da sim**, e o **sidecar empírico** entre colchetes.
