@@ -46,7 +46,7 @@ const COLUMNS =
   "kickoff_utc, reco_version, prompt_version, llm_model, verdict, " +
   "market, side, prob_estimated, prob_calibrated, edge_pct, " +
   "odd_captured, kelly_pre, units_final, reduction_reason, confidence, " +
-  "summary_line, reasoning_full, red_flags, cost_usd, league_calibrated";
+  "summary_line, reasoning_full, red_flags, cost_usd, league_calibrated, forced";
 
 export interface AiRecommendationDTO {
   id: number;
@@ -75,6 +75,12 @@ export interface AiRecommendationDTO {
   red_flags: string[];
   cost_usd: number | null;
   league_calibrated: boolean;
+  /**
+   * True when the reco was forced below the edge threshold (migration 0045).
+   * Excluded from calibration. Optional for backward compat — old rows without
+   * the column degrade to false (DEFAULT false in the migration).
+   */
+  forced?: boolean;
 }
 
 function num(v: unknown): number | null {
@@ -134,6 +140,7 @@ function mapRow(row: Record<string, unknown>): AiRecommendationDTO {
     red_flags: asStringArray(row.red_flags),
     cost_usd: num(row.cost_usd),
     league_calibrated: row.league_calibrated === true,
+    forced: row.forced === true,
   };
 }
 

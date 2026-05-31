@@ -32,6 +32,13 @@ export interface AiRecoRow {
   units_final: number | string | null;
   bet_won: boolean | null;
   pl_units: number | string | null;
+  /**
+   * Recos forçadas (abaixo do edge threshold, pedidas pelo usuário via botão
+   * "forçar análise") são EXCLUÍDAS de TODAS as agregações de calibração
+   * (ROI/Brier/win-rate/grupos). Mesma classe de Lição B19 — dados sub-threshold
+   * envenenam métricas se misturados. Migration 0045.
+   */
+  forced?: boolean | null;
 }
 
 export interface RoiSummary {
@@ -55,6 +62,7 @@ export function summarizeAiRecoRoi(rows: AiRecoRow[]): RoiSummary {
   let totalPl = 0;
   let totalUnitsRisked = 0;
   for (const r of rows) {
+    if (r.forced) continue; // B19-class: forced recos excluded from all calibration metrics
     if (r.status !== "resolved") continue;
     resolvedCount += 1;
     if (r.verdict !== "bet") continue;
@@ -92,6 +100,7 @@ export function brierAiReco(rows: AiRecoRow[]): BrierSummary {
   let sum = 0;
   let n = 0;
   for (const r of rows) {
+    if (r.forced) continue; // B19-class: forced recos excluded from all calibration metrics
     if (r.status !== "resolved" || r.verdict !== "bet") continue;
     if (r.bet_won == null) continue;
     // Skip null/undefined explicitly — `toNum(null)` returns 0, which would
@@ -125,6 +134,7 @@ export interface LeagueRoiRow {
 export function groupAiRecoByLeague(rows: AiRecoRow[]): LeagueRoiRow[] {
   const map = new Map<string, LeagueRoiRow>();
   for (const r of rows) {
+    if (r.forced) continue; // B19-class: forced recos excluded from all calibration metrics
     if (r.status !== "resolved") continue;
     const key = (r.league ?? "(sem liga)").trim() || "(sem liga)";
     const entry =
@@ -174,6 +184,7 @@ export function groupAiRecoByConfidence(rows: AiRecoRow[]): ConfidenceRow[] {
     map.set(c, { confidence: c, total: 0, bets: 0, won: 0, totalPl: 0, winRate: null });
   }
   for (const r of rows) {
+    if (r.forced) continue; // B19-class: forced recos excluded from all calibration metrics
     if (r.status !== "resolved") continue;
     const c = r.confidence;
     if (c !== "alto" && c !== "medio" && c !== "baixo") continue;
@@ -307,6 +318,7 @@ function aggregateByMarket(
 ): MarketRoiRow[] {
   const map = new Map<string, MarketRoiRow>();
   for (const r of rows) {
+    if (r.forced) continue; // B19-class: forced recos excluded from all calibration metrics
     if (r.status !== "resolved") continue;
     const key = keyOf(r);
     const entry =

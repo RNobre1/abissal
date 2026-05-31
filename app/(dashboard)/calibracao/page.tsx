@@ -397,7 +397,7 @@ export default async function CalibracaoPage() {
     const { data, error } = await admin
       .from("ai_recommendations")
       .select(
-        "id, league, market, side, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units",
+        "id, league, market, side, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units, forced",
       )
       .order("created_at", { ascending: false })
       .limit(2000);

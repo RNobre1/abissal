@@ -90,6 +90,12 @@ const DEFAULT_BLEND_ALPHA = 0.3;
 
 const bodySchema = z.object({
   fixtureId: z.number().int().positive(),
+  /**
+   * force=true: bypass edge gate, pick best candidate (even below threshold),
+   * call the LLM and persist with forced=true. These recos are excluded from
+   * all calibration metrics (B19-class). Default: false / absent.
+   */
+  force: z.boolean().optional().default(false),
 });
 
 interface FixtureLookupRow {
@@ -133,7 +139,7 @@ export async function POST(request: Request): Promise<Response> {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
-  const { fixtureId } = parsed;
+  const { fixtureId, force } = parsed;
   // Choistats id (derivado de source_url) é o identificador usado em
   // ai_recommendations.fixture_id e fixture_simulations.fixture_id (id-space
   // do scraper). `fixtureId` do body é a PK da tabela fixtures (rota Next.js).
@@ -241,35 +247,78 @@ export async function POST(request: Request): Promise<Response> {
   );
 
   // ---------------------------------------------------------------------------
-  // 8. Skip path — no IA call needed
+  // 8. Skip path — no IA call needed (unless force=true)
+  //
+  // force=true: bypass edge gate. Pick the candidate with the highest edge_pct
+  // (even if negative/zero) and proceed to LLM. Reco persisted with forced=true.
+  // These recos are excluded from all calibration metrics (B19-class concern).
   // ---------------------------------------------------------------------------
+  // Track whether this request is truly "forced" (gate bypassed).
+  // Only true when force=true AND no candidate passed the natural gate.
+  let isForced = false;
+
   if (betCandidates.length === 0) {
-    const recoId = await persistSkip({
-      supabase,
-      fixture,
-      choistatsId,
-      allCandidates,
-      leagueCalibrated,
-    });
+    if (!force) {
+      // Normal skip — no LLM call, persist skip with forced=false.
+      const recoId = await persistSkip({
+        supabase,
+        fixture,
+        choistatsId,
+        allCandidates,
+        leagueCalibrated,
+      });
 
-    const skipDecision: AiDecision = {
-      verdict: "skip",
-      confidence: "baixo",
-      reasoning: "Nenhum mercado com valor; skip.",
-      summary_line: "Nenhum candidato com edge >= 10%",
-      red_flags: [],
-    };
+      const skipDecision: AiDecision = {
+        verdict: "skip",
+        confidence: "baixo",
+        reasoning: "Nenhum mercado com valor; skip.",
+        summary_line: "Nenhum candidato com edge >= 10%",
+        red_flags: [],
+      };
 
-    return NextResponse.json(
-      {
-        decision: skipDecision,
-        reco_id: recoId,
-        logId: null,
-        costUsd: 0,
-        latencyMs: 0,
-      },
-      { status: 200 },
+      return NextResponse.json(
+        {
+          decision: skipDecision,
+          reco_id: recoId,
+          logId: null,
+          costUsd: 0,
+          latencyMs: 0,
+        },
+        { status: 200 },
+      );
+    }
+
+    // force=true: pick the best available candidate (highest edge_pct).
+    // Sort descending by edge_pct and use the top one as the forced candidate.
+    const sortedByEdge = [...allCandidates].sort(
+      (a, b) => b.edge_pct - a.edge_pct,
     );
+    const forcedCandidate = sortedByEdge[0];
+    // If there are truly zero candidates (no odds at all), fall through to skip.
+    if (!forcedCandidate) {
+      const recoId = await persistSkip({
+        supabase,
+        fixture,
+        choistatsId,
+        allCandidates,
+        leagueCalibrated,
+      });
+      const skipDecision: AiDecision = {
+        verdict: "skip",
+        confidence: "baixo",
+        reasoning: "Nenhum mercado disponível para análise forçada.",
+        summary_line: "Sem candidatos",
+        red_flags: [],
+      };
+      return NextResponse.json(
+        { decision: skipDecision, reco_id: recoId, logId: null, costUsd: 0, latencyMs: 0 },
+        { status: 200 },
+      );
+    }
+    // Replace betCandidates with the single forced candidate for the LLM path.
+    betCandidates.push(forcedCandidate);
+    // We entered the force bypass — mark this reco as forced.
+    isForced = true;
   }
 
   // ---------------------------------------------------------------------------
@@ -383,6 +432,7 @@ export async function POST(request: Request): Promise<Response> {
     model,
     logId,
     cost,
+    forced: isForced,
   });
 
   return NextResponse.json(
@@ -729,6 +779,7 @@ async function persistSkip(args: {
         reasoning_full: "Nenhum mercado com valor; skip.",
         red_flags: [],
         cost_usd: 0,
+        forced: false,
       })
       .select("id")
       .single();
@@ -750,6 +801,8 @@ async function insertReco(args: {
   model: string;
   logId: number | null;
   cost: number;
+  /** True when the reco was forced below the edge threshold. Excluded from calibration. */
+  forced?: boolean;
 }): Promise<number | null> {
   const d = args.decision;
   const chosen =
@@ -789,6 +842,7 @@ async function insertReco(args: {
         reasoning_full: d.reasoning ?? null,
         red_flags: d.red_flags ?? [],
         cost_usd: args.cost,
+        forced: args.forced === true,
       })
       .select("id")
       .single();
