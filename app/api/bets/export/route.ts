@@ -1,5 +1,4 @@
 import { createClient } from "@/lib/supabase/server";
-import { authedUserId } from "@/lib/supabase/auth";
 import { buildBetsCsv, type BetCsvRow } from "@/lib/bets/csv-export";
 
 /**
@@ -52,9 +51,11 @@ function resolveStatusValues(
 export async function GET(request: Request): Promise<Response> {
   const supabase = (await createClient()) as AnySupabase;
 
-  // Auth gate (read-path — validação local do JWT, sem round-trip)
-  const userId = await authedUserId(supabase);
-  if (!userId) {
+  // Auth gate. NB: esta rota é `runtime = "edge"` e o `getClaims()` é
+  // incompatível com o edge runtime do OpenNext (retorna 500) — então aqui
+  // mantemos `getUser()`, que funciona. Ver Lição B22.
+  const { data: { user } = { user: null } } = await supabase.auth.getUser();
+  if (!user?.id) {
     return new Response(JSON.stringify({ error: "sessão expirada" }), {
       status: 401,
       headers: { "content-type": "application/json" },
