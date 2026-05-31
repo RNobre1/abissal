@@ -20,10 +20,14 @@ import React from "react";
 // ─── Skeleton compartilhado ──────────────────────────────────────────────────
 
 function ChartSkeleton({ h = 320 }: { h?: number }) {
+  // role="status" (live region) torna o aria-label permitido no div
+  // (axe aria-prohibited-attr) E anuncia "carregando" pro leitor de tela.
+  // Sem o role, aria-label num div sem role é violação séria (B23).
   return (
     <div
       className="card animate-shimmer"
       style={{ height: h }}
+      role="status"
       aria-busy="true"
       aria-label="carregando gráfico"
     />
