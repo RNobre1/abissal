@@ -3,7 +3,7 @@
  * frequência empírica por tempo (gols 100% / escanteios ~53%, "X/Y").
  */
 import { describe, it, expect } from "vitest";
-import { render, within } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { EmpiricalHalves } from "@/components/fixtures/stats/panels/empirical-halves";
 import type { NormalizedRecentMatch } from "@/lib/fixtures/stats/detail-json-types";
 
