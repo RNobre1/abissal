@@ -51,7 +51,8 @@ SQL
 
 SELECT_FIXTURES_SQL = <<~SQL.freeze
   SELECT
-    f.id          AS fixture_id,
+    f.id          AS row_id,
+    f.source_url,
     f.home_team,
     f.away_team,
     f.kickoff_utc,
@@ -60,6 +61,14 @@ SELECT_FIXTURES_SQL = <<~SQL.freeze
   WHERE f.detail_json IS NOT NULL
   ORDER BY f.id
 SQL
+
+# fixture_simulations.fixture_id guarda o id NUMÉRICO do choistats (parseado do
+# source_url /fixture/<id>), NÃO o fixtures.id interno (id-space split — ver
+# lib/fixtures/simulation-repository.ts). Espelha orchestrator#fixture_api_id.
+def choistats_id(source_url)
+  m = source_url.to_s.match(%r{/fixture/(\d+)})
+  m && m[1].to_i
+end
 
 updated = 0
 skipped = 0
@@ -70,22 +79,24 @@ AdamStats::Scraper::DB.with_connection do |conn|
   warn "[backfill] #{rows.size} fixtures com detail_json encontradas"
 
   rows.each do |row|
-    fixture_id  = row['fixture_id']&.to_i
+    row_id      = row['row_id']&.to_i
+    fixture_id  = choistats_id(row['source_url']) # id do choistats (= fs.fixture_id)
     home_team   = row['home_team']
     away_team   = row['away_team']
     kickoff_utc = row['kickoff_utc']
+    label       = fixture_id || "#{home_team} vs #{away_team} (row #{row_id})"
 
     begin
       detail = JSON.parse(row['detail_json'])
     rescue JSON::ParserError => e
-      warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: JSON parse error — #{e.message}"
+      warn "[backfill] #{label}: JSON parse error — #{e.message}"
       errors += 1
       next
     end
 
     sim = AdamStats::Scraper::Simulation::Runner.simulate(detail)
     if sim.nil? || sim[:status] == 'unsimulable'
-      warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: unsimulable — pulando"
+      warn "[backfill] #{label}: unsimulable — pulando"
       skipped += 1
       next
     end
@@ -102,18 +113,18 @@ AdamStats::Scraper::DB.with_connection do |conn|
          fixture_id, home_team, away_team, kickoff_utc]
       )
       if result.cmd_tuples == 0
-        warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: nenhuma linha fixture_simulations encontrada — pulando"
+        warn "[backfill] #{label}: nenhuma linha fixture_simulations encontrada — pulando"
         skipped += 1
         next
       end
     end
 
     updated += 1
-    warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: " \
+    warn "[backfill] #{label}: " \
          "dg=#{p_dg} dg_home=#{p_dg_home} dg_away=#{p_dg_away} both2c=#{p_both}" \
          "#{dry_run ? ' [dry-run]' : ''}"
   rescue StandardError => e
-    warn "[backfill] #{fixture_id || "#{home_team} vs #{away_team}"}: ERRO — #{e.class}: #{e.message}"
+    warn "[backfill] #{label}: ERRO — #{e.class}: #{e.message}"
     errors += 1
   end
 end
