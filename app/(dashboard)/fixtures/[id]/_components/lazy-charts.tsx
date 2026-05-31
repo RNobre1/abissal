@@ -20,10 +20,14 @@ import React from "react";
 // ─── Skeleton compartilhado ──────────────────────────────────────────────────
 
 function ChartSkeleton({ h = 320 }: { h?: number }) {
+  // role="status" (live region) torna o aria-label permitido no div
+  // (axe aria-prohibited-attr) E anuncia "carregando" pro leitor de tela.
+  // Sem o role, aria-label num div sem role é violação séria (B23).
   return (
     <div
       className="card animate-shimmer"
       style={{ height: h }}
+      role="status"
       aria-busy="true"
       aria-label="carregando gráfico"
     />
@@ -81,3 +85,32 @@ export const LazyPlayers = dynamic(
     loading: () => <ChartSkeleton h={360} />,
   },
 ) as typeof import("@/components/fixtures/stats/panels/players").Players;
+
+// ─── StreaksHeatmap (B23) ─────────────────────────────────────────────────────
+// ~222 entradas de streak × grupos → maior árvore DOM da página. Era
+// server-renderizado (renderToString no Worker) e estourava o CPU (1102). Vai
+// pro cliente — o Worker só emite o skeleton.
+
+export const LazyStreaksHeatmap = dynamic(
+  () =>
+    import(
+      "@/components/fixtures/stats/panels/streaks-heatmap"
+    ).then((m) => m.StreaksHeatmap),
+  {
+    ssr: false,
+    loading: () => <ChartSkeleton h={360} />,
+  },
+) as typeof import("@/components/fixtures/stats/panels/streaks-heatmap").StreaksHeatmap;
+
+// ─── Distributions (B23) ──────────────────────────────────────────────────────
+
+export const LazyDistributions = dynamic(
+  () =>
+    import(
+      "@/components/fixtures/stats/panels/distributions"
+    ).then((m) => m.Distributions),
+  {
+    ssr: false,
+    loading: () => <ChartSkeleton h={360} />,
+  },
+) as typeof import("@/components/fixtures/stats/panels/distributions").Distributions;

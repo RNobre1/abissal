@@ -19,7 +19,6 @@ import {
   deriveDistributions,
   deriveRadarAxes,
   deriveStreakIndex,
-  deriveOddsCategories,
 } from "@/lib/fixtures/stats/derive";
 import {
   computeCorrelations,
@@ -34,22 +33,23 @@ import { H2H } from "@/components/fixtures/stats/panels/h2h";
 import { Splits1h2h } from "@/components/fixtures/stats/panels/splits-1h-2h";
 import { Referee } from "@/components/fixtures/stats/panels/referee";
 import { Predictions } from "@/components/fixtures/stats/panels/predictions";
-import { Distributions } from "@/components/fixtures/stats/panels/distributions";
 import { Insights } from "@/components/fixtures/stats/panels/insights";
 import {
   MomentumChart,
   type MomentumPoint,
 } from "@/components/fixtures/stats/panels/momentum-chart";
-// Heavy recharts panels — lazy-loaded on the client to shrink first-load JS.
-// Drop-in replacements; same props contract as the originals.
+// Painéis pesados — renderizados no CLIENTE (next/dynamic ssr:false) p/ não
+// pagar renderToString no Worker (B23: estourava CPU/1102). Recharts (Radar,
+// Scatter, RecentMatches, Players) + alta-cardinalidade (StreaksHeatmap ~222
+// entradas, Distributions). Drop-in: mesmo contrato de props.
 import {
   LazyRadarComparison as RadarComparison,
   LazyScatterPlayground as ScatterPlayground,
   LazyRecentMatchesPanel as RecentMatchesPanel,
   LazyPlayers as Players,
+  LazyStreaksHeatmap as StreaksHeatmap,
+  LazyDistributions as Distributions,
 } from "./_components/lazy-charts";
-import { StreaksHeatmap } from "@/components/fixtures/stats/panels/streaks-heatmap";
-import { MarketsBrowser } from "@/components/fixtures/stats/panels/markets-browser";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { getRecommendationForFixture } from "@/lib/ai-reco/reco-repository";
 import { getFeedbackForReco } from "@/lib/ai-reco/feedback-repository";
@@ -557,7 +557,7 @@ function buildPanels(
   const momentumHome = buildMomentumSeries(recentHome);
   const momentumAway = buildMomentumSeries(recentAway);
 
-  // Wave 4 derivers — F (streaks), G+ (players), H (markets-browser).
+  // Wave 4 derivers — F (streaks), G+ (players).
   // Each panel handles empty inputs internally; we always mount the slots
   // so the layout stays stable and URL state survives refresh.
   const streakIndex = deriveStreakIndex([
@@ -566,7 +566,6 @@ function buildPanels(
   ]);
   const playersHome = detail.player_stats?.home?.top_players ?? [];
   const playersAway = detail.player_stats?.away?.top_players ?? [];
-  const oddsCategories = deriveOddsCategories(detail.odds_summary ?? null);
 
   // Insights — compute the four kinds across the home team's recent matches
   // (the "fixture perspective" for the upcoming match), then rank.
@@ -705,12 +704,6 @@ function buildPanels(
           away={playersAway}
         />
       ),
-    },
-    {
-      id: "H",
-      colSpan: "span 12 / span 12",
-      label: "markets browser",
-      node: <MarketsBrowser data={oddsCategories} />,
     },
     {
       id: "C-home",
