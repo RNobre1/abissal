@@ -71,9 +71,14 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
   process.exit(1);
 }
 const limit = Number(arg("limit") || "10");
+const upcomingOnly = process.argv.includes("--upcoming");
 
 const dayStart = `${date}T00:00:00Z`;
 const dayEnd = `${date}T23:59:59.999Z`;
+// `--upcoming`: só jogos ainda não iniciados (scan pré-jogo). Limite inferior =
+// max(início do dia, agora). Em datas futuras `now < dayStart` ⇒ pega o dia todo.
+const nowIso = new Date().toISOString();
+const lowerBound = upcomingOnly && nowIso > dayStart ? nowIso : dayStart;
 
 function pct(v: number | null): string {
   return v === null ? "—" : `${(v * 100).toFixed(1)}%`;
@@ -91,7 +96,7 @@ async function main() {
         "per_half_available, p_duplo_green, p_duplo_green_home, p_duplo_green_away, " +
         "p_both_2corners_both_halves",
     )
-    .gte("kickoff_utc", dayStart)
+    .gte("kickoff_utc", lowerBound)
     .lt("kickoff_utc", dayEnd)
     .order("created_at", { ascending: false });
   if (simErr) {
@@ -195,7 +200,7 @@ async function attachSidecars(
 }
 
 function header(title: string, n: number) {
-  console.log(`\n${title} — ${date} (top ${n})\n`);
+  console.log(`\n${title} — ${date}${upcomingOnly ? " (próximos)" : ""} (top ${n})\n`);
 }
 
 function printDuploGreen(ranked: Array<RankedScan<DuploGreenSidecar>>) {
