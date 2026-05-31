@@ -1,14 +1,24 @@
-name: calibracao-monthly
+name: calibracao-weekly
 
-# 08:00 UTC no dia 5 de cada mês — refit dos parâmetros de liga (MoM)
-# e da calibração isotônica. Manual trigger via workflow_dispatch.
+# 12:00 UTC todo domingo — refit dos parâmetros de liga (MoM) e da
+# calibração isotônica. 12:00 UTC roda DEPOIS do scrape (10:00) + reconcilers
+# + ai-reco (10:45), então pega os jogos de sábado já resolvidos no scrape
+# de domingo. Cadência semanal (era mensal): na fase atual o dataset cresce
+# rápido — em 6 dias a isotônica foi de n=538/4 métricas → n=607/5 (ganhou
+# btts) e os fits por liga se movem bastante (14 ligas elegíveis, muitas em
+# n=20-26 flag low_confidence; uma a n=20 vira n=27 numa semana = +35% dado).
+# Refit semanal incorpora isso muito mais cedo. As travas n>=20 (por liga) e
+# o pool da isotônica autoprotegem contra amostra fina. Reavaliar a cadência
+# (voltar pra mensal) quando o conjunto de ligas qualificadas estabilizar.
+# É refit MECÂNICO data-driven — NÃO mexe em prompt/modelo (decisão manual,
+# por evidência, nunca por calendário — ver lição B24). Manual via workflow_dispatch.
 on:
   schedule:
-    - cron: "0 8 5 * *"
+    - cron: "0 12 * * 0"
   workflow_dispatch: {}
 
 concurrency:
-  group: calibracao-monthly
+  group: calibracao-weekly
   cancel-in-progress: false
 
 jobs:
@@ -16,7 +26,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
+      # read-only (não dá git push) → persist-credentials:false (least-privilege,
+      # item 10 do optimizing-github-actions).
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: pnpm/action-setup@v4
         with:
