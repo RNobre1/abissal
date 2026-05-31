@@ -115,31 +115,52 @@ async function fetchBadgeView(
  * Skips the round-trip entirely when there are zero parseable choistats ids
  * to look up (avoids an empty `IN ()` clause).
  */
+interface AiVerdict {
+  verdict: "bet" | "skip";
+  /** maior edge (%) entre os mercados `bet` da fixture; null se não há bet. */
+  edgePct: number | null;
+}
+
 async function fetchAiVerdicts(
   supabase: AnySupabase,
   choistatsIds: number[],
-): Promise<Map<number, "bet" | "skip">> {
-  const out = new Map<number, "bet" | "skip">();
+): Promise<Map<number, AiVerdict>> {
+  const out = new Map<number, AiVerdict>();
   if (choistatsIds.length === 0) return out;
   try {
     const { data, error } = await supabase
       .from("ai_recommendations")
-      .select("fixture_id, verdict")
+      .select("fixture_id, verdict, edge_pct")
       .in("fixture_id", choistatsIds);
     if (error) return out;
     for (const r of (data ?? []) as Array<{
       fixture_id: number | null;
       verdict: string | null;
+      edge_pct: number | null;
     }>) {
       if (r.fixture_id == null) continue;
       const id = Number(r.fixture_id);
-      if (r.verdict === "bet") out.set(id, "bet");
-      else if (r.verdict === "skip" && out.get(id) !== "bet") out.set(id, "skip");
+      const prev = out.get(id);
+      if (r.verdict === "bet") {
+        // bet vence skip; entre vários mercados bet, fica o MAIOR edge.
+        const edge = typeof r.edge_pct === "number" ? r.edge_pct : null;
+        const edgePct =
+          prev?.verdict === "bet" ? maxNullable(prev.edgePct, edge) : edge;
+        out.set(id, { verdict: "bet", edgePct });
+      } else if (r.verdict === "skip" && prev?.verdict !== "bet") {
+        out.set(id, { verdict: "skip", edgePct: null });
+      }
     }
   } catch {
     // Table missing / transient error → no IA chip. Never crash the list.
   }
   return out;
+}
+
+function maxNullable(a: number | null, b: number | null): number | null {
+  if (a == null) return b;
+  if (b == null) return a;
+  return Math.max(a, b);
 }
 
 /**
@@ -192,8 +213,11 @@ export async function fixturesForBrtDay(
     dto.high_signal = signalMap.get(row.id)?.high_signal === true;
     const choistatsId = parseChoistatsId(row.source_url);
     const verdict = choistatsId !== null ? aiVerdicts.get(choistatsId) : undefined;
-    dto.ai_has_bet = verdict === "bet";
-    dto.ai_no_value = verdict === "skip";
+    dto.ai_has_bet = verdict?.verdict === "bet";
+    dto.ai_no_value = verdict?.verdict === "skip";
+    if (verdict?.verdict === "bet" && verdict.edgePct != null) {
+      dto.ai_edge_pct = verdict.edgePct;
+    }
     return dto;
   });
 }
@@ -266,8 +290,11 @@ export async function fixturesWithBadgesForDashboard(
     dto.high_signal = view?.high_signal === true;
     const choistatsId = parseChoistatsId(row.source_url);
     const verdict = choistatsId !== null ? aiVerdicts.get(choistatsId) : undefined;
-    dto.ai_has_bet = verdict === "bet";
-    dto.ai_no_value = verdict === "skip";
+    dto.ai_has_bet = verdict?.verdict === "bet";
+    dto.ai_no_value = verdict?.verdict === "skip";
+    if (verdict?.verdict === "bet" && verdict.edgePct != null) {
+      dto.ai_edge_pct = verdict.edgePct;
+    }
     return dto;
   });
 }
