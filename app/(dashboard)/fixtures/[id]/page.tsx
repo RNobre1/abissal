@@ -31,6 +31,7 @@ import {
 import { TeamRecord } from "@/components/fixtures/stats/panels/team-record";
 import { H2H } from "@/components/fixtures/stats/panels/h2h";
 import { Splits1h2h } from "@/components/fixtures/stats/panels/splits-1h-2h";
+import { EmpiricalHalves } from "@/components/fixtures/stats/panels/empirical-halves";
 import { Referee } from "@/components/fixtures/stats/panels/referee";
 import { Predictions } from "@/components/fixtures/stats/panels/predictions";
 import { Insights } from "@/components/fixtures/stats/panels/insights";
@@ -643,6 +644,19 @@ function buildPanels(
       colSpan: "span 6 / span 6",
       label: "splits 1h vs 2h",
       node: <Splits1h2h data={splitsHome} />,
+    },
+    {
+      id: "E2",
+      colSpan: "span 6 / span 6",
+      label: "por tempo empírico",
+      node: (
+        <EmpiricalHalves
+          homeTeam={homeTeam}
+          awayTeam={awayTeam}
+          home={recentHome}
+          away={recentAway}
+        />
+      ),
     },
     {
       id: "M",
