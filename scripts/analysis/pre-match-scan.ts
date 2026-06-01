@@ -73,8 +73,15 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
 const limit = Number(arg("limit") || "10");
 const upcomingOnly = process.argv.includes("--upcoming");
 
+// `--to <YYYY-MM-DD>`: varre um INTERVALO de `--date` até `--to` (inclusive).
+// Default: só o dia de `--date` (compatível com o comportamento anterior).
+const toDate = arg("to") || date;
+if (!/^\d{4}-\d{2}-\d{2}$/.test(toDate)) {
+  console.error(`--to inválida: ${toDate} (use YYYY-MM-DD)`);
+  process.exit(1);
+}
 const dayStart = `${date}T00:00:00Z`;
-const dayEnd = `${date}T23:59:59.999Z`;
+const dayEnd = `${toDate}T23:59:59.999Z`;
 // `--upcoming`: só jogos ainda não iniciados (scan pré-jogo). Limite inferior =
 // max(início do dia, agora). Em datas futuras `now < dayStart` ⇒ pega o dia todo.
 const nowIso = new Date().toISOString();
@@ -200,7 +207,8 @@ async function attachSidecars(
 }
 
 function header(title: string, n: number) {
-  console.log(`\n${title} — ${date}${upcomingOnly ? " (próximos)" : ""} (top ${n})\n`);
+  const range = toDate !== date ? `${date} → ${toDate}` : date;
+  console.log(`\n${title} — ${range}${upcomingOnly ? " (próximos)" : ""} (top ${n})\n`);
 }
 
 function printDuploGreen(ranked: Array<RankedScan<DuploGreenSidecar>>) {
@@ -211,7 +219,7 @@ function printDuploGreen(ranked: Array<RankedScan<DuploGreenSidecar>>) {
   }
   ranked.forEach((r, i) => {
     const f = r.fixture;
-    const ko = (f.kickoffUtc ?? "").slice(11, 16);
+    const ko = (f.kickoffUtc ?? "").slice(toDate !== date ? 5 : 11, 16);
     const sc = r.sidecar;
     const emp = sc
       ? `  [HT parcial — abriu 2 e não venceu: casa ${side(sc.home)} · fora ${side(sc.away)}]`
@@ -231,7 +239,7 @@ function printCorners(ranked: Array<RankedScan<CornersSidecar>>) {
   }
   ranked.forEach((r, i) => {
     const f = r.fixture;
-    const ko = (f.kickoffUtc ?? "").slice(11, 16);
+    const ko = (f.kickoffUtc ?? "").slice(toDate !== date ? 5 : 11, 16);
     const sc = r.sidecar;
     const emp = sc
       ? `  [empírico 2+/2+ (~53% fill): casa ${side(sc.home)} · fora ${side(sc.away)}]`

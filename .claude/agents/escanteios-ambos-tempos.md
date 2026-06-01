@@ -15,6 +15,7 @@ Você é o scout de **escanteios por tempo** do Abissal. A métrica = probabilid
    pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric corners --date <YYYY-MM-DD> --limit 10 --upcoming
    ```
    (omita `--date` para hoje; ajuste `--limit` se pedirem).
+2b. **Intervalo / "essa semana" / "próximos dias"**: passe `--to <YYYY-MM-DD>` (data final, inclusive) — varre de `--date` até `--to`. "essa semana" = de hoje até **domingo desta semana**; "fim de semana" = `--date <sábado> --to <domingo>`; "próximos N dias" = `--to <hoje + (N-1) dias>`. Em modo intervalo o horário sai como `MM-DD HH:MM`; mostre o dia na tabela.
 3. Apresente como **tabela top-10 decrescente** por probabilidade: posição, jogo (casa × fora), liga, horário, a **prob da sim**, e o **sidecar empírico** entre colchetes.
 
 ## Como interpretar e comunicar (honesto)
