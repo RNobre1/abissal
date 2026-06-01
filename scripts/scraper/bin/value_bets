@@ -1,0 +1,113 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# value_bets — caça-valor PRÓPRIO (sim calibrada × odd da casa) com guardrails
+# da calibração + fade, pra TODOS os jogos de um dia/intervalo (não só os que a
+# IA-2 apostou). Usado pela skill `bilhete`.
+#
+#   DATABASE_URL=... bundle exec bin/value_bets [--date YYYY-MM-DD] [--to YYYY-MM-DD]
+#       [--ligas "serie,liga pro"] [--min-edge 0.05] [--all] [--limit 40]
+#
+# --all desliga o filtro "só jogos não iniciados" (default = só upcoming).
+# Mercados avaliados: 1x2 (casa/fora), over/under 2.5, BTTS — os de prob limpa.
+
+require_relative '../lib/scraper/db'
+require_relative '../lib/scraper/ai_reco/isotonic_lookup'
+require_relative '../lib/scraper/analysis/value_bets'
+require 'json'
+
+VB = AdamStats::Scraper::Analysis::ValueBets
+
+def arg(name, default = nil)
+  i = ARGV.index("--#{name}")
+  i && ARGV[i + 1] && !ARGV[i + 1].start_with?('--') ? ARGV[i + 1] : default
+end
+
+date    = arg('date', Time.now.utc.strftime('%F'))
+to_date = arg('to', date)
+ligas   = (arg('ligas', '') || '').split(',').map { |s| s.strip.downcase }.reject(&:empty?)
+min_edge = (arg('min-edge', '0.05')).to_f
+limit   = (arg('limit', '40')).to_i
+upcoming = !ARGV.include?('--all')
+
+def odd(mkt, *keys)
+  return nil unless mkt
+
+  keys.each { |k| return mkt[k]['decimal_odds'].to_f if mkt[k] && mkt[k]['decimal_odds'] }
+  mkt.each do |name, o|
+    keys.each { |k| return o['decimal_odds'].to_f if name.downcase.include?(k.downcase) && k.length >= 3 && o['decimal_odds'] }
+  end
+  nil
+end
+
+AdamStats::Scraper::DB.with_connection do |conn|
+  conn.exec("SET statement_timeout='60s'")
+  mv = conn.exec('SELECT model_version FROM fixture_simulations ORDER BY created_at DESC LIMIT 1')[0]&.fetch('model_version')
+  look = AdamStats::Scraper::AiReco::IsotonicLookup.load(conn, mv)
+  cal = ->(metric, p) { (f = look[metric]) ? f.call(p).to_f : p }
+
+  # (a) confiabilidade histórica por (market, side) — recos resolvidas.
+  resolved = conn.exec(<<~SQL).to_a
+    SELECT market, side, count(*) n, sum(pl_units)/NULLIF(sum(units_final),0) roi
+    FROM ai_recommendations
+    WHERE bet_won IS NOT NULL AND COALESCE(forced,false)=false
+    GROUP BY market, side
+  SQL
+  classified = VB.classify(resolved)
+
+  low = upcoming ? "GREATEST(now(), '#{date}T00:00:00Z'::timestamptz)" : "'#{date}T00:00:00Z'::timestamptz"
+  rows = conn.exec(<<~SQL)
+    SELECT f.home_team h, f.away_team a, f.league lg, f.kickoff_utc::timestamp(0) ko, f.detail_json dj,
+           s.p_home, s.p_away, s.p_over_25, s.p_btts
+    FROM fixtures f
+    JOIN LATERAL (SELECT * FROM fixture_simulations s2
+      WHERE s2.home_team=f.home_team AND s2.away_team=f.away_team AND s2.kickoff_utc=f.kickoff_utc
+      ORDER BY s2.created_at DESC LIMIT 1) s ON true
+    WHERE f.kickoff_utc >= #{low} AND f.kickoff_utc < '#{to_date}T23:59:59.999Z'::timestamptz
+    ORDER BY f.kickoff_utc
+  SQL
+
+  good = []
+  traps = []
+  rows.each do |r|
+    next unless ligas.empty? || ligas.any? { |l| r['lg'].to_s.downcase.include?(l) }
+
+    d = (JSON.parse(r['dj']) rescue {})
+    os = d['odds_summary'] || {}
+    res = os['Result'] || {}
+    mg  = os['Match Goals Overs/Unders'] || {}
+    bt  = os['BTTS'] || {}
+    ph = r['p_home'].to_f; pa = r['p_away'].to_f; pov = r['p_over_25'].to_f; pbt = r['p_btts'].to_f
+    game = "#{r['h']} x #{r['a']}"
+    cands = [
+      ['1x2', 'home', cal.('1x2-home', ph), odd(res, r['h'], r['h'].split(' ').first)],
+      ['1x2', 'away', cal.('1x2-away', pa), odd(res, r['a'], r['a'].split(' ').first)],
+      ['over25', 'over',  cal.('over25', pov),        odd(mg, 'Over 2.5')],
+      ['over25', 'under', cal.('over25-under', 1 - pov), odd(mg, 'Under 2.5')],
+      ['btts', 'sim', cal.('btts', pbt),          odd(bt, 'Yes')],
+      ['btts', 'nao', cal.('btts-nao', 1 - pbt),  odd(bt, 'No')]
+    ]
+    cands.each do |market, side, p, o|
+      e = VB.edge(p, o)
+      next if e.nil? || e < min_edge
+
+      k = VB.klass_for(market, side, classified)
+      rec = { game: game, ko: r['ko'], lg: r['lg'], pick: "#{market}/#{side}", p: p, o: o, edge: e, klass: k }
+      (VB.allowed?(k) ? good : traps) << rec
+    end
+  end
+
+  fmt = lambda do |x|
+    format("%+5.1f%%  %-34s %-13s p=%.2f @ %.2f  [%s]  (%s, %s)",
+           x[:edge] * 100, x[:game][0, 34], x[:pick], x[:p], x[:o], x[:klass],
+           x[:ko].to_s[5, 11], x[:lg].to_s[0, 18])
+  end
+
+  puts "model_version=#{mv} | janela #{date}..#{to_date}#{upcoming ? ' (próximos)' : ''}" \
+       "#{ligas.empty? ? '' : " | ligas~#{ligas.join('/')}"} | min-edge #{(min_edge * 100).round}%"
+  puts "\n== CANDIDATOS (edge≥#{(min_edge * 100).round}%, mercado permitido) — confie em :trust/:trust_inverse =="
+  good.sort_by { |x| -x[:edge] }.first(limit).each { |x| puts "  #{fmt.call(x)}" }
+  puts "\n== ARMADILHAS (edge alto MAS mercado condenado pela calibração — NÃO apostar) =="
+  traps.sort_by { |x| -x[:edge] }.first(12).each { |x| puts "  #{fmt.call(x)}" }
+  puts "\n(legenda: trust=histórico +ROI · trust_inverse=fade de mercado ruim · weak=amostra pequena · unknown=sem referência)"
+end
