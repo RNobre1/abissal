@@ -287,10 +287,11 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
     const confirmDialog = page.getByRole("dialog", { name: /confirmar legs/i });
     await expect(confirmDialog).toBeVisible({ timeout: 15_000 });
 
-    // 9. Both mock legs should be visible. Texto completo da leg evita colidir
-    // com as opções de auto-match (`<option>Flamengo × Coritiba…`) no dropdown.
-    await expect(page.getByText("Flamengo × Palmeiras")).toBeVisible();
-    await expect(page.getByText("Arsenal × Chelsea")).toBeVisible();
+    // 9. Both mock legs should be visible DENTRO do diálogo de confirmação.
+    // Escopar ao `confirmDialog` (+ `.first()`) evita o strict-mode violation: o
+    // mesmo matchup pode aparecer também fora do diálogo (lista/leg row atrás).
+    await expect(confirmDialog.getByText("Flamengo × Palmeiras").first()).toBeVisible();
+    await expect(confirmDialog.getByText("Arsenal × Chelsea").first()).toBeVisible();
 
     // 10. Add button should be enabled
     const addBtn = page.getByRole("button", { name: /adicionar/i });
