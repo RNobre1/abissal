@@ -41,9 +41,6 @@ const date = arg("date", new Date().toISOString().slice(0, 10)) as string;
 const toDate = arg("to", date) as string;
 const minEdge = Number(arg("min-edge", "0.05"));
 const minProb = Number(arg("min-prob", "0.45"));
-// Por padrão SÓ linhas calibradas (com curva isotônica). `--include-raw` mostra
-// também as linhas sem curva (Poisson cru = overconfiante; exploração, NÃO aposta).
-const includeRaw = process.argv.includes("--include-raw");
 const nowIso = new Date().toISOString();
 const lower = nowIso > `${date}T00:00:00Z` ? nowIso : `${date}T00:00:00Z`;
 const upper = `${toDate}T23:59:59.999Z`;
@@ -89,7 +86,7 @@ const p50 = (stats: any, side: string, metric: string): number | null => {
   return typeof v === "number" && isFinite(v) ? v : null;
 };
 
-interface Cand { game: string; ko: string; lg: string; market: string; side: string; p: number; o: number; edge: number; eff: number; klass: Klass; raw: boolean }
+interface Cand { game: string; ko: string; lg: string; market: string; side: string; p: number; o: number; edge: number; eff: number; klass: Klass }
 
 async function main() {
   // 1) confiabilidade histórica
@@ -98,6 +95,23 @@ async function main() {
   for (const r of (resv ?? []) as any[]) { if (r.forced === true) continue; const k = `${r.market}|${r.side}`; const a = agg.get(k) ?? { n: 0, pl: 0, u: 0 }; a.n++; a.pl += Number(r.pl_units ?? 0); a.u += Number(r.units_final ?? 0); agg.set(k, a); }
   const cls = new Map<string, { roi: number | null; klass: Klass }>();
   for (const [k, a] of agg) { const roi = a.u > 0 ? a.pl / a.u : null; cls.set(k, { roi, klass: classifyRow(a.n, roi) }); }
+
+  // calibração de DISTRIBUIÇÃO (task calibracao-distribuicao): a sim subestima
+  // corners/sot/cards (PoC: k≈1.06/1.08/1.14). Corrige a média com TODO o
+  // histórico resolvido (k = média_actual/média_prevista) → calibra TODAS as
+  // linhas de uma vez (não só 85/95/105), sample-efficient. Fallback k=1 se n<30.
+  const SECM: Record<string, [string, string]> = { corners: ["actual_corners_home", "actual_corners_away"], sot: ["actual_sot_home", "actual_sot_away"], cards: ["actual_cards_home", "actual_cards_away"] };
+  const kFactor: Record<string, number> = {};
+  {
+    const { data: rr } = await sb.from("fixture_simulations")
+      .select("sim_stats,actual_corners_home,actual_corners_away,actual_sot_home,actual_sot_away,actual_cards_home,actual_cards_away")
+      .eq("status", "resolved").not("actual_corners_home", "is", null).order("actual_resolved_at", { ascending: false }).limit(1000);
+    for (const [metric, [ch, ca]] of Object.entries(SECM)) {
+      let sp = 0, sa = 0, n = 0;
+      for (const r of (rr ?? []) as any[]) { const hp = r.sim_stats?.home?.[metric]?.p50, ap = r.sim_stats?.away?.[metric]?.p50; if (typeof hp === "number" && typeof ap === "number" && r[ch] != null && r[ca] != null) { sp += hp + ap; sa += Number(r[ch]) + Number(r[ca]); n++; } }
+      kFactor[metric] = n >= 30 && sp > 0 ? sa / sp : 1;
+    }
+  }
 
   // 2) sims do intervalo (latest por fixture)
   const { data: sims } = await sb.from("fixture_simulations")
@@ -131,12 +145,11 @@ async function main() {
     const os = oddsByKey.get(k); if (!os) continue;
     const res = os["Result"], mg = os["Match Goals Overs/Unders"], bt = os["BTTS"];
     const h = String(s.home_team), a = String(s.away_team);
-    const add = (market: string, side: string, p: number, o: number | null, raw = false) => {
-      if (raw && !includeRaw) return;
+    const add = (market: string, side: string, p: number, o: number | null) => {
       if (o == null || o <= 1 || !isFinite(p) || p < minProb) return;
       const edge = p * o - 1; if (edge < minEdge) return;
       const klass = klassFor(market, side, cls); if (!allowed(klass)) return;
-      cands.push({ game: `${h} x ${a}`, ko: String(s.kickoff_utc).slice(5, 16), lg: String(s.league ?? ""), market, side, p, o, edge, eff: Math.log(1 + edge) / Math.log(o), klass, raw });
+      cands.push({ game: `${h} x ${a}`, ko: String(s.kickoff_utc).slice(5, 16), lg: String(s.league ?? ""), market, side, p, o, edge, eff: Math.log(1 + edge) / Math.log(o), klass });
     };
     // 1x2 / over25 / btts (sempre calibrados)
     add("1x2", "home", C("1x2-home", Number(s.p_home)), oddOf(res, h, h.split(" ")[0]));
@@ -149,20 +162,19 @@ async function main() {
     for (const sec of SEC) {
       const hv = p50(s.sim_stats, "home", sec.metric), av = p50(s.sim_stats, "away", sec.metric);
       if (hv == null || av == null) continue;
-      const mean = hv + av;
+      const mean = (hv + av) * (kFactor[sec.metric] ?? 1); // média calibrada por distribuição → TODAS as linhas calibradas
       const mkt = os[sec.oddsKey] as OddsMkt; if (!mkt) continue;
       const lines = new Set<number>();
       for (const key of Object.keys(mkt)) { const m = key.match(/^(?:Over|Under)\s+(\d+(?:\.\d)?)$/i); if (m) lines.add(Number(m[1])); }
       for (const L of [...lines].sort((x, y) => x - y)) {
         const lbl = String(Math.round(L * 10)); // 8.5 → "85"
-        const overCurve = `${sec.metric}-over-${lbl}`, underCurve = `${sec.metric}-under-${lbl}`;
-        add(`${sec.metric}-over`, lbl, C(overCurve, pOver(mean, L)), oddOf(mkt, `Over ${L}`), !curves[overCurve]);
-        add(`${sec.metric}-under`, lbl, C(underCurve, pUnder(mean, L)), oddOf(mkt, `Under ${L}`), !curves[underCurve]);
+        add(`${sec.metric}-over`, lbl, pOver(mean, L), oddOf(mkt, `Over ${L}`));
+        add(`${sec.metric}-under`, lbl, pUnder(mean, L), oddOf(mkt, `Under ${L}`));
       }
     }
   }
   cands.sort((a, b) => b.eff - a.eff);
   console.log(`janela ${date}→${toDate} (próximos) | mv=${mv} | ${latest.size} jogos | ${cands.length} candidatos (prob≥${minProb}, edge≥${Math.round(minEdge * 100)}%, mercado permitido)\n`);
-  for (const c of cands) console.log(`${(c.edge * 100).toFixed(0).padStart(4)}%  ef=${c.eff.toFixed(2)}  ${c.game.slice(0, 30).padEnd(30)} ${(c.market + "/" + c.side).padEnd(17)} @ ${c.o.toFixed(2)}  p=${c.p.toFixed(2)}  [${c.klass}${c.raw ? "·raw" : ""}]  (${c.ko}, ${c.lg.slice(0, 14)})`);
+  for (const c of cands) console.log(`${(c.edge * 100).toFixed(0).padStart(4)}%  ef=${c.eff.toFixed(2)}  ${c.game.slice(0, 30).padEnd(30)} ${(c.market + "/" + c.side).padEnd(17)} @ ${c.o.toFixed(2)}  p=${c.p.toFixed(2)}  [${c.klass}]  (${c.ko}, ${c.lg.slice(0, 14)})`);
 }
 main().catch((e) => { console.error(e); process.exit(1); });
