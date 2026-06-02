@@ -4,6 +4,7 @@ require 'thread'
 require_relative 'db'
 require_relative 'ai_reco/edge_calculator'
 require_relative 'ai_reco/isotonic_lookup'
+require_relative 'ai_reco/dist_k_lookup'
 require_relative 'ai_reco/pricing'
 require_relative 'ai_reco/prompt_builder'
 
@@ -250,6 +251,15 @@ module AdamStats
           AiReco::IsotonicLookup.load(conn, model_version)
       end
 
+      # Fatores de calibração de DISTRIBUIÇÃO (corners/cards/sot) por
+      # model_version, memoizado (mesma garantia serial do isotonic_lookup_for).
+      # Degrada gracioso pra {} → EdgeCalculator cai no raw/isotônica.
+      def dist_k_for(conn, model_version)
+        @dist_k_cache ||= {}
+        @dist_k_cache[model_version] ||=
+          AiReco::DistKLookup.load(conn, model_version)
+      end
+
       def client
         @client ||= begin
           require_relative 'ai_reco/openrouter_client'
@@ -277,10 +287,12 @@ module AdamStats
         # as curvas que o calibracao-weekly fita. Memoizado por model_version
         # (fase 1 é serial → cache simples é seguro). Lookup vazio = identidade.
         isotonic_lookup = isotonic_lookup_for(conn, row['model_version'])
+        dist_k = dist_k_for(conn, row['model_version'])
         candidates = AiReco::EdgeCalculator.build(
           sim, odds, @bankroll,
           isotonic_lookup: isotonic_lookup,
           blend_alpha: @blend_alpha,
+          dist_k: dist_k,
         )
         bet_candidates = candidates.select { |c| c[:edge_pct] >= EDGE_THRESHOLD }
 

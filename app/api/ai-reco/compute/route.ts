@@ -20,6 +20,7 @@ import {
   type AiDecision,
 } from "@/lib/ai-reco/recommender";
 import { computeCostUsd } from "@/lib/ai-reco/pricing";
+import { getDistK } from "@/lib/ai-reco/dist-k-repository";
 import { applyIsotonic } from "@/lib/calibracao/isotonic";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
@@ -224,6 +225,9 @@ export async function POST(request: Request): Promise<Response> {
   // 5. Isotonic lookup from active curves
   // ---------------------------------------------------------------------------
   const isotonicLookup = await buildIsotonicLookup(sim.model_version, supabase);
+  // Calibração de distribuição (corners/cards/sot): fallback do Poisson cru nas
+  // linhas sem curva isotônica. Prioridade no buildEdgeTable: curva → k → raw.
+  const distK = await getDistK(sim.model_version ?? "", supabase);
 
   // ---------------------------------------------------------------------------
   // 6. League calibrated detection
@@ -241,6 +245,7 @@ export async function POST(request: Request): Promise<Response> {
   const allCandidates = buildEdgeTable(simInput, odds, bankroll, {
     isotonicLookup,
     blendAlpha,
+    distK,
   });
   const betCandidates = allCandidates.filter(
     (c) => c.edge_pct >= EDGE_THRESHOLD_PCT,
@@ -652,6 +657,8 @@ async function buildIsotonicLookup(
   const lookup: Partial<Record<string, (p: number) => number>> = {};
   for (const row of data as Array<{ metric: string | null; pairs: unknown }>) {
     const metric = String(row.metric ?? "");
+    // '*-dist' são fatores de distribuição (getDistK), não curvas isotônicas.
+    if (metric.endsWith("-dist")) continue;
     const pairs = asPairs(row.pairs);
     if (!metric || pairs.length === 0) continue;
     lookup[metric] = (p: number) => applyIsotonic(pairs, p);

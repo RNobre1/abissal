@@ -124,6 +124,9 @@ export interface EdgeCandidate {
   kelly_units: number;    // 0 quando edge <= 0
 }
 
+/** Fator de calibração de DISTRIBUIÇÃO por stat (mean_calibrado = mean × k). */
+export type DistKMap = Partial<Record<"corners" | "cards" | "sot" | "goals", number>>;
+
 export interface BuildOptions {
   /** Map "metric-side" → fn(p) → p_calibrado. Métricas: '1x2-home', '1x2-draw',
    *  '1x2-away', 'over25' (cobre tb 'under25' via 1-p). */
@@ -133,6 +136,11 @@ export interface BuildOptions {
   /** Blending sim × mercado. 0..1. Default 1.0 (sem blending — status quo).
    *  prob_final = blendAlpha · prob_calibrado + (1 − blendAlpha) · prob_market_devigged. */
   blendAlpha?: number;
+  /** Calibração de DISTRIBUIÇÃO dos mercados de contagem (corners/cards/sot).
+   *  Prioridade por linha: curva isotônica → k → raw. O k corrige a MÉDIA do
+   *  Poisson (a sim subestima ~6–13%) nas linhas SEM curva. Ver
+   *  docs/tasks/calibracao-distribuicao + lição B31. */
+  distK?: DistKMap;
 }
 
 // R2 walk-forward (2026-05-25 noite): ¼ Kelly → ⅛ Kelly
@@ -201,14 +209,46 @@ interface BlendedComputation {
   prob_blended: number;
 }
 
+/** k positivo finito do distK pra um stat; null quando ausente/inválido/<=0. */
+function positiveK(distK: DistKMap | undefined, stat: keyof DistKMap): number | null {
+  const v = distK?.[stat];
+  return typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+}
+
+/**
+ * Calibração de um mercado SECUNDÁRIO (corners/cards/sot), ordem de prioridade:
+ * curva isotônica → k de distribuição → raw. Espelha
+ * `EdgeCalculator#secondary_calibrate` (Ruby).
+ */
+function secondaryCalibrate(
+  metricKey: string,
+  rawProb: number,
+  stat: keyof DistKMap,
+  side: "over" | "under",
+  line: number,
+  baseMean: number,
+  lookup: BuildOptions["isotonicLookup"],
+  distK: DistKMap | undefined,
+): number {
+  if (hasCurve(lookup, metricKey)) return calibrate(metricKey, rawProb, lookup);
+  const k = positiveK(distK, stat);
+  if (k === null) return rawProb;
+  const m = baseMean * k;
+  return side === "over" ? poissonProbOver(m, line) : poissonProbUnder(m, line);
+}
+
 function computeBlend(
   prob_estimated: number,
   metricKey: string,
   prob_market: number | undefined,
   alpha: number,
   lookup: BuildOptions["isotonicLookup"],
+  calibratedOverride?: number,
 ): BlendedComputation {
-  const prob_calibrated = calibrate(metricKey, prob_estimated, lookup);
+  const prob_calibrated =
+    calibratedOverride !== undefined
+      ? calibratedOverride
+      : calibrate(metricKey, prob_estimated, lookup);
   if (alpha >= 1.0 || prob_market === undefined || !Number.isFinite(prob_market)) {
     return {
       prob_calibrated,
@@ -229,6 +269,7 @@ export function buildEdgeTable(
   const kFrac = options.kellyFraction ?? DEFAULT_KELLY_FRACTION;
   const alpha = clampAlpha(options.blendAlpha ?? DEFAULT_BLEND_ALPHA);
   const lookup = options.isotonicLookup;
+  const distK = options.distK;
   const out: EdgeCandidate[] = [];
 
   // ---- 1X2 — devig conjunto dos 3 inversos (home, draw, away) ----
@@ -402,8 +443,9 @@ export function buildEdgeTable(
         const cornersDevig = isFiniteNum(odds[underKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
+        const cal = secondaryCalibrate(`corners-over-${sideLbl}`, p, "corners", "over", line, mean, lookup, distK);
         const { prob_calibrated, prob_market, prob_blended } = computeBlend(
-          p, `corners-over-${sideLbl}`, cornersDevig?.[0], alpha, lookup,
+          p, `corners-over-${sideLbl}`, cornersDevig?.[0], alpha, lookup, cal,
         );
         out.push({
           market: "corners-over", side: sideLbl,
@@ -419,8 +461,9 @@ export function buildEdgeTable(
         const cornersDevig = isFiniteNum(odds[overKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
+        const cal = secondaryCalibrate(`corners-under-${sideLbl}`, p, "corners", "under", line, mean, lookup, distK);
         const { prob_calibrated, prob_market, prob_blended } = computeBlend(
-          p, `corners-under-${sideLbl}`, cornersDevig?.[1], alpha, lookup,
+          p, `corners-under-${sideLbl}`, cornersDevig?.[1], alpha, lookup, cal,
         );
         out.push({
           market: "corners-under", side: sideLbl,
@@ -448,8 +491,9 @@ export function buildEdgeTable(
         const cardsDevig = isFiniteNum(odds[underKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
+        const cal = secondaryCalibrate(`cards-over-${sideLbl}`, p, "cards", "over", line, mean, lookup, distK);
         const { prob_calibrated, prob_market, prob_blended } = computeBlend(
-          p, `cards-over-${sideLbl}`, cardsDevig?.[0], alpha, lookup,
+          p, `cards-over-${sideLbl}`, cardsDevig?.[0], alpha, lookup, cal,
         );
         out.push({
           market: "cards-over", side: sideLbl,
@@ -465,8 +509,9 @@ export function buildEdgeTable(
         const cardsDevig = isFiniteNum(odds[overKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
+        const cal = secondaryCalibrate(`cards-under-${sideLbl}`, p, "cards", "under", line, mean, lookup, distK);
         const { prob_calibrated, prob_market, prob_blended } = computeBlend(
-          p, `cards-under-${sideLbl}`, cardsDevig?.[1], alpha, lookup,
+          p, `cards-under-${sideLbl}`, cardsDevig?.[1], alpha, lookup, cal,
         );
         out.push({
           market: "cards-under", side: sideLbl,
@@ -494,8 +539,9 @@ export function buildEdgeTable(
         const sotDevig = isFiniteNum(odds[underKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
+        const cal = secondaryCalibrate(`sot-over-${sideLbl}`, p, "sot", "over", line, mean, lookup, distK);
         const { prob_calibrated, prob_market, prob_blended } = computeBlend(
-          p, `sot-over-${sideLbl}`, sotDevig?.[0], alpha, lookup,
+          p, `sot-over-${sideLbl}`, sotDevig?.[0], alpha, lookup, cal,
         );
         out.push({
           market: "sot-over", side: sideLbl,
@@ -511,8 +557,9 @@ export function buildEdgeTable(
         const sotDevig = isFiniteNum(odds[overKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
+        const cal = secondaryCalibrate(`sot-under-${sideLbl}`, p, "sot", "under", line, mean, lookup, distK);
         const { prob_calibrated, prob_market, prob_blended } = computeBlend(
-          p, `sot-under-${sideLbl}`, sotDevig?.[1], alpha, lookup,
+          p, `sot-under-${sideLbl}`, sotDevig?.[1], alpha, lookup, cal,
         );
         out.push({
           market: "sot-under", side: sideLbl,

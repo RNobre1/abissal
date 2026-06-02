@@ -304,5 +304,54 @@ module AdamStats::Scraper::AiReco
         out.each_cons(2) { |a, b| expect(a[:edge_pct]).to be >= b[:edge_pct] }
       end
     end
+
+    # ── Calibração de DISTRIBUIÇÃO (dist_k) — prioridade curva → k → raw ────────
+    describe 'calibração de distribuição (dist_k)' do
+      let(:sim_with_secondary) do
+        base_sim.merge(sim_corners_total_mean: 10.5)
+      end
+      let(:odds_with_secondary) do
+        base_odds.merge(corners_over_95: 1.90, corners_under_95: 1.90)
+      end
+
+      it 'aplica k na MÉDIA quando NÃO há curva (prob_calibrated = Poisson(mean·k))' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000,
+                                   dist_k: { 'corners' => 1.10 })
+        over95 = out.find { |c| c[:market] == 'corners-over' && c[:side] == '95' }
+        expect(over95).not_to be_nil
+        # prob_estimated = raw (sem k); prob_calibrated = Poisson com mean escalada.
+        expect(over95[:prob_estimated]).to be_within(1e-9).of(DistHelpers.poisson_prob_over(10.5, 9.5))
+        expect(over95[:prob_calibrated]).to be_within(1e-9).of(DistHelpers.poisson_prob_over(10.5 * 1.10, 9.5))
+        expect(over95[:prob_calibrated]).to be > over95[:prob_estimated]
+      end
+
+      it 'aplica k no UNDER simetricamente' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000,
+                                   dist_k: { 'corners' => 1.10 })
+        under95 = out.find { |c| c[:market] == 'corners-under' && c[:side] == '95' }
+        expect(under95[:prob_calibrated]).to be_within(1e-9).of(DistHelpers.poisson_prob_under(10.5 * 1.10, 9.5))
+      end
+
+      it 'curva isotônica TEM PRIORIDADE sobre o k (k não altera linha com curva)' do
+        lookup = { 'corners-over-95' => ->(_p) { 0.42 } }
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000,
+                                   isotonic_lookup: lookup, dist_k: { 'corners' => 1.10 })
+        over95 = out.find { |c| c[:market] == 'corners-over' && c[:side] == '95' }
+        expect(over95[:prob_calibrated]).to be_within(1e-9).of(0.42)
+      end
+
+      it 'sem dist_k e sem curva → raw (comportamento atual preservado)' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000)
+        over95 = out.find { |c| c[:market] == 'corners-over' && c[:side] == '95' }
+        expect(over95[:prob_calibrated]).to be_within(1e-9).of(over95[:prob_estimated])
+      end
+
+      it 'k inválido/zero → ignorado (raw)' do
+        out = EdgeCalculator.build(sim_with_secondary, odds_with_secondary, 1000,
+                                   dist_k: { 'corners' => 0 })
+        over95 = out.find { |c| c[:market] == 'corners-over' && c[:side] == '95' }
+        expect(over95[:prob_calibrated]).to be_within(1e-9).of(over95[:prob_estimated])
+      end
+    end
   end
 end

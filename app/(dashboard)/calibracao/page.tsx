@@ -42,6 +42,8 @@ import {
   type ConfidenceSummary as ConfidenceChartRow,
 } from "@/components/calibracao/confidence-bars";
 import { wilsonInterval } from "@/lib/calibracao/wilson-ic";
+import { DistCalibrationCard } from "@/components/calibracao/dist-calibration-card";
+import { distCalibrationRows } from "@/lib/calibracao/dist-calibration";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -358,6 +360,9 @@ export default async function CalibracaoPage() {
   } catch (err) {
     calQueryError = err instanceof Error ? err.message : "erro desconhecido";
   }
+  // Calibração de DISTRIBUIÇÃO (corners/cards/sot): derivada das linhas '*-dist'
+  // já carregadas em calRows (sem query extra). Ver docs/tasks/calibracao-distribuicao.
+  const distCalRows = distCalibrationRows(calRows);
 
   // Parâmetros calibrados POR LIGA (migration 0020). Display somente —
   // motor Ruby já lê via `Simulation::LeagueCalibration.load` no scrape.
@@ -1001,6 +1006,12 @@ export default async function CalibracaoPage() {
         ) : (
           <ActiveCurvesTable rows={calRows} />
         )}
+
+        {/* Calibração de DISTRIBUIÇÃO — corrige o viés de média dos mercados de
+            contagem (a sim subestima). Derivada das linhas '*-dist'. */}
+        <div className="mt-8">
+          <DistCalibrationCard rows={distCalRows} />
+        </div>
       </section>
 
       {/* Parâmetros por liga ativos — display somente. Ajuste offline via

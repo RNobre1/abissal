@@ -44,7 +44,8 @@ module AdamStats
         def build(sim, odds, bankroll,
                   isotonic_lookup: nil,
                   kelly_fraction: DEFAULT_KELLY_FRACTION,
-                  blend_alpha: DEFAULT_BLEND_ALPHA)
+                  blend_alpha: DEFAULT_BLEND_ALPHA,
+                  dist_k: {})
           alpha = clamp_alpha(blend_alpha)
           out = []
 
@@ -126,7 +127,7 @@ module AdamStats
                 p = DistHelpers.poisson_prob_over(mean, line)
                 corners_devig = finite?(odds[under_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
                 mp = corners_devig && corners_devig[0]
-                cal = calibrate("corners-over-#{side_lbl}", p, isotonic_lookup)
+                cal = secondary_calibrate("corners-over-#{side_lbl}", p, 'corners', :over, line, mean, isotonic_lookup, dist_k)
                 blended = blend(cal, mp, alpha)
                 out << build_candidate('corners-over', side_lbl, p, cal, mp, blended,
                                        odds[over_key], bankroll, kelly_fraction, alpha)
@@ -135,7 +136,7 @@ module AdamStats
                 p = DistHelpers.poisson_prob_under(mean, line)
                 corners_devig = finite?(odds[over_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
                 mp = corners_devig && corners_devig[1]
-                cal = calibrate("corners-under-#{side_lbl}", p, isotonic_lookup)
+                cal = secondary_calibrate("corners-under-#{side_lbl}", p, 'corners', :under, line, mean, isotonic_lookup, dist_k)
                 blended = blend(cal, mp, alpha)
                 out << build_candidate('corners-under', side_lbl, p, cal, mp, blended,
                                        odds[under_key], bankroll, kelly_fraction, alpha)
@@ -155,7 +156,7 @@ module AdamStats
                 p = DistHelpers.poisson_prob_over(mean, line)
                 cards_devig = finite?(odds[under_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
                 mp = cards_devig && cards_devig[0]
-                cal = calibrate("cards-over-#{side_lbl}", p, isotonic_lookup)
+                cal = secondary_calibrate("cards-over-#{side_lbl}", p, 'cards', :over, line, mean, isotonic_lookup, dist_k)
                 blended = blend(cal, mp, alpha)
                 out << build_candidate('cards-over', side_lbl, p, cal, mp, blended,
                                        odds[over_key], bankroll, kelly_fraction, alpha)
@@ -164,7 +165,7 @@ module AdamStats
                 p = DistHelpers.poisson_prob_under(mean, line)
                 cards_devig = finite?(odds[over_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
                 mp = cards_devig && cards_devig[1]
-                cal = calibrate("cards-under-#{side_lbl}", p, isotonic_lookup)
+                cal = secondary_calibrate("cards-under-#{side_lbl}", p, 'cards', :under, line, mean, isotonic_lookup, dist_k)
                 blended = blend(cal, mp, alpha)
                 out << build_candidate('cards-under', side_lbl, p, cal, mp, blended,
                                        odds[under_key], bankroll, kelly_fraction, alpha)
@@ -184,7 +185,7 @@ module AdamStats
                 p = DistHelpers.poisson_prob_over(mean, line)
                 sot_devig = finite?(odds[under_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
                 mp = sot_devig && sot_devig[0]
-                cal = calibrate("sot-over-#{side_lbl}", p, isotonic_lookup)
+                cal = secondary_calibrate("sot-over-#{side_lbl}", p, 'sot', :over, line, mean, isotonic_lookup, dist_k)
                 blended = blend(cal, mp, alpha)
                 out << build_candidate('sot-over', side_lbl, p, cal, mp, blended,
                                        odds[over_key], bankroll, kelly_fraction, alpha)
@@ -193,7 +194,7 @@ module AdamStats
                 p = DistHelpers.poisson_prob_under(mean, line)
                 sot_devig = finite?(odds[over_key]) ? devig_proportional([odds[over_key], odds[under_key]]) : nil
                 mp = sot_devig && sot_devig[1]
-                cal = calibrate("sot-under-#{side_lbl}", p, isotonic_lookup)
+                cal = secondary_calibrate("sot-under-#{side_lbl}", p, 'sot', :under, line, mean, isotonic_lookup, dist_k)
                 blended = blend(cal, mp, alpha)
                 out << build_candidate('sot-under', side_lbl, p, cal, mp, blended,
                                        odds[under_key], bankroll, kelly_fraction, alpha)
@@ -229,6 +230,33 @@ module AdamStats
 
           fn = lookup[metric_key] || lookup[metric_key.to_sym]
           fn.respond_to?(:call)
+        end
+
+        # Calibração de um mercado SECUNDÁRIO (corners/cards/sot), ordem de
+        # prioridade: curva isotônica → k de distribuição → raw.
+        #   - curva existe  → isotônica(prob raw) [comportamento atual preservado]
+        #   - sem curva + k → Poisson recomputado com a média escalada (mean·k)
+        #   - sem curva nem k → raw (prob inalterada)
+        # O `k` é o fallback que conserta o Poisson cru (overconfiante) em linhas
+        # sem isotônica — ex.: cold-start de nova model_version. Ver
+        # docs/tasks/calibracao-distribuicao + lição B31.
+        def secondary_calibrate(metric_key, raw_prob, stat, side, line, base_mean, lookup, dist_k)
+          return calibrate(metric_key, raw_prob, lookup) if has_curve?(lookup, metric_key)
+
+          k = positive_k(dist_k, stat)
+          return raw_prob unless k
+
+          m = base_mean.to_f * k
+          side == :over ? DistHelpers.poisson_prob_over(m, line) : DistHelpers.poisson_prob_under(m, line)
+        end
+
+        # Extrai o k positivo finito do dist_k pra um stat (aceita key String ou
+        # Symbol). nil quando ausente/inválido/<=0 → caller cai no raw.
+        def positive_k(dist_k, stat)
+          return nil unless dist_k.is_a?(Hash)
+
+          v = dist_k[stat] || dist_k[stat.to_sym]
+          (v.is_a?(Numeric) && v.respond_to?(:finite?) && v.finite? && v > 0) ? v.to_f : nil
         end
 
         def calibrate(metric_key, prob, lookup)

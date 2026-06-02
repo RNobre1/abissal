@@ -96,23 +96,6 @@ async function main() {
   const cls = new Map<string, { roi: number | null; klass: Klass }>();
   for (const [k, a] of agg) { const roi = a.u > 0 ? a.pl / a.u : null; cls.set(k, { roi, klass: classifyRow(a.n, roi) }); }
 
-  // calibração de DISTRIBUIÇÃO (task calibracao-distribuicao): a sim subestima
-  // corners/sot/cards (PoC: k≈1.06/1.08/1.14). Corrige a média com TODO o
-  // histórico resolvido (k = média_actual/média_prevista) → calibra TODAS as
-  // linhas de uma vez (não só 85/95/105), sample-efficient. Fallback k=1 se n<30.
-  const SECM: Record<string, [string, string]> = { corners: ["actual_corners_home", "actual_corners_away"], sot: ["actual_sot_home", "actual_sot_away"], cards: ["actual_cards_home", "actual_cards_away"] };
-  const kFactor: Record<string, number> = {};
-  {
-    const { data: rr } = await sb.from("fixture_simulations")
-      .select("sim_stats,actual_corners_home,actual_corners_away,actual_sot_home,actual_sot_away,actual_cards_home,actual_cards_away")
-      .eq("status", "resolved").not("actual_corners_home", "is", null).order("actual_resolved_at", { ascending: false }).limit(1000);
-    for (const [metric, [ch, ca]] of Object.entries(SECM)) {
-      let sp = 0, sa = 0, n = 0;
-      for (const r of (rr ?? []) as any[]) { const hp = r.sim_stats?.home?.[metric]?.p50, ap = r.sim_stats?.away?.[metric]?.p50; if (typeof hp === "number" && typeof ap === "number" && r[ch] != null && r[ca] != null) { sp += hp + ap; sa += Number(r[ch]) + Number(r[ca]); n++; } }
-      kFactor[metric] = n >= 30 && sp > 0 ? sa / sp : 1;
-    }
-  }
-
   // 2) sims do intervalo (latest por fixture)
   const { data: sims } = await sb.from("fixture_simulations")
     .select("home_team,away_team,league,kickoff_utc,model_version,created_at,p_home,p_away,p_over_25,p_btts,sim_stats")
@@ -121,10 +104,21 @@ async function main() {
   for (const s of (sims ?? []) as any[]) { const k = `${s.home_team}|${s.away_team}|${(s.kickoff_utc as string)?.slice(0, 16)}`; if (!latest.has(k)) latest.set(k, s); }
   const mv = (sims?.[0] as any)?.model_version as string | undefined;
 
-  // 3) curvas isotônicas ativas
+  // 3) curvas isotônicas + calibração de DISTRIBUIÇÃO (k) ativas — fonte ÚNICA:
+  // model_calibration (mesma que o sistema usa). As linhas '*-dist' guardam
+  // pairs=[[meanPred,meanActual]] → k = meanActual/meanPred (a sim subestima
+  // corners/sot/cards ~6–13%). O k corrige a média do Poisson → calibra TODAS
+  // as linhas (não só 85/95/105), sample-efficient. Ausente → k=1 (identidade).
   const curves: Record<string, Array<[number, number]>> = {};
+  const kFactor: Record<string, number> = {};
   if (mv) { const { data: cal } = await sb.from("model_calibration").select("metric,pairs").eq("model_version", mv).is("effective_until", null);
-    for (const r of (cal ?? []) as any[]) { const a = typeof r.pairs === "string" ? JSON.parse(r.pairs) : r.pairs; if (Array.isArray(a)) curves[r.metric] = a; } }
+    for (const r of (cal ?? []) as any[]) { const a = typeof r.pairs === "string" ? JSON.parse(r.pairs) : r.pairs;
+      if (typeof r.metric === "string" && r.metric.endsWith("-dist")) {
+        const stat = r.metric.slice(0, -5);
+        if (Array.isArray(a) && Array.isArray(a[0]) && a[0][0] > 0) kFactor[stat] = a[0][1] / a[0][0];
+      } else if (Array.isArray(a)) { curves[r.metric] = a; }
+    }
+  }
   const C = (metric: string, p: number) => (curves[metric] ? applyIsotonic(curves[metric], p) : p);
 
   // 4) odds (subpath odds_summary — NUNCA o detail_json inteiro, B12)
@@ -158,18 +152,28 @@ async function main() {
     add("over25", "under", C("over25-under", 1 - Number(s.p_over_25)), oddOf(mg, "Under 2.5"));
     add("btts", "sim", C("btts", Number(s.p_btts)), oddOf(bt, "Yes"));
     add("btts", "nao", C("btts-nao", 1 - Number(s.p_btts)), oddOf(bt, "No"));
-    // corners / sot / cards: Poisson(total_mean) em TODAS as linhas do book
+    // corners / sot / cards em TODAS as linhas do book. Prioridade (igual ao
+    // sistema, EdgeCalculator): curva isotônica → k → raw. As 3 linhas calibradas
+    // (85/95/105…) usam a isotônica (melhor que k, ver evidência); as demais usam
+    // Poisson com a média escalada por k (a sim subestima).
     for (const sec of SEC) {
       const hv = p50(s.sim_stats, "home", sec.metric), av = p50(s.sim_stats, "away", sec.metric);
       if (hv == null || av == null) continue;
-      const mean = (hv + av) * (kFactor[sec.metric] ?? 1); // média calibrada por distribuição → TODAS as linhas calibradas
+      const rawMean = hv + av;
+      const k = kFactor[sec.metric] ?? 1;
+      const kMean = rawMean * k;
       const mkt = os[sec.oddsKey] as OddsMkt; if (!mkt) continue;
       const lines = new Set<number>();
       for (const key of Object.keys(mkt)) { const m = key.match(/^(?:Over|Under)\s+(\d+(?:\.\d)?)$/i); if (m) lines.add(Number(m[1])); }
       for (const L of [...lines].sort((x, y) => x - y)) {
         const lbl = String(Math.round(L * 10)); // 8.5 → "85"
-        add(`${sec.metric}-over`, lbl, pOver(mean, L), oddOf(mkt, `Over ${L}`));
-        add(`${sec.metric}-under`, lbl, pUnder(mean, L), oddOf(mkt, `Under ${L}`));
+        for (const side of ["over", "under"] as const) {
+          const curveKey = `${sec.metric}-${side}-${lbl}`;
+          const raw = side === "over" ? pOver(rawMean, L) : pUnder(rawMean, L);
+          const p = curves[curveKey] ? applyIsotonic(curves[curveKey], raw)
+            : (side === "over" ? pOver(kMean, L) : pUnder(kMean, L));
+          add(`${sec.metric}-${side}`, lbl, p, oddOf(mkt, `${side === "over" ? "Over" : "Under"} ${L}`));
+        }
       }
     }
   }
