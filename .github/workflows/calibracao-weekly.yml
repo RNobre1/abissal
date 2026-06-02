@@ -56,6 +56,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/fit-isotonic.ts
 
+      # Calibração de DISTRIBUIÇÃO (k por stat — corners/cards/sot). Refit
+      # mecânico data-driven (B24) que corrige o viés de média dos mercados de
+      # contagem. Coexiste com a isotônica (prioridade curva → k → raw).
+      - name: Fit distribution calibration (k)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/fit-dist.ts
+
       # Healthchecks.io ping opcional — silencioso se o secret não estiver
       # configurado. Step roda fora do shell normal pra evitar `-e {0}` cortar
       # o `if:` (env só populado quando o secret existe).

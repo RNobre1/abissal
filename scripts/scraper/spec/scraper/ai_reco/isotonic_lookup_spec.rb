@@ -76,6 +76,15 @@ module AdamStats::Scraper::AiReco
         expect(lookup.keys).to contain_exactly('1x2-away')
       end
 
+      it "ignora métricas de distribuição ('*-dist' são do DistKLookup)" do
+        rows = [
+          { 'metric' => 'corners-dist', 'pairs' => '[[8.95,9.53]]' },
+          { 'metric' => '1x2-home', 'pairs' => '[[0.5,0.45],[0.8,0.55]]' }
+        ]
+        lookup = described_class.load(conn_with(rows), 'sim-v7')
+        expect(lookup.keys).to contain_exactly('1x2-home')
+      end
+
       it 'model_version nil → hash vazio (sem query)' do
         conn = double('PG::Connection')
         expect(conn).not_to receive(:exec_params)

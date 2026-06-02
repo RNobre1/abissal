@@ -61,6 +61,10 @@ module AdamStats
           lookup = {}
           rows.each do |row|
             metric = row['metric']
+            # As métricas de DISTRIBUIÇÃO ('*-dist') são lidas pelo DistKLookup,
+            # não são curvas isotônicas — ignora aqui (separação limpa).
+            next if metric.to_s.end_with?('-dist')
+
             curve = normalize_pairs(row['pairs'])
             next if metric.nil? || metric.to_s.empty? || curve.empty?
 

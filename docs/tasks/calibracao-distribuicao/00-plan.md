@@ -53,3 +53,38 @@ Brier do total em ≥1 métrica sem piorar as linhas atuais; (c) respeitar B24
 `value-bets-https.ts` aposta **só nas linhas calibradas** (default exclui `raw`);
 `--include-raw` só pra exploração. SOT-under (71%) e corners-over (67%) entram
 sempre que houver odd na linha calibrada.
+
+---
+
+## ⬛ EVIDÊNCIA (2026-06-02) — gate B24 rodado, hipótese REVISADA
+
+`scripts/calibracao/measure-dist-calibration.ts` (held-out cronológico 70/30,
+n_train≈227, n_test≈98, via HTTPS). Brier médio nas 3 linhas calibradas:
+
+| stat | k | Brier raw | Brier **k** | Brier **isotônica** |
+|---|---|---|---|---|
+| corners | 1.065 | 0.2987 | 0.2975 | **0.2505** |
+| cards | 1.128 | 0.2664 | 0.2632 | **0.2551** |
+| sot | 1.071 | 0.2474 | 0.2435 | **0.2261** |
+
+**Achado:** o `k` é real (sim subestima 6–13%) e **sempre ≥ raw**, mas a
+**isotônica é melhor que o `k`** nas 3 linhas centrais — o Poisson cru é
+*overconfiante* (raw > 0.25 = pior que o acaso); a isotônica conserta a FORMA, o
+`k` só a LOCALIZAÇÃO. → **`k` NÃO substitui a isotônica. Coexistem.**
+
+## ✅ DESIGN FINAL (locked 2026-06-02)
+- **`k` central persistido** em `model_calibration` (`corners-dist`/`cards-dist`/
+  `sot-dist`/`goals-dist`, `pairs:[[meanPred, meanActual]]`, `n`). Refit no
+  `fit-dist.ts` (cron semanal, mecânico — B24).
+- **`EdgeCalculator` (Ruby+TS):** prioridade por linha = **curva isotônica → `k`
+  → raw**. Não expande superfície de aposta (mesmas 3 linhas); o `k` é o
+  fallback que conserta o cold-start de nova `model_version` (curva ausente).
+  Comportamento idêntico quando há curva.
+- **`value-bets-https` (tool de bilhete, human-gated):** lê o `k` central; é onde
+  "todas as linhas" vive, com fade/reliability como guarda (B31).
+- **`/calibracao`:** card "Calibração de distribuição" — `k`, `n`, Brier
+  raw/`k`/isotônica + mini-scatter média-prevista × real.
+- **DEFERIDO (gated em ROI/CLV):** expandir o recomendador IA-2 pra capturar as
+  linhas extras (7.5/11.5/12.5…) que a casa oferece. Sem evidência de +EV nessas
+  caudas, expandir a superfície = risco B31. Captura dinâmica de odds fica pra
+  quando houver evidência por-linha.

@@ -5,6 +5,7 @@ import {
   type SimInput,
   type OddsInput,
 } from "./edge-calculator";
+import { poissonProbOver, poissonProbUnder } from "./dist-helpers";
 
 const baseSim: SimInput = {
   p_home: 0.50, p_draw: 0.25, p_away: 0.25,
@@ -445,6 +446,47 @@ describe("buildEdgeTable", () => {
       expect(over95).toBeDefined();
       // prob ≈ 0.6029, odd 1.90 → edge = (0.6029 * 1.90 - 1) * 100 ≈ +14.5%
       expect(over95!.edge_pct).toBeCloseTo((0.6029 * 1.90 - 1) * 100, 0);
+    });
+  });
+
+  // ── Calibração de DISTRIBUIÇÃO (distK) — prioridade curva → k → raw ─────────
+  describe("calibração de distribuição (distK)", () => {
+    const simSec: SimInput = { ...baseSim, sim_corners_total_mean: 10.5 };
+    const oddsSec: OddsInput = { ...baseOdds, corners_over_95: 1.9, corners_under_95: 1.9 };
+
+    it("aplica k na média quando NÃO há curva (prob_calibrated = Poisson(mean·k))", () => {
+      const out = buildEdgeTable(simSec, oddsSec, 1000, { distK: { corners: 1.1 } });
+      const over95 = out.find(c => c.market === "corners-over" && c.side === "95")!;
+      expect(over95.prob_estimated).toBeCloseTo(poissonProbOver(10.5, 9.5), 9);
+      expect(over95.prob_calibrated).toBeCloseTo(poissonProbOver(10.5 * 1.1, 9.5), 9);
+      expect(over95.prob_calibrated).toBeGreaterThan(over95.prob_estimated);
+    });
+
+    it("aplica k no under simetricamente", () => {
+      const out = buildEdgeTable(simSec, oddsSec, 1000, { distK: { corners: 1.1 } });
+      const under95 = out.find(c => c.market === "corners-under" && c.side === "95")!;
+      expect(under95.prob_calibrated).toBeCloseTo(poissonProbUnder(10.5 * 1.1, 9.5), 9);
+    });
+
+    it("curva isotônica tem prioridade sobre o k", () => {
+      const lookup = { "corners-over-95": () => 0.42 };
+      const out = buildEdgeTable(simSec, oddsSec, 1000, {
+        isotonicLookup: lookup, distK: { corners: 1.1 },
+      });
+      const over95 = out.find(c => c.market === "corners-over" && c.side === "95")!;
+      expect(over95.prob_calibrated).toBeCloseTo(0.42, 9);
+    });
+
+    it("sem distK e sem curva → raw (comportamento atual)", () => {
+      const out = buildEdgeTable(simSec, oddsSec, 1000);
+      const over95 = out.find(c => c.market === "corners-over" && c.side === "95")!;
+      expect(over95.prob_calibrated).toBeCloseTo(over95.prob_estimated, 9);
+    });
+
+    it("k inválido/zero → ignorado (raw)", () => {
+      const out = buildEdgeTable(simSec, oddsSec, 1000, { distK: { corners: 0 } });
+      const over95 = out.find(c => c.market === "corners-over" && c.side === "95")!;
+      expect(over95.prob_calibrated).toBeCloseTo(over95.prob_estimated, 9);
     });
   });
 });
