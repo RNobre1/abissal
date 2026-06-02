@@ -27,6 +27,11 @@ bata a **odd alvo** do Pilot.
    ```
    Saída: **CANDIDATOS** (edge≥5%, mercado permitido, com tag de confiabilidade) + **ARMADILHAS** (edge alto mas mercado condenado — **proibido usar**). Tags:
    - `trust` = histórico +ROI (1x2 casa/fora). `trust_inverse` = **fade** de mercado ruim (ex.: Over 2.5 porque a IA é péssima no under) — confiável. `weak` = amostra pequena (use com cautela). `unknown` = sem referência.
+   - **FALLBACK quando o pg TCP 5432/6543 cai (ISP, lição B30):** o `bin/value_bets` (Ruby pg) não conecta. Use o espelho **HTTPS** (PostgREST), da raiz do repo — cobre TODOS os mercados calibrados (1x2/over25/btts + corners/sot/cards via Poisson do `sim_stats`, todas as linhas que o book oferece):
+     ```bash
+     pnpm exec tsx scripts/analysis/value-bets-https.ts --to <FIM> [--date <DIA>] --min-edge 0.05 --min-prob 0.55
+     ```
+     Por padrão SÓ linhas **calibradas** (com curva isotônica). `--include-raw` mostra linhas sem curva (Poisson cru = overconfiante) — **só exploração, NUNCA aposta** (B31). SOT/corners-over entram quando há odd na linha calibrada.
 2. **(Opcional) Cruzar com os scans** pra contexto/pernas extras, da raiz do repo:
    ```bash
    pnpm exec tsx scripts/analysis/pre-match-scan.ts --metric duplo-green --date <DIA> [--to <FIM>] --upcoming
