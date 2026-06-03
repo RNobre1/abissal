@@ -46,6 +46,12 @@ import { DistCalibrationCard } from "@/components/calibracao/dist-calibration-ca
 import { distCalibrationRows } from "@/lib/calibracao/dist-calibration";
 import { ScorelineAccuracyCard } from "@/components/calibracao/scoreline-accuracy-card";
 import { parseScorelineCal } from "@/lib/calibracao/scoreline-cal-repository";
+import {
+  ChampionChallengerCard,
+  type ChampionSummary,
+  type ChallengerSummary,
+} from "@/components/calibracao/champion-challenger-card";
+import { pairedBootstrap, modelVerdict } from "@/lib/calibracao/model-comparison";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -529,6 +535,82 @@ export default async function CalibracaoPage() {
       const icHi = (ic.hi * 2 - 1) * 100;
       return { confidence: r.confidence, n, roiPct, icLo, icHi };
     });
+
+  // ── Arena champion-challenger (ADR-011). Tabela model_predictions (migration
+  // 0049) pode não existir em prod — degrade gracioso em qualquer falha. ──────
+  let ccChampion: ChampionSummary | null = null;
+  let ccChallengers: ChallengerSummary[] = [];
+  try {
+    // Pagina se necessário (max 1000 por request).
+    const PAGE = 1000;
+    type ModelPredRow = { fixture_id: number; model_version: string; market: string; log_loss: number; is_champion: boolean };
+    const allPreds: ModelPredRow[] = [];
+    let from = 0;
+    let keepFetching = true;
+    while (keepFetching) {
+      const { data: chunk, error: mpErr } = await admin
+        .from("model_predictions")
+        .select("fixture_id, model_version, market, log_loss, is_champion")
+        .not("resolved_at", "is", null)
+        .not("log_loss", "is", null)
+        .order("fixture_id", { ascending: true })
+        .range(from, from + PAGE - 1);
+      if (mpErr) throw new Error(mpErr.message ?? "failed model_predictions");
+      const chunkRows = (chunk ?? []) as ModelPredRow[];
+      allPreds.push(...chunkRows);
+      if (chunkRows.length < PAGE) keepFetching = false;
+      else from += PAGE;
+    }
+
+    if (allPreds.length > 0) {
+      const champRows = allPreds.filter((r) => r.is_champion);
+      const chalAllRows = allPreds.filter((r) => !r.is_champion);
+      const champVersions = Array.from(new Set(champRows.map((r) => r.model_version)));
+      const champVersion = champVersions[0] ?? "champion";
+
+      if (champRows.length > 0) {
+        const champLLs = champRows.map((r) => r.log_loss).filter((v) => Number.isFinite(v));
+        const champMean = champLLs.length > 0
+          ? champLLs.reduce((a, b) => a + b, 0) / champLLs.length
+          : NaN;
+        ccChampion = { modelVersion: champVersion, n: champRows.length, meanLogLoss: champMean };
+
+        // Índice do champion: `${fixture_id}:${market}` → log_loss
+        const champMap = new Map<string, number>();
+        for (const r of champRows) champMap.set(`${r.fixture_id}:${r.market}`, r.log_loss);
+
+        const chalVersions = Array.from(new Set(chalAllRows.map((r) => r.model_version)));
+        const numChallengers = chalVersions.length;
+
+        for (const version of chalVersions.sort()) {
+          const vRows = chalAllRows.filter((r) => r.model_version === version);
+          // Pareia por (fixture_id, market)
+          const deltas: number[] = [];
+          for (const row of vRows) {
+            const llChamp = champMap.get(`${row.fixture_id}:${row.market}`);
+            if (llChamp == null) continue;
+            deltas.push(llChamp - row.log_loss);
+          }
+          const vLLs = vRows.map((r) => r.log_loss).filter((v) => Number.isFinite(v));
+          const vMean = vLLs.length > 0 ? vLLs.reduce((a, b) => a + b, 0) / vLLs.length : NaN;
+          const boot = pairedBootstrap(deltas, { seed: 42 });
+          const res = modelVerdict(boot, numChallengers);
+          ccChallengers.push({
+            modelVersion: version,
+            n: vRows.length,
+            meanLogLoss: vMean,
+            meanDelta: boot.meanDelta,
+            verdict: res.verdict,
+            pDeflated: res.pDeflated,
+          });
+        }
+      }
+    }
+  } catch {
+    // Degrade gracioso — tabela ausente ou erro de rede.
+    ccChampion = null;
+    ccChallengers = [];
+  }
 
   // CLV_TARGET constants (matches ClvPanel)
   const CLV_TARGET_PCT = 0.015; // 1.5% as proportion
@@ -1022,6 +1104,13 @@ export default async function CalibracaoPage() {
             top_scorelines. Derivada da linha 'scoreline-cal'. */}
         <div className="mt-8">
           <ScorelineAccuracyCard summary={scorelineCal} />
+        </div>
+
+        {/* Arena champion-challenger (ADR-011) — compara modelos em shadow via
+            log-loss + paired bootstrap deflacionado. Tabela model_predictions
+            (migration 0049) pode não existir ainda — degrade gracioso. */}
+        <div className="mt-8">
+          <ChampionChallengerCard champion={ccChampion} challengers={ccChallengers} />
         </div>
       </section>
 
