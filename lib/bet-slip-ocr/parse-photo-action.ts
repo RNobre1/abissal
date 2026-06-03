@@ -16,6 +16,8 @@
 import { parseBetSlipImage, OcrParseError } from "./gemini-vision";
 import { matchFixture, type MatchResult } from "./match-fixture";
 import type { ParsedLeg } from "./schema";
+import { createClient } from "@/lib/supabase/server";
+import { isAiEnabled } from "@/lib/settings/ai-toggle";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -52,6 +54,17 @@ export async function parseBetSlipPhoto(
   formData: FormData,
 ): Promise<ParsePhotoResult> {
   try {
+    // 0. Kill switch global de IA: o OCR usa Gemini via OpenRouter. Quando
+    // desligado (créditos zerados / economia), não tenta — instrui o usuário a
+    // adicionar as pernas manualmente, em vez de estourar erro de upstream.
+    const supabase = await createClient();
+    if (!(await isAiEnabled(supabase as never))) {
+      return {
+        ok: false,
+        error: "IA desativada no sistema. Adicione as pernas do bilhete manualmente.",
+      };
+    }
+
     // 1. Extrair e validar arquivo
     const file = formData.get("image");
     if (!(file instanceof File)) {

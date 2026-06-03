@@ -27,7 +27,7 @@ module AdamStats::Scraper
       it 'chama o runner exatamente uma vez' do
         runner = runner_double(inserted_recos: 5, errors: 0)
         hc, = healthcheck_spy
-        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                             hc_url: '', eligible_counter: -> { 0 }).run
         expect(runner).to have_received(:run).once
       end
@@ -35,7 +35,7 @@ module AdamStats::Scraper
       it 'retorna FINAL com os campos esperados' do
         runner = runner_double(inserted_recos: 7, errors: 1)
         hc, = healthcheck_spy
-        result = described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        result = described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                                      hc_url: '', eligible_counter: -> { 0 }).run
         expect(result[:recommendations_created]).to eq(7)
         expect(result[:errors]).to eq(1)
@@ -46,7 +46,7 @@ module AdamStats::Scraper
       it 'loga uma linha FINAL JSON' do
         runner = runner_double(inserted_recos: 3, errors: 0)
         hc, = healthcheck_spy
-        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                             hc_url: '', eligible_counter: -> { 0 }).run
         final = logged.find { |m| m.start_with?('[ai-reco-job] FINAL:') }
         expect(final).not_to be_nil
@@ -59,7 +59,7 @@ module AdamStats::Scraper
       it 'pinga start no início e success no fim (happy path)' do
         runner = runner_double(inserted_recos: 4, errors: 0)
         hc, pinged = healthcheck_spy
-        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                             hc_url: 'https://hc-ping.com/ai-reco', eligible_counter: -> { 0 }).run
         expect(pinged).to eq([[:start, 'https://hc-ping.com/ai-reco'],
                               [:success, 'https://hc-ping.com/ai-reco']])
@@ -68,7 +68,7 @@ module AdamStats::Scraper
       it 'NÃO tenta HTTP quando HEALTHCHECKS_AI_RECO_URL vazio (degradação graciosa)' do
         runner = runner_double(inserted_recos: 0, errors: 0)
         hc, pinged = healthcheck_spy
-        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                             hc_url: '', eligible_counter: -> { 50 }).run
         expect(pinged).to be_empty
         # mas ainda loga o silent-death pra observabilidade
@@ -80,7 +80,7 @@ module AdamStats::Scraper
       it 'pinga /fail + loga SILENT DEATH quando created=0 e pending>10' do
         runner = runner_double(inserted_recos: 0, errors: 0)
         hc, pinged = healthcheck_spy
-        result = described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        result = described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                                      hc_url: 'https://hc/x', eligible_counter: -> { 42 }).run
         expect(pinged).to eq([[:start, 'https://hc/x'], [:failure, 'https://hc/x']])
         expect(logged.any? { |m| m.include?('SILENT DEATH') }).to be(true)
@@ -91,7 +91,7 @@ module AdamStats::Scraper
       it 'NÃO dispara quando created>0 (mesmo com muitos pending)' do
         runner = runner_double(inserted_recos: 1, errors: 0)
         hc, pinged = healthcheck_spy
-        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                             hc_url: 'https://hc/x', eligible_counter: -> { 99 }).run
         expect(pinged).to eq([[:start, 'https://hc/x'], [:success, 'https://hc/x']])
         expect(logged.none? { |m| m.include?('SILENT DEATH') }).to be(true)
@@ -100,7 +100,7 @@ module AdamStats::Scraper
       it 'NÃO dispara falso positivo quando created=0 mas pending<=10' do
         runner = runner_double(inserted_recos: 0, errors: 0)
         hc, pinged = healthcheck_spy
-        result = described_class.new(logger: logger, runner: runner, healthcheck: hc,
+        result = described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                                      hc_url: 'https://hc/x', eligible_counter: -> { 3 }).run
         expect(pinged).to eq([[:start, 'https://hc/x'], [:success, 'https://hc/x']])
         expect(logged.none? { |m| m.include?('SILENT DEATH') }).to be(true)
@@ -115,12 +115,45 @@ module AdamStats::Scraper
         hc, pinged = healthcheck_spy
         result = nil
         expect do
-          result = described_class.new(logger: logger, runner: runner, healthcheck: hc,
+          result = described_class.new(logger: logger, runner: runner, healthcheck: hc, ai_enabled_check: -> { true },
                                        hc_url: 'https://hc/x', eligible_counter: -> { 30 }).run
         end.not_to raise_error
         expect(logged.any? { |m| m.include?('runner failed') }).to be(true)
         expect(pinged.last).to eq([:failure, 'https://hc/x'])
         expect(result[:ai_reco_silent_death]).to be(true)
+      end
+    end
+
+    describe '#run — kill switch global de IA' do
+      it 'pula o runner quando a IA está desabilitada (ai_enabled_check=false)' do
+        runner = runner_double(inserted_recos: 9, errors: 0)
+        hc, = healthcheck_spy
+        result = described_class.new(logger: logger, runner: runner, healthcheck: hc,
+                                     hc_url: 'https://hc/x', eligible_counter: -> { 99 },
+                                     ai_enabled_check: -> { false }).run
+        expect(runner).not_to have_received(:run)
+        expect(result[:ai_disabled]).to be(true)
+        expect(result[:recommendations_created]).to eq(0)
+        expect(result[:ai_reco_silent_death]).to be(false)
+      end
+
+      it 'pinga success (não failure) quando desabilitada — desligamento é intencional, não silent-death' do
+        runner = runner_double(inserted_recos: 0, errors: 0)
+        hc, pinged = healthcheck_spy
+        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+                            hc_url: 'https://hc/x', eligible_counter: -> { 99 },
+                            ai_enabled_check: -> { false }).run
+        expect(pinged).to eq([[:start, 'https://hc/x'], [:success, 'https://hc/x']])
+        expect(logged.none? { |m| m.include?('SILENT DEATH') }).to be(true)
+      end
+
+      it 'loga que a IA está desabilitada globalmente' do
+        runner = runner_double(inserted_recos: 0, errors: 0)
+        hc, = healthcheck_spy
+        described_class.new(logger: logger, runner: runner, healthcheck: hc,
+                            hc_url: '', eligible_counter: -> { 0 },
+                            ai_enabled_check: -> { false }).run
+        expect(logged.any? { |m| m.include?('IA desabilitada globalmente') }).to be(true)
       end
     end
   end

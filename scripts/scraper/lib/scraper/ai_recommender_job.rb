@@ -1,6 +1,7 @@
 require 'json'
 require_relative 'db'
 require_relative 'healthcheck'
+require_relative 'global_config'
 require_relative 'ai_recommender_runner'
 
 module AdamStats
@@ -40,13 +41,16 @@ module AdamStats
                      runner: nil,
                      healthcheck: Healthcheck,
                      hc_url: ENV['HEALTHCHECKS_AI_RECO_URL'],
-                     eligible_counter: nil)
+                     eligible_counter: nil,
+                     ai_enabled_check: nil)
         @logger = logger
         @runner = runner
         @healthcheck = healthcheck
         @hc_url = hc_url.to_s.strip
         # Injetável nos testes (lambda -> Integer). Em produção: conta via DB.
         @eligible_counter = eligible_counter
+        # Injetável nos testes (lambda -> Bool). Em produção: lê app_settings via DB.
+        @ai_enabled_check = ai_enabled_check
       end
 
       # Retorna um Hash com o resumo da rodada (também logado como FINAL JSON-line).
@@ -54,6 +58,25 @@ module AdamStats
       # silent-death (ping /fail), pra não derrubar o workflow sem sinal.
       def run
         ping(:start)
+
+        # Kill switch global de IA (app_settings.ai_enabled). Quando desligado, o
+        # recomendador é pulado SEM rodar o runner nem disparar silent-death — é
+        # um desligamento INTENCIONAL (créditos OpenRouter zerados / sem jogos),
+        # não uma falha. Por isso pinga :success (mantém o healthcheck verde).
+        unless ai_enabled?
+          @logger.call('[ai-reco-job] IA desabilitada globalmente (app_settings.ai_enabled=false) — pulando recomendador.')
+          ping(:success)
+          final = {
+            ai_reco_at: now_iso8601,
+            recommendations_created: 0,
+            errors: 0,
+            fixtures_pending_for_reco: 0,
+            ai_reco_silent_death: false,
+            ai_disabled: true
+          }
+          @logger.call("[ai-reco-job] FINAL: #{final.to_json}")
+          return final
+        end
 
         reco_stats = { inserted_recos: 0, errors: 0 }
         begin
@@ -78,6 +101,17 @@ module AdamStats
       end
 
       private
+
+      # Lê o kill switch global. Injetável nos testes; em produção lê
+      # app_settings via DB. Default LIGADO em qualquer erro (graceful).
+      def ai_enabled?
+        return @ai_enabled_check.call if @ai_enabled_check
+
+        DB.with_connection { |conn| GlobalConfig.ai_enabled?(conn, logger: @logger) }
+      rescue StandardError => e
+        @logger.call("[ai-reco-job] checagem de kill switch falhou (assumindo LIGADO): #{e.class}: #{e.message}")
+        true
+      end
 
       def runner
         @runner ||= AiRecommenderRunner.new(logger: @logger)

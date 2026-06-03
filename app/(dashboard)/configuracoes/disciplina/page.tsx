@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { authedUserId } from "@/lib/supabase/auth";
 import { redirect } from "next/navigation";
@@ -56,6 +57,14 @@ export default async function DisciplinaSettingsPage() {
           Configure limites para proteger sua banca de decisões impulsivas.
           Bloqueios são aplicados server-side — não podem ser contornados
           pelo frontend.
+        </p>
+        <p className="mt-4 text-sm text-[var(--color-ink-muted)]">
+          <Link
+            href="/configuracoes/ia"
+            className="underline hover:text-[var(--color-ink)]"
+          >
+            inteligência artificial (kill switch de IA) →
+          </Link>
         </p>
       </header>
 

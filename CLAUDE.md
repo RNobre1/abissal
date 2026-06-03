@@ -268,6 +268,12 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 | `ui_telemetry` | Eventos de UX (click/panel/elapsed). user_id nullable (anon OK). | own + anon |
 | `actuals_fixture_mapping` | **ÓRFÃ** — sobrou da api-football (abandonada 2026-05-28); o reconciler de actuals usa choistats, não esta tabela. | — |
 
+### Config global (migration 0050)
+
+| Tabela | Propósito | RLS |
+|---|---|---|
+| `app_settings` | Config GLOBAL key-value (≠ `disciplina_settings`, que é por-usuário). 1ª flag: `ai_enabled` — **kill switch global de IA**. Quando `false`, TODO uso de LLM/OpenRouter é pulado: cron recomendador IA-2 (`AiRecommenderJob` lê via `GlobalConfig.ai_enabled?` e sai pingando healthcheck **success**, não silent-death), `/api/ai-reco/compute` (503), OCR de bilhete (`parse-photo-action`). Lido pelo app (`lib/settings/ai-toggle.ts#isAiEnabled`) e pelo scraper (`scripts/scraper/lib/scraper/global_config.rb`). **Default graceful = LIGADO** (ausência/erro ⇒ ligado). Toggle em `/configuracoes/ia`. Escrita só via service_role. A simulação (Monte Carlo) NÃO é IA — segue rodando com a flag off. | authenticated SELECT |
+
 ### Métricas de calibração (apêndice)
 
 - **Hit rate (winner / over-under)** — fração de acertos em `ai_predictions.correct_*`. Útil mas só significa algo em ≥ 300 resolved.
