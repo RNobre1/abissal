@@ -7,6 +7,7 @@ import {
   type PlayerOdds,
   type PlayerOddsMap,
 } from "@/lib/fixtures/stats/player-market-value";
+import { scorelineDisplay } from "@/lib/fixtures/scoreline-display";
 import { InfoPopover } from "@/components/fixtures/stats/_primitives/info-popover";
 import { PanelShell } from "@/components/fixtures/stats/panels/_shell";
 import {
@@ -191,7 +192,8 @@ function SimulationBody({
   sampleSize,
   playerOdds,
 }: SimulationBodyProps) {
-  const top = sim.top_scorelines[0] ?? null;
+  const score = scorelineDisplay(sim.top_scorelines);
+  const top = score.top;
   const homeStats = sim.sim_stats?.home as
     | Record<string, Record<string, number>>
     | undefined;
@@ -231,6 +233,45 @@ function SimulationBody({
             </span>
           ) : null}
         </div>
+
+        {/* Outros placares mais simulados — comunica a incerteza real
+            (o placar exato mais provável tem só ~10%). Empates realçados. */}
+        {score.rest.length > 0 ? (
+          <div className="flex flex-col gap-1.5" data-section="top-scorelines">
+            <span className="label text-[10px] text-[var(--color-ink-faint)]">
+              outros placares prováveis
+            </span>
+            <ul className="flex flex-col gap-1">
+              {score.rest.map((s) => (
+                <li key={s.score} className="flex items-center gap-2" data-scoreline={s.score}>
+                  <span
+                    className="num w-10 shrink-0 text-sm tabular-nums"
+                    style={{ color: s.isDraw ? "var(--color-ink-muted)" : "var(--color-ink)" }}
+                  >
+                    {s.score}
+                  </span>
+                  <div className="relative h-2 flex-1 overflow-hidden rounded-sm bg-[var(--color-line)]">
+                    <div
+                      className="absolute inset-y-0 left-0 rounded-sm"
+                      style={{
+                        width: `${s.barPct}%`,
+                        background: s.isDraw
+                          ? "var(--color-ink-faint)"
+                          : "var(--color-ink-muted)",
+                      }}
+                    />
+                  </div>
+                  <span className="num w-9 shrink-0 text-right text-xs tabular-nums text-[var(--color-ink-faint)]">
+                    {pct(s.prob)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <span className="text-[10px] text-[var(--color-ink-faint)]">
+              top {score.rest.length + 1} cobre ~{pct(score.coverage)} das simulações — placar exato é incerto
+            </span>
+          </div>
+        ) : null}
 
         <div className="grid grid-cols-1 gap-3 @md/card:grid-cols-3">
           <ProbBar
