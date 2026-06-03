@@ -26,6 +26,7 @@ import {
 } from "@/lib/calibracao/prediction-scoring";
 import { crpsFromPercentiles } from "@/lib/calibracao/crps";
 import { nbLogLoss } from "@/lib/calibracao/negbin";
+import { walkForwardParams, liveParam } from "@/lib/calibracao/walk-forward";
 
 // ── Env ────────────────────────────────────────────────────────────────────────
 
@@ -93,10 +94,13 @@ interface PredictionRow {
   resolved_at: string | null;
 }
 
-/** Constrói as linhas de predição para uma simulação. `countR` = dispersão NB
- *  (size r) por stat de contagem (cards/corners/sot), fitada held-out — o
- *  champion de contagem usa NB (fiel à produção), não Poisson. */
-function buildPredictionRows(sim: any, countR: Record<string, number>): PredictionRow[] {
+/** Constrói as linhas de predição para uma simulação. `countWF` = dispersão NB
+ *  WALK-FORWARD por stat de contagem (r por fixture_id + r ao vivo) — o champion
+ *  de contagem usa NB (fiel à produção), com r fitado só no passado (justo). */
+function buildPredictionRows(
+  sim: any,
+  countWF: Record<string, { byFixture: Map<number, number>; liveR: number }>,
+): PredictionRow[] {
   const {
     fixture_id,
     model_version,
@@ -260,8 +264,9 @@ function buildPredictionRows(sim: any, countR: Record<string, number>): Predicti
 
     const mean = homeP50 + awayP50;
     // Champion de contagem = Negative Binomial (fiel à produção, que é over-disp),
-    // NÃO Poisson. r fitado held-out (countR); r grande → Poisson.
-    const r = countR[cm.market] ?? 1e7;
+    // NÃO Poisson. r WALK-FORWARD: do jogo (resolvido) ou ao vivo (futuro).
+    const wf = countWF[cm.market];
+    const r = wf ? (wf.byFixture.get(Number(fixture_id)) ?? wf.liveR) : 1e7;
     const probsCount = { mean, r };
 
     let outcomeCount: { total: number } | null = null;
@@ -411,14 +416,29 @@ function activeChampionVersion(sims: any[]): string | null {
   return bestV;
 }
 
+const R_GRID = [1, 2, 3, 4, 6, 8, 12, 20, 40, 100, 1e7];
+const COUNT_WARMUP = 50;
+
+/** Fita r (NB) num conjunto de treino por grid-search (log-loss). */
+function fitR(train: Array<{ mean: number; total: number }>): number {
+  let best = 1e7;
+  let bestLL = Infinity;
+  for (const r of R_GRID) {
+    let ll = 0;
+    for (const p of train) ll += nbLogLoss(p.mean, r, p.total);
+    if (ll / train.length < bestLL) { bestLL = ll / train.length; best = r; }
+  }
+  return best;
+}
+
 /**
- * Fita a dispersão NB (size r) de um stat de contagem, HELD-OUT: ordena os sims
- * resolvidos por actual_resolved_at, fita r no TREINO (70% antigo) por grid-search
- * minimizando log-loss NB. r grande ⇒ Poisson. Mantém o champion honesto
- * (calibração mecânica, não overfit — 1 parâmetro, B24).
+ * Dispersão NB do champion por stat de contagem, em WALK-FORWARD (justo + sem
+ * leakage, simétrico ao challenger): r de cada jogo resolvido é fitado SÓ nos
+ * anteriores; jogos futuros usam o r "ao vivo" (todos os resolvidos). Warmup →
+ * r grande (Poisson). Retorna o r por fixture_id + o r ao vivo.
  */
-function fitCountR(sims: any[], stat: string): number {
-  const pts: Array<{ mean: number; total: number; t: string }> = [];
+function walkForwardCountR(sims: any[], stat: string): { byFixture: Map<number, number>; liveR: number } {
+  const games: Array<{ fid: number; mean: number; total: number; t: string }> = [];
   for (const s of sims) {
     if (s.status !== "resolved") continue;
     const hp = s.sim_stats?.home?.[stat]?.p50;
@@ -426,21 +446,14 @@ function fitCountR(sims: any[], stat: string): number {
     const ah = s[`actual_${stat}_home`];
     const aa = s[`actual_${stat}_away`];
     if (typeof hp !== "number" || typeof ap !== "number" || ah == null || aa == null) continue;
-    pts.push({ mean: hp + ap, total: Number(ah) + Number(aa), t: s.actual_resolved_at ?? "" });
+    games.push({ fid: Number(s.fixture_id), mean: hp + ap, total: Number(ah) + Number(aa), t: s.actual_resolved_at ?? "" });
   }
-  if (pts.length < 40) return 1e7; // pouco dado → Poisson (r grande)
-  pts.sort((a, b) => (a.t < b.t ? -1 : 1));
-  const train = pts.slice(0, Math.floor(pts.length * 0.7));
-  const grid = [1, 2, 3, 4, 6, 8, 12, 20, 40, 100, 1e7];
-  let best = 1e7;
-  let bestLL = Infinity;
-  for (const r of grid) {
-    let ll = 0;
-    for (const p of train) ll += nbLogLoss(p.mean, r, p.total);
-    const mean = ll / train.length;
-    if (mean < bestLL) { bestLL = mean; best = r; }
-  }
-  return best;
+  games.sort((a, b) => (a.t < b.t ? -1 : 1));
+  const rWF = walkForwardParams(games, fitR, { warmup: COUNT_WARMUP, defaultParam: 1e7 });
+  const byFixture = new Map<number, number>();
+  games.forEach((g, i) => byFixture.set(g.fid, rWF[i]));
+  const liveR = liveParam(games, fitR, { warmup: COUNT_WARMUP, defaultParam: 1e7 });
+  return { byFixture, liveR };
 }
 
 // ── Main ──────────────────────────────────────────────────────────────────────
@@ -472,17 +485,18 @@ async function main() {
   const deduped = dedupeSims(sims.filter((s) => s.model_version === champion));
   console.log(`[seed-model-predictions] ${deduped.length} sims do champion após dedup`);
 
-  // Dispersão NB por mercado de contagem (champion = NB, fiel à produção).
-  const countR: Record<string, number> = {
-    cards: fitCountR(deduped, "cards"),
-    corners: fitCountR(deduped, "corners"),
-    sot: fitCountR(deduped, "sot"),
+  // Dispersão NB WALK-FORWARD por mercado de contagem (champion = NB, fiel à
+  // produção; r fitado só no passado → justo e simétrico ao challenger).
+  const countWF = {
+    cards: walkForwardCountR(deduped, "cards"),
+    corners: walkForwardCountR(deduped, "corners"),
+    sot: walkForwardCountR(deduped, "sot"),
   };
-  console.log(`[seed-model-predictions] NB size r (held-out): cards=${countR.cards} corners=${countR.corners} sot=${countR.sot}`);
+  console.log(`[seed-model-predictions] NB r ao vivo: cards=${countWF.cards.liveR} corners=${countWF.corners.liveR} sot=${countWF.sot.liveR}`);
 
   const predictionRows: PredictionRow[] = [];
   for (const sim of deduped) {
-    const rows = buildPredictionRows(sim, countR);
+    const rows = buildPredictionRows(sim, countWF);
     predictionRows.push(...rows);
   }
 

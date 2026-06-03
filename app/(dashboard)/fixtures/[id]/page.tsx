@@ -59,6 +59,9 @@ import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 import { SimulationPanel } from "./_components/simulation-panel";
 import type { PlayerOddsMap } from "@/lib/fixtures/stats/player-market-value";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
+import { ShadowModelsToggle } from "./_components/shadow-models-toggle";
+import { getShadowParams } from "@/lib/calibracao/shadow-params-repository";
+import { cardsShadowRows, type CardsShadowRow } from "@/lib/fixtures/shadow-card-predictions";
 import { AiRecoPanel } from "./_components/ai-reco-panel";
 
 export const dynamic = "force-dynamic";
@@ -269,6 +272,35 @@ export default async function StatsPage({ params }: StatsPageProps) {
 
   const bankrollSettings = await fetchBankrollSettings(untyped);
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
+  // Toggle shadow (ADR-011): predições dos modelos da arena pros cartões deste
+  // jogo. Fetch + compute aqui (corpo async, já awaited) → passado SÍNCRONO ao
+  // toggle (async server component como child quebra o render). Nunca quebra a página.
+  let shadowCards: { rows: CardsShadowRow[]; nu: number | null; r: number | null } = {
+    rows: [],
+    nu: null,
+    r: null,
+  };
+  try {
+    const ss = sim?.sim_stats as
+      | { home?: { cards?: { p50?: number } }; away?: { cards?: { p50?: number } } }
+      | undefined;
+    const hp = ss?.home?.cards?.p50;
+    const ap = ss?.away?.cards?.p50;
+    const cardsMean = typeof hp === "number" && typeof ap === "number" ? hp + ap : null;
+    if (cardsMean != null && sim?.model_version) {
+      const params = await getShadowParams(sim.model_version, untyped);
+      if (params?.cards) {
+        shadowCards = {
+          rows: cardsShadowRows(cardsMean, params.cards),
+          nu: params.cards.nu,
+          r: params.cards.r,
+        };
+      }
+    }
+  } catch {
+    /* shadow é experimental — nunca quebra a página */
+  }
+
   const panels = buildPanels(
     detail,
     row.home_team,
@@ -280,6 +312,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
     aposteiHouses,
     linkedBet,
     bankrollSettings,
+    shadowCards,
   );
 
   // DecisionZone: Hero + AiRecoPanel + MomentumChart no topo, com divisor
@@ -506,6 +539,7 @@ function buildPanels(
     status: string;
   } | null,
   bankrollSettings: { bankroll: number; units_per_bankroll: number },
+  shadowCards: { rows: CardsShadowRow[]; nu: number | null; r: number | null },
 ): PanelSlot[] {
   // Computa stake default usando banca real do Pilot (fix #1: defaultStake=0 bug).
   // computeDefaultStake retorna 0 quando units_final é null → sem fallback espúrio.
@@ -528,6 +562,7 @@ function buildPanels(
           playerOdds={playerOddsFromDetail(detail)}
           chrome="bare"
         />
+        <ShadowModelsToggle rows={shadowCards.rows} nu={shadowCards.nu} r={shadowCards.r} />
       </SimulationDisclosure>
     ),
   };
