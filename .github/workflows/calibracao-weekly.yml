@@ -74,9 +74,16 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/fit-scoreline-cal.ts
 
-      # Arena champion-challenger (ADR-011): compara modelos em shadow via
-      # log-loss + paired bootstrap deflacionado. Degrade gracioso se a
-      # migration 0049 ainda não estiver aplicada (exit 0 com mensagem).
+      # Arena champion-challenger (ADR-011). Primeiro SEMEIA as predições do
+      # champion ativo (backfill idempotente do fixture_simulations), depois
+      # COMPARA via log-loss + paired bootstrap deflacionado. Ambos degradam
+      # gracioso se a migration 0049 não estiver aplicada (exit 0 com mensagem).
+      - name: Seed champion predictions (arena)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/seed-model-predictions.ts
+
       - name: Compare champion vs challengers
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
