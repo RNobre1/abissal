@@ -84,6 +84,14 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/seed-model-predictions.ts
 
+      # 1º challenger: cards via Conway-Maxwell-Poisson (ν fitado held-out).
+      # Nas NOSSAS ligas os cartões são OVER-dispersos (ν≈0.7) — refit semanal.
+      - name: Seed challenger (cards CMP)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/seed-challenger-cards-cmp.ts
+
       - name: Compare champion vs challengers
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
