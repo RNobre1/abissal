@@ -4,6 +4,8 @@ import {
   getActiveCurves,
   type ActiveCurves,
 } from "@/lib/calibracao/active-curves-repository";
+import { calibrateScorelines } from "@/lib/calibracao/scoreline-calibration";
+import { getScorelineCal } from "@/lib/calibracao/scoreline-cal-repository";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 
 /**
@@ -261,6 +263,20 @@ async function applyCalibration(
   // Se SÓ over25 foi aplicado: flag fica false (decisão deliberada — over25
   // é side-prob; o flag rastreia o mercado 1X2). Coberto em testes.
   void (curves as ActiveCurves); // pin import (active-curves-repository) caso lint reclame
+
+  // Calibração de PLACAR (item 1 / B28): recalibra a FORMA do top_scorelines
+  // (achata o pico superconfiante + deflaciona empate) — DISPLAY-ONLY, NÃO toca
+  // p_home/draw/away (a isotônica acima já trata as probs de aposta). Reordena
+  // por prob desc. Sem params ativos → grid segue cru (degradação graciosa).
+  const scoreCal = await getScorelineCal(dto.model_version, supabase);
+  if (scoreCal && dto.top_scorelines.length > 0) {
+    dto.top_scorelines = calibrateScorelines(dto.top_scorelines, {
+      temperature: scoreCal.temperature,
+      drawFactor: scoreCal.drawFactor,
+    })
+      .slice()
+      .sort((a, b) => b.prob - a.prob);
+  }
 
   return dto;
 }

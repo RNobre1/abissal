@@ -65,6 +65,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/fit-dist.ts
 
+      # Calibração de PLACAR (item 1 / B28): mede a acurácia de placar e fita
+      # (T, δ) que recalibram a forma do top_scorelines (achata o pico + deflaciona
+      # empate). Display-only, validado out-of-sample, NÃO bumpa model_version.
+      - name: Fit scoreline calibration (T, δ)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/fit-scoreline-cal.ts
+
       # Healthchecks.io ping opcional — silencioso se o secret não estiver
       # configurado. Step roda fora do shell normal pra evitar `-e {0}` cortar
       # o `if:` (env só populado quando o secret existe).

@@ -44,6 +44,8 @@ import {
 import { wilsonInterval } from "@/lib/calibracao/wilson-ic";
 import { DistCalibrationCard } from "@/components/calibracao/dist-calibration-card";
 import { distCalibrationRows } from "@/lib/calibracao/dist-calibration";
+import { ScorelineAccuracyCard } from "@/components/calibracao/scoreline-accuracy-card";
+import { parseScorelineCal } from "@/lib/calibracao/scoreline-cal-repository";
 
 // Sempre fresco — métricas de calibração mudam a cada scrape.
 export const dynamic = "force-dynamic";
@@ -363,6 +365,9 @@ export default async function CalibracaoPage() {
   // Calibração de DISTRIBUIÇÃO (corners/cards/sot): derivada das linhas '*-dist'
   // já carregadas em calRows (sem query extra). Ver docs/tasks/calibracao-distribuicao.
   const distCalRows = distCalibrationRows(calRows);
+  // Acurácia de PLACAR (item 1 / B28): derivada da linha 'scoreline-cal'.
+  const scorelineCalRow = calRows.find((r) => r.metric === "scoreline-cal");
+  const scorelineCal = scorelineCalRow ? parseScorelineCal(scorelineCalRow.pairs) : null;
 
   // Parâmetros calibrados POR LIGA (migration 0020). Display somente —
   // motor Ruby já lê via `Simulation::LeagueCalibration.load` no scrape.
@@ -1011,6 +1016,12 @@ export default async function CalibracaoPage() {
             contagem (a sim subestima). Derivada das linhas '*-dist'. */}
         <div className="mt-8">
           <DistCalibrationCard rows={distCalRows} />
+        </div>
+
+        {/* Acurácia de PLACAR (item 1 / B28) — mede e calibra a forma do
+            top_scorelines. Derivada da linha 'scoreline-cal'. */}
+        <div className="mt-8">
+          <ScorelineAccuracyCard summary={scorelineCal} />
         </div>
       </section>
 
