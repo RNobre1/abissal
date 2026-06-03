@@ -357,6 +357,54 @@ async function upsertBatch(rows: PredictionRow[]): Promise<void> {
   }
 }
 
+/**
+ * Dedup: mantém 1 sim por (fixture_id, model_version). O fixture_simulations tem
+ * múltiplas linhas por jogo (re-sims/scrapes) → sem dedup, o upsert estoura com
+ * "ON CONFLICT cannot affect row a second time". Preferência: resolvida > pendente;
+ * entre iguais, a de actual_resolved_at mais recente.
+ */
+function dedupeSims(sims: any[]): any[] {
+  const best = new Map<string, any>();
+  for (const s of sims) {
+    const key = `${s.fixture_id}::${s.model_version}`;
+    const cur = best.get(key);
+    if (!cur) {
+      best.set(key, s);
+      continue;
+    }
+    const sResolved = s.status === "resolved";
+    const cResolved = cur.status === "resolved";
+    if (sResolved !== cResolved) {
+      if (sResolved) best.set(key, s);
+      continue;
+    }
+    if ((s.actual_resolved_at ?? "") > (cur.actual_resolved_at ?? "")) best.set(key, s);
+  }
+  return [...best.values()];
+}
+
+/**
+ * Versão ATIVA (champion) = a model_version da sim com `actual_resolved_at` mais
+ * recente; fallback = a mais frequente. Garante 1 champion único (não mistura
+ * v2 antiga com v7 ativa).
+ */
+function activeChampionVersion(sims: any[]): string | null {
+  let latest: { v: string; t: string } | null = null;
+  const freq = new Map<string, number>();
+  for (const s of sims) {
+    const v = s.model_version;
+    if (!v) continue;
+    freq.set(v, (freq.get(v) ?? 0) + 1);
+    const t = s.actual_resolved_at;
+    if (t && (!latest || t > latest.t)) latest = { v, t };
+  }
+  if (latest) return latest.v;
+  let bestV: string | null = null;
+  let bestN = -1;
+  for (const [v, n] of freq) if (n > bestN) { bestN = n; bestV = v; }
+  return bestV;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -373,8 +421,21 @@ async function main() {
 
   console.log(`[seed-model-predictions] ${sims.length} simulações carregadas`);
 
+  // O champion é a model_version ATIVA (a da resolução mais recente). Versões
+  // antigas (ex.: v2) são histórico morto — NÃO são champion nem challenger
+  // (não compartilham fixtures com a v7 → pareamento vazio). Semeamos só a ativa.
+  const champion = activeChampionVersion(sims);
+  console.log(`[seed-model-predictions] champion ativo: ${champion ?? "(nenhum)"}`);
+  if (!champion) {
+    console.log("[seed-model-predictions] nenhuma model_version ativa — nada a semear.");
+    return;
+  }
+
+  const deduped = dedupeSims(sims.filter((s) => s.model_version === champion));
+  console.log(`[seed-model-predictions] ${deduped.length} sims do champion após dedup`);
+
   const predictionRows: PredictionRow[] = [];
-  for (const sim of sims) {
+  for (const sim of deduped) {
     const rows = buildPredictionRows(sim);
     predictionRows.push(...rows);
   }
