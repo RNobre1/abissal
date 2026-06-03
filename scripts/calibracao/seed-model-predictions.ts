@@ -25,6 +25,7 @@ import {
   type Outcome1x2,
 } from "@/lib/calibracao/prediction-scoring";
 import { crpsFromPercentiles } from "@/lib/calibracao/crps";
+import { nbLogLoss } from "@/lib/calibracao/negbin";
 
 // ── Env ────────────────────────────────────────────────────────────────────────
 
@@ -92,8 +93,10 @@ interface PredictionRow {
   resolved_at: string | null;
 }
 
-/** Constrói as linhas de predição para uma simulação. */
-function buildPredictionRows(sim: any): PredictionRow[] {
+/** Constrói as linhas de predição para uma simulação. `countR` = dispersão NB
+ *  (size r) por stat de contagem (cards/corners/sot), fitada held-out — o
+ *  champion de contagem usa NB (fiel à produção), não Poisson. */
+function buildPredictionRows(sim: any, countR: Record<string, number>): PredictionRow[] {
   const {
     fixture_id,
     model_version,
@@ -256,7 +259,10 @@ function buildPredictionRows(sim: any): PredictionRow[] {
     if (homeP50 === null || awayP50 === null) continue; // sem dados de simulação
 
     const mean = homeP50 + awayP50;
-    const probsCount = { mean };
+    // Champion de contagem = Negative Binomial (fiel à produção, que é over-disp),
+    // NÃO Poisson. r fitado held-out (countR); r grande → Poisson.
+    const r = countR[cm.market] ?? 1e7;
+    const probsCount = { mean, r };
 
     let outcomeCount: { total: number } | null = null;
     let ll: number | null = null;
@@ -265,7 +271,7 @@ function buildPredictionRows(sim: any): PredictionRow[] {
     if (isResolved && cm.actualHome !== null && cm.actualAway !== null) {
       const total = cm.actualHome + cm.actualAway;
       outcomeCount = { total };
-      ll = logLoss(cm.market, probsCount, outcomeCount);
+      ll = nbLogLoss(mean, r, total);
 
       // CRPS via percentis do sim_stats (p10/p50/p90 do total home+away)
       const homeP10 = sim_stats?.home?.[cm.simKey]?.p10;
@@ -405,6 +411,38 @@ function activeChampionVersion(sims: any[]): string | null {
   return bestV;
 }
 
+/**
+ * Fita a dispersão NB (size r) de um stat de contagem, HELD-OUT: ordena os sims
+ * resolvidos por actual_resolved_at, fita r no TREINO (70% antigo) por grid-search
+ * minimizando log-loss NB. r grande ⇒ Poisson. Mantém o champion honesto
+ * (calibração mecânica, não overfit — 1 parâmetro, B24).
+ */
+function fitCountR(sims: any[], stat: string): number {
+  const pts: Array<{ mean: number; total: number; t: string }> = [];
+  for (const s of sims) {
+    if (s.status !== "resolved") continue;
+    const hp = s.sim_stats?.home?.[stat]?.p50;
+    const ap = s.sim_stats?.away?.[stat]?.p50;
+    const ah = s[`actual_${stat}_home`];
+    const aa = s[`actual_${stat}_away`];
+    if (typeof hp !== "number" || typeof ap !== "number" || ah == null || aa == null) continue;
+    pts.push({ mean: hp + ap, total: Number(ah) + Number(aa), t: s.actual_resolved_at ?? "" });
+  }
+  if (pts.length < 40) return 1e7; // pouco dado → Poisson (r grande)
+  pts.sort((a, b) => (a.t < b.t ? -1 : 1));
+  const train = pts.slice(0, Math.floor(pts.length * 0.7));
+  const grid = [1, 2, 3, 4, 6, 8, 12, 20, 40, 100, 1e7];
+  let best = 1e7;
+  let bestLL = Infinity;
+  for (const r of grid) {
+    let ll = 0;
+    for (const p of train) ll += nbLogLoss(p.mean, r, p.total);
+    const mean = ll / train.length;
+    if (mean < bestLL) { bestLL = mean; best = r; }
+  }
+  return best;
+}
+
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 async function main() {
@@ -434,9 +472,17 @@ async function main() {
   const deduped = dedupeSims(sims.filter((s) => s.model_version === champion));
   console.log(`[seed-model-predictions] ${deduped.length} sims do champion após dedup`);
 
+  // Dispersão NB por mercado de contagem (champion = NB, fiel à produção).
+  const countR: Record<string, number> = {
+    cards: fitCountR(deduped, "cards"),
+    corners: fitCountR(deduped, "corners"),
+    sot: fitCountR(deduped, "sot"),
+  };
+  console.log(`[seed-model-predictions] NB size r (held-out): cards=${countR.cards} corners=${countR.corners} sot=${countR.sot}`);
+
   const predictionRows: PredictionRow[] = [];
   for (const sim of deduped) {
-    const rows = buildPredictionRows(sim);
+    const rows = buildPredictionRows(sim, countR);
     predictionRows.push(...rows);
   }
 
