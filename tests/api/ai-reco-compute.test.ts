@@ -84,6 +84,7 @@ interface MockState {
   insertedReco: Record<string, unknown> | null;
   authedUserId: string | null;
   authError: boolean;
+  aiEnabled: boolean;
 }
 
 const mockState: MockState = {
@@ -102,6 +103,7 @@ const mockState: MockState = {
   insertedReco: null,
   authedUserId: null,
   authError: false,
+  aiEnabled: true,
 };
 
 function resetMock() {
@@ -120,11 +122,22 @@ function resetMock() {
   mockState.insertedReco = null;
   mockState.authedUserId = null;
   mockState.authError = false;
+  mockState.aiEnabled = true;
 }
 
 function buildAdminMock() {
   return {
     from(table: string) {
+      // --- app_settings (kill switch global de IA, via isAiEnabled) ---
+      if (table === "app_settings") {
+        const chain: Record<string, unknown> = {};
+        chain.select = () => chain;
+        chain.eq = () => chain;
+        chain.maybeSingle = () =>
+          Promise.resolve({ data: { value: mockState.aiEnabled }, error: null });
+        return chain;
+      }
+
       // --- fixtures (lookup by id) ---
       if (table === "fixtures") {
         const chain: Record<string, unknown> = {};
@@ -435,6 +448,16 @@ describe("POST /api/ai-reco/compute — body validation", () => {
 });
 
 describe("POST /api/ai-reco/compute — preconditions", () => {
+  it("returns 503 when AI is globally disabled (kill switch)", async () => {
+    mockState.aiEnabled = false;
+    mockState.fixtureRow = makeFixtureRow();
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(503);
+    const body = (await res.json()) as { error: string; ai_disabled?: boolean };
+    expect(body.ai_disabled).toBe(true);
+    expect(body.error).toMatch(/IA desativada/i);
+  });
+
   it("returns 404 when fixture does not exist", async () => {
     mockState.fixtureRow = null;
     const res = await callRoute({ fixtureId: 9999 });

@@ -24,6 +24,7 @@ import { getDistK } from "@/lib/ai-reco/dist-k-repository";
 import { applyIsotonic } from "@/lib/calibracao/isotonic";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
+import { isAiEnabled } from "@/lib/settings/ai-toggle";
 
 /**
  * POST /api/ai-reco/compute — on-demand AI recommendation for a single fixture.
@@ -151,6 +152,16 @@ export async function POST(request: Request): Promise<Response> {
   // 2. Admin client + fixture lookup
   // ---------------------------------------------------------------------------
   const supabase = createAdminClient() as AnySupabase;
+
+  // 2a. Kill switch global de IA (app_settings.ai_enabled). Quando desligado,
+  // nenhuma chamada LLM é feita — 503 pra a UI tratar ("IA desativada"). Evita
+  // gastar/errar quando os créditos do OpenRouter acabaram (default: ligado).
+  if (!(await isAiEnabled(supabase))) {
+    return NextResponse.json(
+      { error: "IA desativada globalmente", ai_disabled: true },
+      { status: 503 },
+    );
+  }
 
   let fixture: FixtureLookupRow | null = null;
   try {

@@ -40,6 +40,15 @@ vi.mock("@/lib/bet-slip-ocr/match-fixture", () => ({
 // next/cache stub (server action calls revalidatePath if needed)
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
+// Kill switch global de IA + supabase server client (a action lê a flag no início)
+const mockIsAiEnabled = vi.fn<() => Promise<boolean>>();
+vi.mock("@/lib/settings/ai-toggle", () => ({
+  isAiEnabled: () => mockIsAiEnabled(),
+}));
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: vi.fn(async () => ({})),
+}));
+
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
 function makeFormData(opts: { size?: number; mime?: string } = {}): FormData {
@@ -102,6 +111,20 @@ const MATCH_RESULT_NOT_FOUND: MatchResult = {
 describe("parseBetSlipPhoto", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockIsAiEnabled.mockResolvedValue(true);
+  });
+
+  it("kill switch: IA desativada → ok false sem chamar OCR", async () => {
+    mockIsAiEnabled.mockResolvedValue(false);
+
+    const { parseBetSlipPhoto } = await import(
+      "@/lib/bet-slip-ocr/parse-photo-action"
+    );
+    const result = await parseBetSlipPhoto(makeFormData());
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/IA desativada/i);
+    expect(mockParseBetSlipImage).not.toHaveBeenCalled();
   });
 
   it("happy path: 1 leg parseada + match auto-link → ok true, best não-null", async () => {
