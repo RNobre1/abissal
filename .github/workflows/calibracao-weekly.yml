@@ -74,6 +74,15 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/fit-scoreline-cal.ts
 
+      # Arena champion-challenger (ADR-011): compara modelos em shadow via
+      # log-loss + paired bootstrap deflacionado. Degrade gracioso se a
+      # migration 0049 ainda não estiver aplicada (exit 0 com mensagem).
+      - name: Compare champion vs challengers
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/compare-models.ts
+
       # Healthchecks.io ping opcional — silencioso se o secret não estiver
       # configurado. Step roda fora do shell normal pra evitar `-e {0}` cortar
       # o `if:` (env só populado quando o secret existe).
