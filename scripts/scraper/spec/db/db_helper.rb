@@ -7,11 +7,12 @@ module DBHelper
   # below the abissal repo root.
   MIGRATIONS_DIR = File.expand_path('../../../../supabase/migrations', __dir__)
 
-  # Only the fixtures-domain migrations (0007+) need to run against the test
-  # DB. The 0001-0006 migrations belong to the Abissal banca/bets domain and
-  # reference the auth.users schema that doesn't exist in a bare local
-  # Postgres container.
-  FIXTURE_MIGRATION_GLOB = /\A0(00[7-9]|0[1-9]\d|[1-9]\d\d)_/
+  # TODAS as migrations rodam contra o test DB, da 0001 em diante. O filtro
+  # antigo ("fixtures-domain = 0007+") quebrou quando os domínios se
+  # intercalaram: 0014/0042 (banca) referenciam o tipo bet_status criado na
+  # 0001, que era pulada → PG::UndefinedObject num DB limpo. As migrations de
+  # banca dependem de auth.users/auth.uid() (Supabase) — ensure_auth_stub!
+  # cria o stub mínimo do schema auth antes de aplicá-las.
 
   def test_url
     ENV.fetch(
@@ -49,6 +50,22 @@ module DBHelper
     conn.close
   end
 
+  # Stub mínimo do schema `auth` do Supabase para um Postgres vanilla:
+  # auth.users (alvo das FKs user_id) e auth.uid() (usada nas policies RLS).
+  # No Supabase real esses objetos já existem — aqui só o suficiente pras
+  # migrations aplicarem.
+  def ensure_auth_stub!
+    conn = connect
+    conn.query(<<~SQL)
+      CREATE SCHEMA IF NOT EXISTS auth;
+      CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
+      CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
+        LANGUAGE sql STABLE
+        AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;
+    SQL
+    conn.close
+  end
+
   def apply_migration!(filename)
     path = File.join(MIGRATIONS_DIR, filename)
     sql = File.read(path)
@@ -59,11 +76,9 @@ module DBHelper
 
   def apply_all_migrations!
     ensure_supabase_roles!
+    ensure_auth_stub!
     Dir.glob(File.join(MIGRATIONS_DIR, '*.sql')).sort.each do |path|
-      basename = File.basename(path)
-      next unless basename.match?(FIXTURE_MIGRATION_GLOB)
-
-      apply_migration!(basename)
+      apply_migration!(File.basename(path))
     end
   end
 end
