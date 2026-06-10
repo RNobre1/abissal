@@ -40,6 +40,28 @@ const authReady =
   ANON_KEY.length > 0 &&
   E2E_EMAIL.length > 0;
 
+/**
+ * Pré-condição: kill switch global de IA (`app_settings.ai_enabled`). O fluxo
+ * de upload depende do OCR (`parse-photo-action`), que é gated pela flag —
+ * com a IA desligada a action retorna erro ANTES do diálogo de confirmação,
+ * e o teste falharia por uma decisão operacional, não por bug. Espelha o
+ * default graceful de `lib/settings/ai-toggle.ts`: ausência/erro ⇒ ligado
+ * (só skipa com `false` explícito).
+ */
+async function isAiEnabledInDb(): Promise<boolean> {
+  if (!authReady) return true;
+  const adminClient = createSupabaseClient(SUPABASE_URL, SERVICE_ROLE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+  const { data, error } = await adminClient
+    .from("app_settings")
+    .select("value")
+    .eq("key", "ai_enabled")
+    .maybeSingle();
+  if (error || !data) return true;
+  return data.value !== false && data.value !== "false";
+}
+
 // ── Auth helper ───────────────────────────────────────────────────────────────
 
 /**
@@ -249,6 +271,12 @@ test.describe("bet-slip-photo · stub (mocked OpenRouter)", () => {
     test.skip(
       !authReady,
       "Needs SUPABASE_SERVICE_ROLE_KEY + NEXT_PUBLIC_SUPABASE_URL + E2E_USER_EMAIL for magic-link auth",
+    );
+    // Kill switch de IA (app_settings.ai_enabled=false): o OCR é gated e o
+    // diálogo de confirmação nunca abre — pré-condição operacional, não bug.
+    test.skip(
+      !(await isAiEnabledInDb()),
+      "kill switch global de IA desligado (app_settings.ai_enabled=false) — fluxo OCR gated",
     );
 
     // 1. Auth via cookie injection

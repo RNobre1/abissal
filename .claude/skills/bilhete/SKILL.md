@@ -39,7 +39,11 @@ bata a **odd alvo** do Pilot.
    ```
 3. **Montar o bilhete** (seu julgamento):
    - Use SÓ os **CANDIDATOS**. **Nunca** as ARMADILHAS.
-   - Prioridade: `trust` / `trust_inverse` > `weak` > `unknown`. A perna mais sólida do dia costuma ser **SOT-under** e **Over 2.5** (fade).
+   - Prioridade: `trust` / `trust_inverse` > `weak` > `unknown`. As pernas mais sólidas na prática são as de **stats** (SOT-under, escanteios-over) — na semana 01-07/06 foram 2/2, enquanto Over 2.5 (fade) fez 4/9 (~break-even nessas odds; tratar como neutro até nova amostra).
+   - **GUARDRAIL ANTI-EMPATE (B39):** pernas **1x2-vencedor** (casa/fora vence) são as mais frágeis do método — 2/9 na semana 01-07/06, com **5 dos 7 furos por EMPATE** (a sim subestima empate +3.1%, B33; o teto da isotônica gera p 0.86 superconfiante em liga pequena). Regras:
+     - **Máximo 1 perna 1x2-vencedor por bilhete**, e **nunca como âncora** (a perna de maior `p` do bilhete não pode ser 1x2-vencedor).
+     - Se a casa oferecer **dupla chance (1X/X2) ou empate-anula (DNB)** no jogo, **preferir** sobre o 1x2 seco — paga menos, mas remove exatamente o modo de falha dominante.
+     - Desconte mentalmente a `p` calibrada de 1x2-vencedor (especialmente p>0.8 em liga pequena = teto de isotônica, não confiança real).
    - **Uma perna por jogo** (múltipla válida — pernas do MESMO jogo são correlacionadas e a casa bloqueia).
    - Escolha o conjunto cuja **odd combinada (produto)** ≈ ODD alvo, com `Nº DE JOGOS` pernas (ou o mínimo que atinge a odd).
 4. **Reportar honesto** (tabela): por perna → jogo, KO UTC, aposta, odd, `p` calibrada, tag. Depois: **odd combinada**, **prob combinada** (produto das `p`), **% realista de bater**, e o aviso de variância (múltipla = alta variância; amostras pequenas; stake pequeno; não é "valor garantido"). Diga qual perna você realmente confia.
