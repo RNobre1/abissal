@@ -84,11 +84,16 @@ AdamStats::Scraper::DB.with_connection do |conn|
   end
 
   total_groups = rows.length
-  total_to_delete = 0
 
+  # Cada grupo termina com EXATAMENTE 1 linha (senão o índice único da 0052
+  # não cria). keep = a REFERENCIADA mais antiga, se houver (não podemos
+  # deletá-la sem quebrar FK); senão a mais antiga do grupo. Todas as outras:
+  # FKs re-apontadas pra keep e linha deletada — inclusive referenciadas
+  # extras (closing_odds/feedback/bets/legs migram pra keep; o conteúdo das
+  # duplicatas é a mesma reco emitida 2x, então o re-point é semanticamente
+  # neutro).
   ids_to_delete = []
-
-  verdict_counts = Hash.new(0)
+  repoints = [] # [delete_id, keep_id]
 
   rows.each do |row|
     group_ids = row['ids'].gsub(/[{}]/, '').split(',').map(&:to_i)
@@ -98,46 +103,75 @@ AdamStats::Scraper::DB.with_connection do |conn|
                    else
                      unreferenced_raw.gsub(/[{}]/, '').split(',').map(&:to_i)
                    end
-
-    # Manter o mais antigo entre os não-referenciados (primeiro, pois estão em ASC)
-    keep_id = unreferenced.first || group_ids.first
-    delete_ids = (group_ids - [keep_id]).select { |id| unreferenced.include?(id) }
-    # Segurança: nunca deletar IDs referenciados por FK
     referenced = group_ids - unreferenced
-    delete_ids -= referenced
 
+    keep_id = referenced.first || group_ids.first
+    delete_ids = group_ids - [keep_id]
+
+    delete_ids.each { |id| repoints << [id, keep_id] if referenced.include?(id) }
     ids_to_delete.concat(delete_ids)
-    total_to_delete += delete_ids.length
   end
 
-  warn "[dedupe] #{total_groups} grupos duplicados, #{total_to_delete} linhas a deletar"
+  warn "[dedupe] #{total_groups} grupos duplicados, #{ids_to_delete.length} linhas a deletar " \
+       "(#{repoints.length} com FK a re-apontar)"
 
   if dry_run
     warn '[dedupe] DRY-RUN: nada alterado. Use --execute pra aplicar.'
     warn "[dedupe] IDs que seriam deletados (primeiros 20): #{ids_to_delete.first(20).inspect}"
+    warn "[dedupe] Re-points (delete_id → keep_id): #{repoints.first(20).inspect}"
     next
   end
 
   if ids_to_delete.empty?
-    warn '[dedupe] nada a deletar (todos os duplicados têm FK ativa).'
+    warn '[dedupe] nada a deletar.'
     next
   end
 
   # Busca verdicts pra estatísticas pré-delete
+  verdict_counts = Hash.new(0)
   verdict_rows = conn.exec_params(
     "SELECT verdict, count(*) AS n FROM ai_recommendations WHERE id = ANY($1) GROUP BY verdict",
     ["{#{ids_to_delete.join(',')}}"]
   ).to_a
   verdict_rows.each { |r| verdict_counts[r['verdict']] = r['n'].to_i }
 
-  deleted = conn.exec_params(
-    "DELETE FROM ai_recommendations WHERE id = ANY($1) RETURNING id",
-    ["{#{ids_to_delete.join(',')}}"]
-  ).ntuples
+  conn.query('BEGIN')
+  begin
+    repoints.each do |delete_id, keep_id|
+      %w[closing_odds ai_reco_feedback bets bet_slip_legs].each do |table|
+        conn.exec_params(
+          "UPDATE #{table} SET ai_recommendation_id = $1 WHERE ai_recommendation_id = $2",
+          [keep_id, delete_id]
+        )
+      end
+    end
 
-  warn "[dedupe] #{deleted} linhas deletadas"
-  verdict_counts.each do |verdict, count|
-    warn "[dedupe]   #{verdict}: #{count}"
+    deleted = conn.exec_params(
+      "DELETE FROM ai_recommendations WHERE id = ANY($1) RETURNING id",
+      ["{#{ids_to_delete.join(',')}}"]
+    ).ntuples
+
+    # Verificação dentro da transação: resíduo de duplicatas deve ser ZERO.
+    residue = conn.query(<<~SQL).to_a
+      SELECT count(*) AS n FROM (
+        SELECT 1 FROM ai_recommendations
+        WHERE forced = false AND market IS NOT NULL AND side IS NOT NULL
+        GROUP BY fixture_id, market, side
+        HAVING count(*) > 1
+      ) t
+    SQL
+    raise "resíduo de #{residue.first['n']} grupos duplicados após a limpeza — ROLLBACK" if residue.first['n'].to_i.positive?
+
+    conn.query('COMMIT')
+
+    warn "[dedupe] #{deleted} linhas deletadas, #{repoints.length} FKs re-apontadas, resíduo 0"
+    verdict_counts.each do |verdict, count|
+      warn "[dedupe]   #{verdict}: #{count}"
+    end
+    warn '[dedupe] DONE. Agora aplique supabase/migrations/0052_ai_reco_dedup_index.sql'
+  rescue StandardError => e
+    conn.query('ROLLBACK')
+    warn "[dedupe] FALHOU (rollback aplicado): #{e.class}: #{e.message}"
+    raise
   end
-  warn '[dedupe] DONE. Agora aplique supabase/migrations/0052_ai_reco_dedup_index.sql'
 end
