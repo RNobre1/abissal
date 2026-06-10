@@ -5,7 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // Hoisted-safe holders for the Supabase admin client mock.
 const supabaseState = vi.hoisted(() => {
   return {
-    fixtureRow: null as { id: number } | null,
+    // scraped_at: null means "never scraped" → no rate-limit applies.
+    fixtureRow: null as { id: number; scraped_at: string | null } | null,
     updateError: null as null | { message: string },
     updatePayloadCaptured: null as null | {
       detail_json: unknown;
@@ -14,8 +15,28 @@ const supabaseState = vi.hoisted(() => {
     },
     updateEqId: null as null | number,
     selectEqId: null as null | number,
+    // Auth state for the session gate added 2026-06-09.
+    authedUserId: "test-user" as string | null,
   };
 });
+
+// Mock the server client for the auth gate.
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: () =>
+    Promise.resolve({
+      auth: {
+        getUser: () =>
+          Promise.resolve({
+            data: {
+              user: supabaseState.authedUserId
+                ? { id: supabaseState.authedUserId }
+                : null,
+            },
+            error: null,
+          }),
+      },
+    }),
+}));
 
 vi.mock("@/lib/supabase/admin", () => {
   return {
@@ -23,7 +44,7 @@ vi.mock("@/lib/supabase/admin", () => {
       return {
         from: (_table: string) => {
           return {
-            // SELECT path: .from("fixtures").select("id").eq("id", id).maybeSingle()
+            // SELECT path: .from("fixtures").select("id, scraped_at").eq("id", id).maybeSingle()
             select: (_cols: string) => ({
               eq: (_col: string, value: number) => {
                 supabaseState.selectEqId = value;
@@ -109,11 +130,13 @@ async function callRoute(id: string) {
 
 describe("POST /api/fixtures/[id]/refresh", () => {
   beforeEach(() => {
-    supabaseState.fixtureRow = { id: 42 };
+    // scraped_at: null → never scraped, rate-limit gate skipped.
+    supabaseState.fixtureRow = { id: 42, scraped_at: null };
     supabaseState.updateError = null;
     supabaseState.updatePayloadCaptured = null;
     supabaseState.updateEqId = null;
     supabaseState.selectEqId = null;
+    supabaseState.authedUserId = "test-user";
     vi.stubEnv("ADAMCHOI_API_TOKEN", "test-token");
     vi.resetModules();
   });

@@ -14,8 +14,13 @@
  * reconciler finds a data source for per-fixture match stats. The actual_corners_*,
  * actual_cards_*, actual_sot_* columns are wired but unfilled.
  *
- * Requires service-role auth (server-only).
+ * Auth: requires an authenticated Supabase session (401 otherwise). The DB
+ * query uses the admin client (service-role) after the session gate passes.
+ * fixture_simulations has service_role-only RLS on writes; reads here are via
+ * the admin bypass because the route is server-only and behind the auth gate.
+ * Consumers are the /calibracao panels — all behind login, zero functional impact.
  */
+import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import {
   bttsBrier,
@@ -50,7 +55,24 @@ interface SecondaryMetricsRow {
   sim_stats: unknown;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnySupabase = any;
+
 export async function GET(): Promise<NextResponse> {
+  // ---------------------------------------------------------------------------
+  // Auth gate — consumers are the /calibracao panels, all behind login.
+  // Mirrors the pattern in /api/ai-reco/compute and /api/ai-reco/feedback.
+  // ---------------------------------------------------------------------------
+  try {
+    const serverClient = (await createClient()) as AnySupabase;
+    const { data: { user } = { user: null } } = await serverClient.auth.getUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
   try {
     const supabase = createAdminClient();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
