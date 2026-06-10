@@ -140,26 +140,51 @@ async function processItem(
   // 4. Idempotency: check existing pending bet for this reco
   const { data: existing } = await supabase
     .from("bets")
-    .select("id, ai_recommendation_id, status")
+    .select("id, ai_recommendation_id, status, is_free_bet")
     .eq("ai_recommendation_id", item.ai_recommendation_id)
     .eq("status", "pending")
     .maybeSingle();
 
   if (existing) {
-    // UPDATE path
-    const expectedReturn = Number((stake * effectiveOdd).toFixed(2));
-    const { error: updErr } = await supabase
-      .from("bets")
-      .update({
-        total_stake: stake,
-        total_odds: Number(effectiveOdd.toFixed(4)),
-        expected_return: expectedReturn,
-        house_id: houseId,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", existing.id);
+    // UPDATE path — adjust stake and house.
+    //
+    // IMPORTANT: a direct bets.update() would change the bets row but leave the
+    // original bet_stake transaction unchanged → house_balance would diverge (Bug 2).
+    //
+    // For regular bets: use adjust_bet_stake RPC (migration 0051) which emits
+    // ledger transactions atomically (reversal of original stake + new debit).
+    //
+    // For free bets: no stake transactions exist, so a direct bets.update()
+    // is correct — nothing to adjust in the ledger.
+    const existingBet = existing as { id: string; is_free_bet?: boolean };
+    if (!existingBet.is_free_bet) {
+      // Regular bet: use RPC to keep ledger coherent
+      const { error: adjustErr } = await supabase.rpc("adjust_bet_stake", {
+        p_payload: {
+          bet_id: existing.id,
+          new_stake: stake,
+          new_house_id: houseId,
+          new_odds: Number(effectiveOdd.toFixed(4)),
+          placed_at: new Date().toISOString(),
+        },
+      });
+      if (adjustErr) throw new Error(`bet update: ${adjustErr.message}`);
+    } else {
+      // Free bet: only update the bets row (no ledger transactions to adjust)
+      const expectedReturn = Number((stake * effectiveOdd).toFixed(2));
+      const { error: updErr } = await supabase
+        .from("bets")
+        .update({
+          total_stake: stake,
+          total_odds: Number(effectiveOdd.toFixed(4)),
+          expected_return: expectedReturn,
+          house_id: houseId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", existing.id);
+      if (updErr) throw new Error(`bet update: ${updErr.message}`);
+    }
 
-    if (updErr) throw new Error(`bet update: ${updErr.message}`);
     await upsertFeedback(supabase, item.ai_recommendation_id);
     return existing.id as string;
   }

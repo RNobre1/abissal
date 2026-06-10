@@ -54,6 +54,7 @@ interface ExistingBet {
   id: string;
   ai_recommendation_id: number;
   status: string;
+  is_free_bet: boolean;
 }
 
 interface MockState {
@@ -68,6 +69,8 @@ interface MockState {
   insertBetError: { message: string } | null;
   updatedBet: Record<string, unknown> | null;
   updateBetError: { message: string } | null;
+  adjustedBet: Record<string, unknown> | null;
+  adjustBetError: { message: string } | null;
   feedbackUpserted: Record<string, unknown> | null;
   feedbackUpsertError: { message: string } | null;
 }
@@ -84,6 +87,8 @@ const mockState: MockState = {
   insertBetError: null,
   updatedBet: null,
   updateBetError: null,
+  adjustedBet: null,
+  adjustBetError: null,
   feedbackUpserted: null,
   feedbackUpsertError: null,
 };
@@ -100,6 +105,8 @@ function resetMock(): void {
   mockState.insertBetError = null;
   mockState.updatedBet = null;
   mockState.updateBetError = null;
+  mockState.adjustedBet = null;
+  mockState.adjustBetError = null;
   mockState.feedbackUpserted = null;
   mockState.feedbackUpsertError = null;
 }
@@ -206,6 +213,15 @@ function buildSupabaseMock() {
           return Promise.resolve({ data: null, error: mockState.insertBetError });
         }
         return Promise.resolve({ data: mockState.insertedBetId, error: null });
+      }
+      if (name === "adjust_bet_stake") {
+        // Capture payload for inspection
+        const payload = (args.p_payload ?? {}) as Record<string, unknown>;
+        mockState.adjustedBet = payload;
+        if (mockState.adjustBetError) {
+          return Promise.resolve({ data: null, error: mockState.adjustBetError });
+        }
+        return Promise.resolve({ data: null, error: null });
       }
       throw new Error(`unexpected rpc: ${name}`);
     },
@@ -444,6 +460,7 @@ describe("POST /api/ai-reco/apostei — idempotency", () => {
       id: "bet-uuid-existing",
       ai_recommendation_id: 123,
       status: "pending",
+      is_free_bet: false,
     };
     const res = await callRoute({
       aiRecommendationId: 123,
@@ -456,9 +473,9 @@ describe("POST /api/ai-reco/apostei — idempotency", () => {
     expect(body.betId).toBe("bet-uuid-existing");
     // place_bet RPC was NOT called (update path)
     expect(mockState.insertedBet).toBeNull();
-    // update was called with new values
-    expect(mockState.updatedBet).not.toBeNull();
-    expect(mockState.updatedBet!.total_stake).toBe(30);
+    // adjust_bet_stake RPC was called with new values (ledger-coherent update)
+    expect(mockState.adjustedBet).not.toBeNull();
+    expect(mockState.adjustedBet!.new_stake).toBe(30);
   });
 
   it("creates a new bet when no pending bet exists for the reco", async () => {
