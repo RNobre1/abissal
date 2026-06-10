@@ -81,6 +81,20 @@ module AdamStats::Scraper
         expect { capture.run }.not_to raise_error
         expect(client).not_to have_received(:fetch_widget)
       end
+
+      it 'não filtra por NOT EXISTS em closing_odds — reco com odds já capturadas volta a ser elegível' do
+        conn = conn_double
+        seen_sql = nil
+        allow(conn).to receive(:query) do |sql|
+          seen_sql = sql
+          [reco_row]
+        end
+
+        described_class.new(conn: conn, client: client, logger: logger).run
+
+        # last-write-wins: a query NÃO deve excluir fixtures que já têm closing_odds
+        expect(seen_sql).not_to match(/NOT\s+EXISTS/im)
+      end
     end
 
     describe 'odds parsing + insertion' do
@@ -147,8 +161,8 @@ module AdamStats::Scraper
       end
     end
 
-    describe 'idempotência' do
-      it 'usa ON CONFLICT DO NOTHING pra evitar duplicação no UNIQUE(fixture_id, market, side, source)' do
+    describe 'last-write-wins (upsert)' do
+      it 'usa ON CONFLICT DO UPDATE SET odd_close/captured_at — nunca DO NOTHING' do
         conn = conn_double
         seen_sql = nil
         allow(conn).to receive(:exec_params) do |sql, _params|
@@ -159,7 +173,41 @@ module AdamStats::Scraper
         described_class.new(conn: conn, client: client, logger: logger).run
 
         expect(seen_sql).to match(/ON CONFLICT/i)
-        expect(seen_sql).to match(/DO NOTHING/i)
+        expect(seen_sql).to match(/DO UPDATE/i)
+        expect(seen_sql).to match(/odd_close\s*=\s*EXCLUDED\.odd_close/i)
+        expect(seen_sql).to match(/captured_at\s*=\s*now\(\)/i)
+        expect(seen_sql).not_to match(/DO NOTHING/i)
+      end
+
+      it 'upsert também atualiza ai_recommendation_id em conflito' do
+        conn = conn_double
+        seen_sql = nil
+        allow(conn).to receive(:exec_params) do |sql, _params|
+          seen_sql ||= sql
+          []
+        end
+
+        described_class.new(conn: conn, client: client, logger: logger).run
+
+        expect(seen_sql).to match(/ai_recommendation_id\s*=\s*EXCLUDED\.ai_recommendation_id/i)
+      end
+
+      it 'toda chamada de INSERT usa o mesmo SQL com upsert (primeira captura e re-capturas)' do
+        conn = conn_double
+        seen_sqls = []
+        allow(conn).to receive(:exec_params) do |sql, _params|
+          seen_sqls << sql
+          []
+        end
+
+        described_class.new(conn: conn, client: client, logger: logger).run
+
+        expect(seen_sqls).not_to be_empty
+        seen_sqls.each do |sql|
+          expect(sql).to match(/ON CONFLICT.*DO UPDATE/im)
+          expect(sql).to match(/odd_close\s*=\s*EXCLUDED\.odd_close/i)
+          expect(sql).to match(/captured_at\s*=\s*now\(\)/i)
+        end
       end
     end
 

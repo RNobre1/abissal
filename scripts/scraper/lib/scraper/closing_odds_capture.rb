@@ -4,23 +4,26 @@ require_relative 'choistats_api_client'
 
 module AdamStats
   module Scraper
-    # Captura closing odds (~30min antes do KO) via Choistats API e persiste
-    # em `closing_odds`. Roda 4x/dia (cron 15/17/19/21 UTC) — cada execução
-    # pega recos `verdict='bet'` cujo kickoff_utc cai numa janela de 4h
-    # à frente e ainda não tem registro de closing odd da Choistats.
+    # Captura closing odds via Choistats API e persiste em `closing_odds`.
+    # Roda 4x/dia (cron 15/17/19/21 UTC) — cada execução reprocessa todas as
+    # recos `verdict='bet'` cujo kickoff_utc cai na janela `[now+5min, now+4h]`.
+    # Não há filtro de "já capturado": cada onda sobrescreve a captura anterior
+    # via upsert (last-write-wins). Resultado: a odd de fechamento mais próxima
+    # do KO é sempre a que persiste em `closing_odds`, corrigindo o CLV.
     #
     # CLV (Closing Line Value) = `(odd_taken / odd_close - 1) * 100`. A
     # `odd_taken` vive em `ai_recommendations.odd_captured` (gravada ~07h
-    # BRT, na hora da reco); a `odd_close` vem daqui — captured perto do
-    # kick-off, depois do mercado processar todas as informações.
+    # BRT, na hora da reco); a `odd_close` vem daqui — re-capturada a cada onda
+    # até o KO, com a última captura (mais perto do kick-off) prevalecendo.
     #
     # Spec: tarefa A1 (CLV tracking).
     class ClosingOddsCapture
       SOURCE = 'choistats'.freeze
 
       # Recos elegíveis: verdict='bet', kickoff_utc dentro da janela
-      # `[now+5min, now+4h]`, e não pode haver `closing_odds` já registrada
-      # pra essa fixture × fonte. Limit deixa folga pra 4-5 ondas/dia.
+      # `[now+5min, now+4h]`. SEM filtro de "já tem closing_odd" — cada onda
+      # do cron reprocessa as recos elegíveis (last-write-wins). Limit deixa
+      # folga pra 4-5 ondas/dia.
       ELIGIBLE_QUERY = <<~SQL.freeze
         SELECT r.id, r.fixture_id, r.home_team, r.away_team, r.market, r.side
         FROM ai_recommendations r
@@ -28,20 +31,20 @@ module AdamStats
           AND r.fixture_id IS NOT NULL
           AND r.kickoff_utc BETWEEN now() + INTERVAL '5 minutes'
                                 AND now() + INTERVAL '4 hours'
-          AND NOT EXISTS (
-            SELECT 1 FROM closing_odds c
-            WHERE c.fixture_id = r.fixture_id
-              AND c.source = '#{SOURCE}'
-          )
         ORDER BY r.kickoff_utc ASC
         LIMIT 100
       SQL
 
+      # Upsert last-write-wins: a captura mais próxima do KO prevalece.
+      # O contrato de 1 linha por (fixture_id, market, side, source) se mantém.
       INSERT_SQL = <<~SQL.freeze
         INSERT INTO closing_odds
           (fixture_id, market, side, odd_close, source, ai_recommendation_id)
         VALUES ($1, $2, $3, $4, $5, $6)
-        ON CONFLICT (fixture_id, market, side, source) DO NOTHING
+        ON CONFLICT (fixture_id, market, side, source) DO UPDATE SET
+          odd_close            = EXCLUDED.odd_close,
+          captured_at          = now(),
+          ai_recommendation_id = EXCLUDED.ai_recommendation_id
       SQL
 
       def initialize(conn: nil, client: nil, logger: ->(m) { warn m })
