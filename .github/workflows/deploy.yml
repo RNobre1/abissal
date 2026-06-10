@@ -1,8 +1,13 @@
 name: deploy
 
 on:
-  push:
-    branches: [main]
+  # Dispara somente após o CI verde em main — nunca em paralelo com ele.
+  # O checkout usa o SHA exato que o CI validou (head_sha do workflow_run),
+  # garantindo que o artefato deployado é idêntico ao testado.
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+  # Escape manual: permite deploy forçado sem esperar o workflow_run.
   workflow_dispatch: {}
 
 concurrency:
@@ -14,8 +19,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
+    # workflow_run: só prossegue se o CI passou em main.
+    # workflow_dispatch: if condition é sempre verdadeira (github.event_name != 'workflow_run').
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'main')
     steps:
       - uses: actions/checkout@v4
+        with:
+          # Em workflow_run, faz checkout do SHA exato que o CI testou.
+          # Em workflow_dispatch, head_sha não existe — usa o ref padrão (main).
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
 
       - uses: pnpm/action-setup@v4
         with:
@@ -26,13 +41,8 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      # --no-frozen-lockfile: package.json bumped @opennextjs/cloudflare to
-      # ^1.19.10 (server-action Set-Cookie + redirect fix) during a prod
-      # outage hotfix; the 371KB lockfile could not be transferred inline.
-      # CI resolves within the committed semver ranges. Reconcile by
-      # committing the regenerated pnpm-lock.yaml and restoring --frozen.
       - name: install
-        run: pnpm install --no-frozen-lockfile
+        run: pnpm install --frozen-lockfile
 
       - name: build for cloudflare workers
         env:

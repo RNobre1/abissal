@@ -45,6 +45,62 @@ jobs:
           NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY: dummy-key-for-build-only
         run: pnpm build
 
+  scraper:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Postgres 17 service container para os specs de integração DB do scraper
+    # (persister, league_baseline, simulation_reconciler, orchestrator).
+    # spec/db/db_helper.rb cria os roles Supabase (anon/authenticated/service_role)
+    # e aplica as migrations fixtures-domain (0007+) na primeira conexão.
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: adam
+          POSTGRES_PASSWORD: senha
+          POSTGRES_DB: adam_stats_test
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    defaults:
+      run:
+        working-directory: scripts/scraper
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: install mise (ruby 4.0.3)
+        uses: jdx/mise-action@v2
+        with:
+          working_directory: scripts/scraper
+
+      - name: cache bundle
+        uses: actions/cache@v4
+        with:
+          path: scripts/scraper/vendor/bundle
+          key: ${{ runner.os }}-gems-${{ hashFiles('scripts/scraper/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gems-
+
+      - name: bundle install
+        run: |
+          bundle config set --local path 'vendor/bundle'
+          bundle install --jobs 4 --retry 3
+
+      - name: rspec
+        env:
+          # Aponta para o service container acima (localhost porque o runner
+          # acessa via port-forward). DATABASE_URL_TEST é o override lido por
+          # spec/db/db_helper.rb; DATABASE_URL é setado pelos próprios specs
+          # de integração (persister/league_baseline) antes de conectar.
+          DATABASE_URL_TEST: postgres://adam:senha@localhost:5433/adam_stats_test
+        run: bundle exec rspec
+
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 20
