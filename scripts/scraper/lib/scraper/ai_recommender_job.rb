@@ -118,10 +118,30 @@ module AdamStats
       end
 
       # [silent_death(Bool), pending(Integer)].
+      # Bug 2 fix (2026-06-09):
+      # (a) Detecta falha TOTAL de LLM (llm_calls > 0 && llm_failures == llm_calls).
+      #     Antes era mascarado: o runner insere skips de fallback quando o LLM falha
+      #     (resultado: inserted_recos > 0 mesmo com 100% de erros LLM, ex: 401).
+      # (b) Exceção em count_eligible NÃO vira 0 (resultava em /success com DB fora).
+      #     Agora propaga [true, -1] → job pinga /fail com mensagem clara.
       def detect_silent_death(reco_stats)
+        # (a) Falha total de LLM: todas as chamadas R1 retornaram ok:false.
+        llm_calls = reco_stats[:llm_calls].to_i
+        llm_failures = reco_stats[:llm_failures].to_i
+        if llm_calls > 0 && llm_failures == llm_calls
+          @logger.call("[ai-reco-job] LLM_TOTAL_FAILURE: #{llm_failures}/#{llm_calls} chamadas R1 falharam. " \
+                       'Pingando healthchecks /fail.')
+          pending = safe_count_eligible
+          return [true, pending.is_a?(Integer) ? pending : 0]
+        end
+
+        # Detecção original: 0 recos + muitos pending.
         return [false, 0] unless reco_stats[:inserted_recos].to_i.zero?
 
-        pending = count_eligible
+        pending = safe_count_eligible
+        # (b) count_eligible falhou → propaga /fail
+        return [true, -1] if pending == :db_error
+
         if pending > SILENT_DEATH_MIN_PENDING
           @logger.call("[ai-reco-job] SILENT DEATH: 0 recos criadas com #{pending} " \
                        'fixtures pending sim. Pingando healthchecks /fail.')
@@ -130,7 +150,9 @@ module AdamStats
         [false, pending]
       end
 
-      def count_eligible
+      # Conta fixtures elegíveis. Retorna Integer na maioria dos casos.
+      # Retorna :db_error se a query falhar (Bug 2b fix): o caller decide se pinga /fail.
+      def safe_count_eligible
         return @eligible_counter.call.to_i if @eligible_counter
 
         DB.with_connection do |conn|
@@ -138,10 +160,16 @@ module AdamStats
           row ? row['n'].to_i : 0
         end
       rescue StandardError => e
-        # Defensivo: COUNT falhou ⇒ devolve 0 (silent-death não dispara falso
-        # positivo). Erros de DB já são logados pelo runner/workflow.
+        # Bug 2b fix (2026-06-09): antes silenciava e devolvia 0, mascarando DB downtime.
+        # Agora retorna :db_error pra o caller poder pingar /fail corretamente.
         @logger.call("[ai-reco-job] count_eligible failed: #{e.class}: #{e.message}")
-        0
+        :db_error
+      end
+
+      # Alias mantido pra compatibilidade — delega para safe_count_eligible.
+      def count_eligible
+        result = safe_count_eligible
+        result.is_a?(Integer) ? result : 0
       end
 
       def ping(kind)

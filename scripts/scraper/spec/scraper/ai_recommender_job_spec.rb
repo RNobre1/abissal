@@ -156,5 +156,95 @@ module AdamStats::Scraper
         expect(logged.any? { |m| m.include?('IA desabilitada globalmente') }).to be(true)
       end
     end
+
+    # ── Bug 2: silent-death detector melhorado ────────────────────────────────────
+    describe '#run — silent-death detector melhorado (Bug 2)' do
+      # (i) Bug 2a: falha TOTAL de LLM (todos ok:false) não deve ser mascarada por
+      # inserted_recos > 0 (o runner insere skips com fallback quando o LLM falha).
+      # O job deve pingar /fail quando llm_calls > 0 E llm_failures == llm_calls.
+      it 'pinga /fail e loga LLM_TOTAL_FAILURE quando todos os LLM falharam' do
+        # Runner que inseriu recos (skips de fallback) mas com 100% de falha LLM
+        runner = double('AiRecommenderRunner')
+        allow(runner).to receive(:run).and_return(
+          inserted_recos: 5, errors: 0, llm_calls: 5, llm_failures: 5
+        )
+        hc, pinged = healthcheck_spy
+        result = described_class.new(
+          logger: logger, runner: runner, healthcheck: hc,
+          hc_url: 'https://hc/x', eligible_counter: -> { 20 },
+          ai_enabled_check: -> { true }
+        ).run
+        expect(pinged).to include([:failure, 'https://hc/x'])
+        expect(logged.any? { |m| m.include?('LLM_TOTAL_FAILURE') }).to be(true)
+        expect(result[:ai_reco_silent_death]).to be(true)
+      end
+
+      it 'NÃO pinga /fail quando só parte das chamadas LLM falhou (falha parcial)' do
+        runner = double('AiRecommenderRunner')
+        allow(runner).to receive(:run).and_return(
+          inserted_recos: 5, errors: 0, llm_calls: 5, llm_failures: 2
+        )
+        hc, pinged = healthcheck_spy
+        described_class.new(
+          logger: logger, runner: runner, healthcheck: hc,
+          hc_url: 'https://hc/x', eligible_counter: -> { 0 },
+          ai_enabled_check: -> { true }
+        ).run
+        expect(pinged).to eq([[:start, 'https://hc/x'], [:success, 'https://hc/x']])
+        expect(logged.none? { |m| m.include?('LLM_TOTAL_FAILURE') }).to be(true)
+      end
+
+      it 'NÃO dispara LLM_TOTAL_FAILURE quando llm_calls = 0 (sem fixtures com valor)' do
+        runner = double('AiRecommenderRunner')
+        allow(runner).to receive(:run).and_return(
+          inserted_recos: 10, errors: 0, llm_calls: 0, llm_failures: 0
+        )
+        hc, pinged = healthcheck_spy
+        described_class.new(
+          logger: logger, runner: runner, healthcheck: hc,
+          hc_url: 'https://hc/x', eligible_counter: -> { 0 },
+          ai_enabled_check: -> { true }
+        ).run
+        expect(pinged).to eq([[:start, 'https://hc/x'], [:success, 'https://hc/x']])
+        expect(logged.none? { |m| m.include?('LLM_TOTAL_FAILURE') }).to be(true)
+      end
+
+      # (ii) Bug 2b: count_eligible falhando deve resultar em /fail, não /success.
+      # O rescue atual silencia o erro e devolve 0, mascarando DB downtime.
+      it 'pinga /fail quando count_eligible levanta exceção (DB fora do ar)' do
+        runner = runner_double(inserted_recos: 0, errors: 0, llm_calls: 0, llm_failures: 0)
+        hc, pinged = healthcheck_spy
+        # eligible_counter que simula DB fora do ar
+        boom_counter = -> { raise PG::ConnectionBad, 'connection to server failed' }
+        result = nil
+        expect do
+          result = described_class.new(
+            logger: logger, runner: runner, healthcheck: hc,
+            hc_url: 'https://hc/x', eligible_counter: boom_counter,
+            ai_enabled_check: -> { true }
+          ).run
+        end.not_to raise_error
+        expect(pinged).to include([:failure, 'https://hc/x'])
+        expect(logged.any? { |m| m.include?('count_eligible') }).to be(true)
+        expect(result[:ai_reco_silent_death]).to be(true)
+      end
+
+      it 'runner que não expõe llm_calls/llm_failures no hash é tratado graciosamente' do
+        # Compatibilidade retroativa: runner antigo que só retorna inserted_recos/errors
+        runner = runner_double(inserted_recos: 5, errors: 0)
+        # (sem llm_calls nem llm_failures no hash)
+        hc, pinged = healthcheck_spy
+        expect do
+          described_class.new(
+            logger: logger, runner: runner, healthcheck: hc,
+            hc_url: 'https://hc/x', eligible_counter: -> { 0 },
+            ai_enabled_check: -> { true }
+          ).run
+        end.not_to raise_error
+        # Sem llm info → não deve disparar LLM_TOTAL_FAILURE (graceful)
+        expect(pinged).to eq([[:start, 'https://hc/x'], [:success, 'https://hc/x']])
+        expect(logged.none? { |m| m.include?('LLM_TOTAL_FAILURE') }).to be(true)
+      end
+    end
   end
 end

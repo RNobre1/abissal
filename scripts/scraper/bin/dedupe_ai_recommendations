@@ -1,0 +1,143 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# dedupe_ai_recommendations — limpa recos duplicadas em ai_recommendations.
+#
+# Contexto (Bug 1 — 2026-06-09):
+#   Fixtures com KO na janela 24-48h eram processadas em 2 rodadas diárias,
+#   gerando duplicatas por (fixture_id, market, side) WHERE forced=false.
+#   Medido em prod: 303 grupos duplicados, 553 linhas extras, 127 verdict='bet'.
+#
+# Estratégia de limpeza:
+#   Para cada grupo (fixture_id, market, side, forced=false) com > 1 linha:
+#   - MANTER a linha referenciada por FK (closing_odds.ai_recommendation_id,
+#     ai_reco_feedback.ai_recommendation_id, bets.ai_recommendation_id,
+#     bet_slip_legs.ai_recommendation_id).
+#   - Entre as não-referenciadas, MANTER a MAIS ANTIGA (menor id).
+#   - DELETAR as restantes.
+#
+# Uso:
+#   DATABASE_URL=... bundle exec bin/dedupe_ai_recommendations           # dry-run (default)
+#   DATABASE_URL=... bundle exec bin/dedupe_ai_recommendations --execute # aplica
+#
+# IMPORTANTE: rodar --dry-run primeiro, validar a contagem e depois --execute.
+# Depois: aplicar supabase/migrations/0052_ai_reco_dedup_index.sql.
+
+require_relative '../lib/scraper/db'
+
+dry_run = !ARGV.include?('--execute')
+
+warn "[dedupe] modo: #{dry_run ? 'DRY-RUN (use --execute pra aplicar)' : 'EXECUTE'}"
+
+# Identifica os IDs a DELETAR por grupo (fixture_id, market, side) não-forçado.
+# Lógica:
+#   1. Reúne todos os ids do grupo.
+#   2. Remove o(s) referenciado(s) por FK ativa (closing_odds, feedback, bets, bet_slip_legs).
+#   3. Do restante, mantém o mais antigo (MIN id) e deleta os demais.
+FIND_DUPLICATES_SQL = <<~SQL
+  WITH groups AS (
+    SELECT
+      fixture_id,
+      market,
+      side,
+      array_agg(id ORDER BY id ASC) AS ids
+    FROM ai_recommendations
+    WHERE forced = false
+      AND market IS NOT NULL
+      AND side   IS NOT NULL
+    GROUP BY fixture_id, market, side
+    HAVING count(*) > 1
+  ),
+  referenced_ids AS (
+    SELECT DISTINCT ai_recommendation_id AS id
+    FROM (
+      SELECT ai_recommendation_id FROM closing_odds         WHERE ai_recommendation_id IS NOT NULL
+      UNION ALL
+      SELECT ai_recommendation_id FROM ai_reco_feedback     WHERE ai_recommendation_id IS NOT NULL
+      UNION ALL
+      SELECT ai_recommendation_id FROM bets                 WHERE ai_recommendation_id IS NOT NULL
+      UNION ALL
+      SELECT ai_recommendation_id FROM bet_slip_legs        WHERE ai_recommendation_id IS NOT NULL
+    ) fks
+  )
+  SELECT
+    g.fixture_id,
+    g.market,
+    g.side,
+    g.ids,
+    (
+      -- IDs do grupo que NÃO têm referência por FK
+      SELECT array_agg(elem ORDER BY elem ASC)
+      FROM unnest(g.ids) AS elem
+      WHERE elem NOT IN (SELECT id FROM referenced_ids)
+    ) AS unreferenced_ids
+  FROM groups g
+  ORDER BY g.fixture_id, g.market, g.side
+SQL
+
+AdamStats::Scraper::DB.with_connection do |conn|
+  rows = conn.query(FIND_DUPLICATES_SQL).to_a
+
+  if rows.empty?
+    warn '[dedupe] nenhuma duplicata encontrada — banco já está limpo.'
+    next
+  end
+
+  total_groups = rows.length
+  total_to_delete = 0
+
+  ids_to_delete = []
+
+  verdict_counts = Hash.new(0)
+
+  rows.each do |row|
+    group_ids = row['ids'].gsub(/[{}]/, '').split(',').map(&:to_i)
+    unreferenced_raw = row['unreferenced_ids']
+    unreferenced = if unreferenced_raw.nil? || unreferenced_raw == '{}'
+                     []
+                   else
+                     unreferenced_raw.gsub(/[{}]/, '').split(',').map(&:to_i)
+                   end
+
+    # Manter o mais antigo entre os não-referenciados (primeiro, pois estão em ASC)
+    keep_id = unreferenced.first || group_ids.first
+    delete_ids = (group_ids - [keep_id]).select { |id| unreferenced.include?(id) }
+    # Segurança: nunca deletar IDs referenciados por FK
+    referenced = group_ids - unreferenced
+    delete_ids -= referenced
+
+    ids_to_delete.concat(delete_ids)
+    total_to_delete += delete_ids.length
+  end
+
+  warn "[dedupe] #{total_groups} grupos duplicados, #{total_to_delete} linhas a deletar"
+
+  if dry_run
+    warn '[dedupe] DRY-RUN: nada alterado. Use --execute pra aplicar.'
+    warn "[dedupe] IDs que seriam deletados (primeiros 20): #{ids_to_delete.first(20).inspect}"
+    next
+  end
+
+  if ids_to_delete.empty?
+    warn '[dedupe] nada a deletar (todos os duplicados têm FK ativa).'
+    next
+  end
+
+  # Busca verdicts pra estatísticas pré-delete
+  verdict_rows = conn.exec_params(
+    "SELECT verdict, count(*) AS n FROM ai_recommendations WHERE id = ANY($1) GROUP BY verdict",
+    ["{#{ids_to_delete.join(',')}}"]
+  ).to_a
+  verdict_rows.each { |r| verdict_counts[r['verdict']] = r['n'].to_i }
+
+  deleted = conn.exec_params(
+    "DELETE FROM ai_recommendations WHERE id = ANY($1) RETURNING id",
+    ["{#{ids_to_delete.join(',')}}"]
+  ).ntuples
+
+  warn "[dedupe] #{deleted} linhas deletadas"
+  verdict_counts.each do |verdict, count|
+    warn "[dedupe]   #{verdict}: #{count}"
+  end
+  warn '[dedupe] DONE. Agora aplique supabase/migrations/0052_ai_reco_dedup_index.sql'
+end
