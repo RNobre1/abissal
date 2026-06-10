@@ -80,6 +80,13 @@ module AdamStats
       # o badge "IA · sem valor" aparecer também fora do top-N. O LIMIT 500 vira
       # só um guardrail de memória (muito acima do volume real ~200-400/janela);
       # se algum dia estourar, o overflow é a cauda de menor prioridade.
+      # Bug 1 fix (2026-06-09): exclui fixtures que JÁ têm reco não-forçada.
+      # Sem esse guard, fixtures com KO na janela 24-48h eram processadas em 2
+      # rodadas consecutivas — paga R1 em dobro e duplica recos (303 grupos
+      # duplicados medidos em prod, 553 linhas extras, 127 verdict='bet').
+      # COALESCE(r.forced, false) = false: exclui não-forçadas mas PRESERVA
+      # on-demand/forced (forced=true), que podem existir para a mesma fixture.
+      # O ON CONFLICT DO NOTHING no INSERT é a segunda camada defensiva.
       FIXTURES_QUERY = <<~SQL.freeze
         SELECT s.id, s.fixture_id, s.home_team, s.away_team, s.league, s.kickoff_utc,
                s.model_version,
@@ -93,6 +100,11 @@ module AdamStats
           AND s.kickoff_utc < now() + INTERVAL '48 hours'
           AND s.status = 'pending'
           AND s.fixture_id IS NOT NULL
+          AND NOT EXISTS (
+            SELECT 1 FROM ai_recommendations r
+            WHERE r.fixture_id = s.fixture_id
+              AND COALESCE(r.forced, false) = false
+          )
         ORDER BY
           EXISTS (
             SELECT 1 FROM league_parameters lp
@@ -117,6 +129,12 @@ module AdamStats
         RETURNING id
       SQL
 
+      # Bug 1 fix (camada c — 2026-06-09): ON CONFLICT DO NOTHING é a segunda
+      # camada defensiva além do NOT EXISTS na FIXTURES_QUERY. O índice parcial
+      # 0052_ai_reco_dedup_index (WHERE forced=false AND market IS NOT NULL AND
+      # side IS NOT NULL) torna este ON CONFLICT funcional pra recos de bet;
+      # skips (market/side NULL) nunca colidem pelo índice (NULLs não se unificam
+      # em índices parciais PG17 sem NULLS NOT DISTINCT explícito).
       RECO_INSERT_SQL = <<~SQL.freeze
         INSERT INTO ai_recommendations
           (fixture_id, home_team, away_team, league, kickoff_utc,
@@ -133,6 +151,7 @@ module AdamStats
                 $15,$16,$17,$18,
                 $19,$20,$21,$22,
                 $23,$24,$25::jsonb,$26)
+        ON CONFLICT DO NOTHING
         RETURNING id
       SQL
 
@@ -158,12 +177,18 @@ module AdamStats
         @concurrency = 1 if @concurrency < 1
       end
 
-      # Retorna { inserted_recos:, errors: }.
+      # Retorna { inserted_recos:, errors:, llm_calls:, llm_failures: }.
       # - inserted_recos: número de linhas inseridas em ai_recommendations
       #   nesta rodada (inclui skip persistido — o que importa pro silent-death
       #   detector é que o pipeline "escreveu algo"). Em dry_run sempre 0.
       # - errors: número de fixtures que levantaram exceção dentro do loop
       #   (cada uma isolada via rescue — nunca aborta o batch).
+      # - llm_calls: chamadas R1 efetivamente disparadas (fase 2). 0 se todas as
+      #   fixtures foram puladas por skip/dry-run/budget.
+      # - llm_failures: chamadas R1 onde result[:ok] == false (HTTP 4xx/5xx,
+      #   parse error, timeout). Bug 2a fix (2026-06-09): o job usa esses
+      #   contadores pra detectar falha TOTAL de LLM (todos falharam), que antes
+      #   era mascarada porque o runner persistia skips de fallback (inserted>0).
       #
       # NÃO levanta: erros por fixture são isolados aqui; falha global é
       # capturada pelo orchestrator (`rescue StandardError`). Mesmo nesse
@@ -172,7 +197,7 @@ module AdamStats
       # estouro (mas como o caller pega a exception, ele só vê o que retornar
       # pré-raise; o orchestrator usa o rescue e zera).
       def run
-        @run_stats = { inserted_recos: 0, errors: 0 }
+        @run_stats = { inserted_recos: 0, errors: 0, llm_calls: 0, llm_failures: 0 }
         @llm_calls_made = 0
 
         with_connection do |conn|
@@ -210,6 +235,11 @@ module AdamStats
                 @run_stats[:errors] += 1
                 next
               end
+              # Bug 2a fix (2026-06-09): conta chamadas LLM e falhas pra o job
+              # detectar falha TOTAL de LLM (todos ok:false), que antes era
+              # mascarada pelo skip de fallback (inserted>0 ≠ LLM funcionou).
+              @run_stats[:llm_calls] += 1
+              @run_stats[:llm_failures] += 1 unless result[:ok]
               cost = compute_cost(result)
               log_id = insert_llm_log(conn, job[:row], result, job[:prompt], cost)
               insert_reco(conn, job[:row], job[:all_candidates], job[:league_calibrated], result, log_id, cost)
@@ -220,7 +250,7 @@ module AdamStats
           end
         end
 
-        @logger.call("[ai-reco] DONE: created=#{@run_stats[:inserted_recos]} errors=#{@run_stats[:errors]}")
+        @logger.call("[ai-reco] DONE: created=#{@run_stats[:inserted_recos]} errors=#{@run_stats[:errors]} llm_calls=#{@run_stats[:llm_calls]} llm_failures=#{@run_stats[:llm_failures]}")
         @run_stats
       end
 

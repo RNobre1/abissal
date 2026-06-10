@@ -777,5 +777,194 @@ module AdamStats::Scraper
         expect(described_class::DEFAULT_CONCURRENCY).to be > 0
       end
     end
+
+    # ── Bug 1: dedup de recos duplicadas (janela 24-48h) ─────────────────────────
+    # FIXTURES_QUERY deve excluir fixtures que JÁ têm ai_recommendations não-forced
+    # pra evitar processar a mesma fixture em 2 rodadas consecutivas (KO 24-48h).
+    # RECO_INSERT_SQL deve ter ON CONFLICT DO NOTHING como segunda camada defensiva.
+    describe 'dedup de fixtures já com reco (Bug 1)' do
+      it 'FIXTURES_QUERY contém NOT EXISTS contra ai_recommendations WHERE forced=false' do
+        sql = described_class::FIXTURES_QUERY
+        # Deve existir um sub-select em ai_recommendations excluindo recos não-forçadas
+        expect(sql).to match(/NOT EXISTS/i)
+        expect(sql).to match(/ai_recommendations/i)
+        # Deve preservar forced (não excluir on-demand/forced)
+        expect(sql).to match(/forced/i)
+      end
+
+      it 'RECO_INSERT_SQL inclui ON CONFLICT DO NOTHING' do
+        sql = described_class::RECO_INSERT_SQL
+        expect(sql).to match(/ON CONFLICT/i)
+        expect(sql).to match(/DO NOTHING/i)
+      end
+
+      it 'skips têm market=nil e side=nil (NULLs não devem ser cobertos pelo índice de dedup)' do
+        # Confirma que persist_skip insere market=nil,side=nil — o índice parcial
+        # deve usar WHERE market IS NOT NULL AND side IS NOT NULL (ou equivalente)
+        # pra não bloquear múltiplos skips da mesma fixture.
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([])
+        runner = described_class.new(conn: conn, logger: logger, client: client, dry_run: false)
+        row = {
+          'fixture_id' => '42', 'home_team' => 'H', 'away_team' => 'A',
+          'league' => 'L', 'kickoff_utc' => '2026-06-10T15:00:00Z'
+        }
+        captured = []
+        allow(conn).to receive(:exec_params) do |sql, params|
+          captured << params if sql.include?('INSERT INTO ai_recommendations')
+          []
+        end
+
+        runner.send(:persist_skip, conn, row, [], false)
+
+        expect(captured.length).to eq(1)
+        params = captured.first
+        # Ordem no RECO_INSERT_SQL:
+        # $1=fixture_id, $2=home_team, $3=away_team, $4=league, $5=kickoff_utc,
+        # $6=reco_version, $7=prompt_version, $8=llm_model, $9=llm_log_id,
+        # $10=edge_table_snapshot, $11=league_calibrated,
+        # $12=verdict, $13=market, $14=side, ...
+        expect(params[12]).to be_nil  # market (index 12)
+        expect(params[13]).to be_nil  # side (index 13)
+      end
+    end
+
+    # ── Bug 2a: run_stats expõe llm_calls e llm_failures ─────────────────────────
+    # O runner precisa expor no hash de retorno quantas chamadas LLM foram feitas
+    # e quantas falharam (ok==false), pra o job detectar falha total de LLM.
+    describe '#run return contract — llm_calls e llm_failures (Bug 2a)' do
+      it 'retorna llm_calls=0 e llm_failures=0 quando não há fixtures' do
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([])
+        runner = described_class.new(conn: conn, logger: logger, client: client)
+        result = runner.run
+        expect(result).to have_key(:llm_calls)
+        expect(result).to have_key(:llm_failures)
+        expect(result[:llm_calls]).to eq(0)
+        expect(result[:llm_failures]).to eq(0)
+      end
+
+      it 'llm_failures conta chamadas onde result[:ok] == false' do
+        # Simula 1 fixture com valor + client retornando ok:false (ex: HTTP 401)
+        fail_client = double('OpenrouterClient')
+        allow(fail_client).to receive(:call).and_return(
+          ok: false,
+          error: 'HTTP 401 Unauthorized',
+          raw_content: nil,
+          usage: {},
+          latency_ms: 100,
+          model_returned: 'deepseek/deepseek-r1',
+          decision: nil
+        )
+
+        sim_row = {
+          'fixture_id' => '77', 'home_team' => 'H', 'away_team' => 'A',
+          'league' => 'L', 'kickoff_utc' => '2026-06-10T15:00:00Z',
+          'model_version' => 'sim-v7',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.75',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'H' => { 'decimal_odds' => 4.0 },
+                'Draw' => { 'decimal_odds' => 4.0 },
+                'A' => { 'decimal_odds' => 2.0 }
+              },
+              'BTTS' => { 'Yes' => { 'decimal_odds' => 2.0 }, 'No' => { 'decimal_odds' => 1.9 } }
+            }
+          )
+        }
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([sim_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        allow(conn).to receive(:exec_params).and_return([])
+
+        runner = described_class.new(conn: conn, logger: logger, client: fail_client, concurrency: 1)
+        result = runner.run
+
+        expect(result[:llm_calls]).to eq(1)
+        expect(result[:llm_failures]).to eq(1)
+      end
+
+      it 'llm_failures = 0 quando todas as chamadas retornam ok:true' do
+        sim_row = {
+          'fixture_id' => '88', 'home_team' => 'H', 'away_team' => 'A',
+          'league' => 'L', 'kickoff_utc' => '2026-06-10T15:00:00Z',
+          'model_version' => 'sim-v7',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.75',
+          'top_scorelines' => '[]', 'sim_stats' => '{}',
+          'detail_json' => JSON.generate(
+            'odds_summary' => {
+              'Result' => {
+                'H' => { 'decimal_odds' => 4.0 },
+                'Draw' => { 'decimal_odds' => 4.0 },
+                'A' => { 'decimal_odds' => 2.0 }
+              },
+              'BTTS' => { 'Yes' => { 'decimal_odds' => 2.0 }, 'No' => { 'decimal_odds' => 1.9 } }
+            }
+          )
+        }
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return([sim_row])
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        allow(conn).to receive(:exec_params).and_return([{ 'id' => 1 }])
+
+        runner = described_class.new(conn: conn, logger: logger, client: client, concurrency: 1)
+        result = runner.run
+
+        expect(result[:llm_calls]).to eq(1)
+        expect(result[:llm_failures]).to eq(0)
+      end
+
+      it 'llm_calls conta corretamente com múltiplas fixtures (mix ok/fail)' do
+        ok_client = double('OpenrouterClient')
+        call_count = 0
+        allow(ok_client).to receive(:call) do
+          call_count += 1
+          if call_count == 2
+            { ok: false, error: '503', raw_content: nil, usage: {}, latency_ms: 10, model_returned: 'x', decision: nil }
+          else
+            { ok: true,
+              decision: { verdict: 'bet', market: 'btts', side: 'sim',
+                          units_final: 1.0, prob_estimated: 0.6,
+                          confidence: 'medio', summary_line: 'x',
+                          reasoning: 'r' * 80, red_flags: [] },
+              raw_content: 'm', usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+              latency_ms: 50, model_returned: 'deepseek/deepseek-r1' }
+          end
+        end
+
+        def value_sim_row(id)
+          {
+            'fixture_id' => id.to_s, 'home_team' => 'H', 'away_team' => 'A',
+            'league' => 'L', 'kickoff_utc' => '2026-06-10T15:00:00Z',
+            'model_version' => 'sim-v7',
+            'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+            'p_over_25' => '0.50', 'p_btts' => '0.75',
+            'top_scorelines' => '[]', 'sim_stats' => '{}',
+            'detail_json' => JSON.generate(
+              'odds_summary' => {
+                'Result' => { 'H' => { 'decimal_odds' => 4.0 }, 'Draw' => { 'decimal_odds' => 4.0 }, 'A' => { 'decimal_odds' => 2.0 } },
+                'BTTS' => { 'Yes' => { 'decimal_odds' => 2.0 }, 'No' => { 'decimal_odds' => 1.9 } }
+              }
+            )
+          }
+        end
+
+        rows = [value_sim_row(1), value_sim_row(2), value_sim_row(3)]
+        conn = conn_double
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return(rows)
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        allow(conn).to receive(:exec_params).and_return([{ 'id' => 1 }])
+
+        runner = described_class.new(conn: conn, logger: logger, client: ok_client, concurrency: 1)
+        result = runner.run
+
+        expect(result[:llm_calls]).to eq(3)
+        expect(result[:llm_failures]).to eq(1)
+      end
+    end
   end
 end
