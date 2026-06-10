@@ -75,6 +75,7 @@ interface ExistingBetRow {
   id: string;
   ai_recommendation_id: number;
   status: string;
+  is_free_bet: boolean;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -211,7 +212,7 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const { data, error } = await supabase
       .from("bets")
-      .select("id, ai_recommendation_id, status")
+      .select("id, ai_recommendation_id, status, is_free_bet")
       .eq("ai_recommendation_id", parsed.aiRecommendationId)
       .eq("status", "pending")
       .maybeSingle();
@@ -225,28 +226,56 @@ export async function POST(request: Request): Promise<Response> {
   }
 
   if (existingBet !== null) {
-    // UPDATE path — change stake, total_odds and expected_return.
-    // We don't touch bet_selections (label/odd stale OK for now: the UI
-    // already locks market/side; only stake/odd typically change).
+    // UPDATE path — adjust stake, odds and house.
+    //
+    // IMPORTANT: a direct bets.update() here would change total_stake/house_id
+    // on the bets row but leave the original bet_stake transaction with the old
+    // values — the old comment "ledger fica coerente" was incorrect (Bug 2 fix).
+    //
+    // For regular bets: use adjust_bet_stake RPC (migration 0051) which emits
+    // ledger transactions atomically (reversal of original stake + new debit).
+    //
+    // For free bets: no stake transactions exist, so a direct bets.update()
+    // is correct — nothing to adjust in the ledger.
     const expectedReturn = Number((parsed.stake * effectiveOdd).toFixed(2));
     try {
-      const { error: updErr } = await supabase
-        .from("bets")
-        .update({
-          total_stake: parsed.stake,
-          total_odds: Number(effectiveOdd.toFixed(4)),
-          expected_return: expectedReturn,
-          house_id: parsed.houseId,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("id", existingBet.id)
-        .select("id")
-        .single();
-      if (updErr) {
-        return NextResponse.json(
-          { error: "bet update failed", details: updErr.message },
-          { status: 500 },
-        );
+      if (!existingBet.is_free_bet) {
+        // Regular bet: use RPC to keep ledger coherent
+        const { error: adjustErr } = await supabase.rpc("adjust_bet_stake", {
+          p_payload: {
+            bet_id: existingBet.id,
+            new_stake: parsed.stake,
+            new_house_id: parsed.houseId,
+            new_odds: Number(effectiveOdd.toFixed(4)),
+            placed_at: new Date().toISOString(),
+          },
+        });
+        if (adjustErr) {
+          return NextResponse.json(
+            { error: "bet update failed", details: adjustErr.message },
+            { status: 500 },
+          );
+        }
+      } else {
+        // Free bet: only update the bets row (no ledger transactions to adjust)
+        const { error: updErr } = await supabase
+          .from("bets")
+          .update({
+            total_stake: parsed.stake,
+            total_odds: Number(effectiveOdd.toFixed(4)),
+            expected_return: expectedReturn,
+            house_id: parsed.houseId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", existingBet.id)
+          .select("id")
+          .single();
+        if (updErr) {
+          return NextResponse.json(
+            { error: "bet update failed", details: updErr.message },
+            { status: 500 },
+          );
+        }
       }
     } catch (err) {
       return NextResponse.json(

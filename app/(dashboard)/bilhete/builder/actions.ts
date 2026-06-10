@@ -5,9 +5,6 @@ import { z } from "zod";
 import { createClient } from "@/lib/supabase/server";
 import { checkDisciplinaLimits } from "@/lib/disciplina/disciplina-guard";
 import { revalidatePath } from "next/cache";
-import type { Database } from "@/lib/supabase/types";
-
-type BetKind = Database["public"]["Enums"]["bet_kind"];
 
 // ── Schema ────────────────────────────────────────────────────────────────────
 
@@ -47,7 +44,8 @@ export async function createBetBuilderAction(
   const data = parsed.data;
 
   // 2. Auth gate
-  const supabase = await createClient();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const supabase = (await createClient()) as any;
   const {
     data: { user },
   } = await supabase.auth.getUser();
@@ -63,67 +61,33 @@ export async function createBetBuilderAction(
     };
   }
 
-  // 4. INSERT bets row
-  // `bet_builder` was added to the bet_kind enum via migration 0039.
-  // Types are updated in this PR; cast to BetKind for type safety.
-  const { data: betRow, error: betError } = await supabase
-    .from("bets")
-    .insert({
-      user_id: user.id,
-      house_id: data.house_id,
-      kind: "bet_builder" as BetKind,
-      total_odds: data.odd_combined,
-      total_stake: data.stake,
-      expected_return: Number((data.stake * data.odd_combined).toFixed(2)),
-      status: "pending" as const,
-      placed_at: new Date().toISOString(),
-      thesis: data.thesis ?? null,
-      is_free_bet: data.is_free_bet ?? false,
-    })
-    .select("id")
-    .single();
+  // 4. Atomic INSERT via place_bet_builder RPC (migration 0051).
+  //    The RPC inserts bets + bet_selections + transactions(bet_stake) in a
+  //    single Postgres transaction. Direct insertion into `bets` without the
+  //    RPC would skip the ledger debit — see bug fix in 0051.
+  const rpcPayload = {
+    house_id: data.house_id,
+    total_stake: data.stake,
+    total_odds: data.odd_combined,
+    placed_at: new Date().toISOString(),
+    is_free_bet: data.is_free_bet ?? false,
+    thesis: data.thesis ?? null,
+    home_team: data.home_team ?? null,
+    away_team: data.away_team ?? null,
+    legs: data.legs.map((leg) => ({ market: leg.market, side: leg.side })),
+  };
 
-  if (betError || !betRow) {
-    return { error: betError?.message ?? "erro ao salvar aposta" };
-  }
+  const { data: betId, error: rpcError } = await supabase.rpc(
+    "place_bet_builder",
+    { p_payload: rpcPayload },
+  );
 
-  const betId = betRow.id as string;
-
-  // 5. INSERT bet_selections (N legs, odd_taken = NULL)
-  // bet_selections does not have home_team/away_team/market/side/fixture_id columns.
-  // We encode the fixture context in event_label and the condition in selection_label.
-  // `odds` is required NOT NULL in schema; for bet_builder legs (no individual odd)
-  // we store 0 as a sentinel (the combined odd lives in bets.total_odds).
-  const eventLabel =
-    data.home_team && data.away_team
-      ? `${data.home_team} × ${data.away_team}`
-      : "jogo";
-
-  const selections = data.legs.map((leg, idx) => ({
-    bet_id: betId,
-    user_id: user.id,
-    // Use odd_combined so the value satisfies CHECK (odds > 1).
-    // Individual odds per leg are not available in bet_builder; the combined odd
-    // is the same for all legs and already lives in bets.total_odds.
-    odds: data.odd_combined,
-    odd_taken: null, // nullable per BB A migration 0039 — no individual odd taken
-    event_label: eventLabel,
-    selection_label: `${leg.market} — ${leg.side}`,
-    position_index: idx,
-  }));
-
-  const { error: selError } = await supabase
-    .from("bet_selections")
-    .insert(selections);
-
-  if (selError) {
-    // FATAL: selections are the core payload; roll back the bet row for atomicity.
-    await supabase.from("bets").delete().eq("id", betId);
-    return { error: `Falha ao salvar condições: ${selError.message}` };
+  if (rpcError || !betId) {
+    return { error: rpcError?.message ?? "erro ao salvar aposta" };
   }
 
   revalidatePath("/bets");
   revalidatePath("/bilhete");
 
-  redirect(`/bets/${betId}`);
+  redirect(`/bets/${betId as string}`);
 }

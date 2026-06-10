@@ -1,27 +1,25 @@
 /**
  * TDD — createBetBuilderAction
  *
- * Tests schema validation, auth gate, disciplina guard, and INSERT path.
+ * Tests schema validation, auth gate, disciplina guard, and RPC path.
  * Supabase client is fully mocked — no real DB needed.
+ *
+ * NOTE (2026-06-09, Bug 1 fix / migration 0051): the action now delegates
+ * all inserts to the `place_bet_builder` RPC, which handles bets +
+ * bet_selections + transactions atomically. Direct insertion into `bets`
+ * has been removed to close the ledger debit gap.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 // ── Supabase mock ─────────────────────────────────────────────────────────────
 const mockGetUser = vi.fn();
-const mockInsertSingle = vi.fn();
-const mockInsert = vi.fn(() => ({ select: vi.fn(() => ({ single: mockInsertSingle })) }));
-const mockInsertSelections = vi.fn().mockResolvedValue({ error: null });
-const mockFrom = vi.fn((table: string) => {
-  if (table === "bets") return { insert: mockInsert };
-  if (table === "bet_selections") return { insert: mockInsertSelections };
-  return { insert: vi.fn() };
-});
+const mockRpc = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: () =>
     Promise.resolve({
       auth: { getUser: mockGetUser },
-      from: mockFrom,
+      rpc: mockRpc,
     }),
 }));
 
@@ -74,7 +72,7 @@ describe("createBetBuilderAction — schema validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
-    mockInsertSingle.mockResolvedValue({ data: { id: BET_UUID }, error: null });
+    mockRpc.mockResolvedValue({ data: BET_UUID, error: null });
   });
 
   it("rejects odd_combined <= 1.01", async () => {
@@ -109,8 +107,8 @@ describe("createBetBuilderAction — schema validation", () => {
     } catch (e) {
       thrown = (e as Error).message === "REDIRECT";
     }
-    // Should not return a validation error
-    expect(thrown || mockInsertSingle.mock.calls.length > 0).toBe(true);
+    // Should not return a validation error — either redirected or RPC called
+    expect(thrown || mockRpc.mock.calls.length > 0).toBe(true);
   });
 });
 
@@ -119,7 +117,7 @@ describe("createBetBuilderAction — disciplina guard", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
-    mockInsertSingle.mockResolvedValue({ data: { id: BET_UUID }, error: null });
+    mockRpc.mockResolvedValue({ data: BET_UUID, error: null });
   });
 
   it("blocks bet when disciplina guard disallows", async () => {
@@ -133,105 +131,90 @@ describe("createBetBuilderAction — disciplina guard", () => {
 
   it("proceeds when disciplina guard allows", async () => {
     vi.mocked(checkDisciplinaLimits).mockResolvedValueOnce({ allowed: true });
-    mockInsertSingle.mockResolvedValue({ data: { id: BET_UUID }, error: null });
-    mockInsertSelections.mockResolvedValue({ error: null });
+    mockRpc.mockResolvedValue({ data: BET_UUID, error: null });
     let redirected = false;
     try {
       await createBetBuilderAction(makeValidInput());
     } catch (e) {
       if ((e as Error).message === "REDIRECT") redirected = true;
     }
-    expect(redirected || mockInsertSingle.mock.calls.length > 0).toBe(true);
+    expect(redirected || mockRpc.mock.calls.length > 0).toBe(true);
   });
 });
 
-// ── INSERT path ───────────────────────────────────────────────────────────────
-describe("createBetBuilderAction — INSERT path", () => {
+// ── RPC path (replaces the old direct INSERT path) ────────────────────────────
+describe("createBetBuilderAction — RPC path (place_bet_builder)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } } });
-    mockInsertSingle.mockResolvedValue({ data: { id: BET_UUID }, error: null });
-    mockInsertSelections.mockResolvedValue({ error: null });
+    mockRpc.mockResolvedValue({ data: BET_UUID, error: null });
   });
 
-  it("inserts bets row with kind=bet_builder and correct fields", async () => {
+  it("calls place_bet_builder RPC with total_odds, total_stake, house_id", async () => {
     try {
       await createBetBuilderAction(makeValidInput());
     } catch {
       // redirect
     }
-    expect(mockFrom).toHaveBeenCalledWith("bets");
-    const [betPayload] = mockInsert.mock.calls[0] as unknown as [Record<string, unknown>];
-    expect(betPayload.kind).toBe("bet_builder");
-    expect(betPayload.total_odds).toBe(5.5);
-    expect(betPayload.total_stake).toBe(20);
-    expect(betPayload.status).toBe("pending");
-    expect(betPayload.house_id).toBe("00000000-0000-0000-0000-000000000001");
+    expect(mockRpc).toHaveBeenCalledOnce();
+    const [rpcName, args] = mockRpc.mock.calls[0] as [string, { p_payload: Record<string, unknown> }];
+    expect(rpcName).toBe("place_bet_builder");
+    const p = args.p_payload;
+    // Note: kind='bet_builder' is implicit in the RPC name, not a payload field.
+    expect(p.total_odds).toBe(5.5);
+    expect(p.total_stake).toBe(20);
+    expect(p.house_id).toBe("00000000-0000-0000-0000-000000000001");
   });
 
-  it("inserts N bet_selections rows (one per leg) with odd_taken=null", async () => {
+  it("passes legs array with market+side per leg to the RPC", async () => {
     try {
       await createBetBuilderAction(makeValidInput());
     } catch {
       // redirect
     }
-    expect(mockFrom).toHaveBeenCalledWith("bet_selections");
-    const [selectionsPayload] = mockInsertSelections.mock.calls[0] as [
-      Array<Record<string, unknown>>,
-    ];
-    expect(selectionsPayload).toHaveLength(2);
-    // odd_taken must be null for bet_builder legs
-    expect(selectionsPayload[0]?.odd_taken).toBeNull();
-    expect(selectionsPayload[1]?.odd_taken).toBeNull();
-    // odds must be odd_combined (satisfies CHECK > 1); not 0
-    expect(selectionsPayload[0]?.odds).toBe(5.5);
-    // event_label and selection_label populated
-    expect(String(selectionsPayload[0]?.event_label)).toContain("Flamengo");
-    expect(String(selectionsPayload[0]?.selection_label)).toContain("Mais 10.5");
+    const [, args] = mockRpc.mock.calls[0] as [string, { p_payload: Record<string, unknown> }];
+    const legs = args.p_payload.legs as Array<Record<string, unknown>>;
+    expect(legs).toHaveLength(2);
+    expect(legs[0]?.market).toBe("Mais 10.5");
+    expect(legs[0]?.side).toBe("Chutes no gol");
+    expect(legs[1]?.market).toBe("Ambas Marcam");
   });
 
-  it("returns error when bets INSERT fails", async () => {
-    mockInsertSingle.mockResolvedValue({ data: null, error: { message: "db fail" } });
+  it("passes home_team, away_team, thesis to the RPC", async () => {
+    try {
+      await createBetBuilderAction(makeValidInput());
+    } catch {
+      // redirect
+    }
+    const [, args] = mockRpc.mock.calls[0] as [string, { p_payload: Record<string, unknown> }];
+    expect(args.p_payload.home_team).toBe("Flamengo");
+    expect(args.p_payload.away_team).toBe("Palmeiras");
+    expect(args.p_payload.thesis).toBe("Duas condições correlacionadas");
+  });
+
+  it("returns error when RPC fails", async () => {
+    mockRpc.mockResolvedValue({ data: null, error: { message: "db fail" } });
     const result = await createBetBuilderAction(makeValidInput());
     expect("error" in result).toBe(true);
   });
 
-  // ── NEW: odds CHECK constraint + selError atomicity ───────────────────────
-
-  it("odds field passes the CHECK constraint (odds > 1) — stores odd_combined not 0", async () => {
+  it("passes is_free_bet=false by default", async () => {
     try {
       await createBetBuilderAction(makeValidInput());
     } catch {
       // redirect
     }
-    const [selectionsPayload] = mockInsertSelections.mock.calls[0] as [
-      Array<Record<string, unknown>>,
-    ];
-    // odd_combined is 5.5 in makeValidInput; each selection must carry that value
-    expect(Number(selectionsPayload[0]?.odds)).toBeGreaterThan(1);
-    expect(selectionsPayload[0]?.odds).toBe(5.5);
+    const [, args] = mockRpc.mock.calls[0] as [string, { p_payload: Record<string, unknown> }];
+    expect(args.p_payload.is_free_bet).toBe(false);
   });
 
-  it("selError DELETEs the bets row and returns error (atomicity)", async () => {
-    const mockDeleteEq = vi.fn().mockResolvedValue({ error: null });
-    const mockDelete = vi.fn(() => ({ eq: mockDeleteEq }));
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "bets") return { insert: mockInsert, delete: mockDelete };
-      if (table === "bet_selections")
-        return { insert: vi.fn().mockResolvedValue({ error: { message: "check_violation" } }) };
-      return { insert: vi.fn() };
-    });
-
-    const result = await createBetBuilderAction(makeValidInput());
-
-    expect("error" in result).toBe(true);
-    expect(mockDelete).toHaveBeenCalled();
-
-    // restore mock for other tests
-    mockFrom.mockImplementation((table: string) => {
-      if (table === "bets") return { insert: mockInsert };
-      if (table === "bet_selections") return { insert: mockInsertSelections };
-      return { insert: vi.fn() };
-    });
+  it("passes is_free_bet=true when specified (free bet — RPC skips ledger debit)", async () => {
+    try {
+      await createBetBuilderAction({ ...makeValidInput(), is_free_bet: true });
+    } catch {
+      // redirect
+    }
+    const [, args] = mockRpc.mock.calls[0] as [string, { p_payload: Record<string, unknown> }];
+    expect(args.p_payload.is_free_bet).toBe(true);
   });
 });
