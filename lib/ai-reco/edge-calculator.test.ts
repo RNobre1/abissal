@@ -595,3 +595,98 @@ describe("clamp — mercados secundários (o caso que originou o bug)", () => {
     }
   });
 });
+
+// ── temperature scaling (28/07) ────────────────────────────────────────────
+// Challenger promovido: venceu a arena em 1x2/over25/btts (n=7290, p<.001).
+// A sim ESTICA as probabilidades e um T por mercado corrige.
+//
+// Prioridade: curva isotônica → temperatura → raw. A isotônica foi fitada
+// SOBRE probs raw, então aplicar T antes dela mudaria a entrada que ela
+// aprendeu. Onde há curva ela ganha (corrige forma local, com dado da liga);
+// onde não há — a maioria dos jogos — o T corrige o esticamento global.
+// Mesmo padrão do `k` de distribuição (B32).
+describe("buildEdgeTable — temperature scaling", () => {
+  it("aplica T quando NÃO há curva isotônica pro mercado", () => {
+    const semT = buildEdgeTable(baseSim, baseOdds, 1000);
+    const comT = buildEdgeTable(baseSim, baseOdds, 1000, {
+      temperature: { over25: 2.15 },
+    });
+    const a = semT.find(c => c.market === "over25" && c.side === "over")!;
+    const b = comT.find(c => c.market === "over25" && c.side === "over")!;
+
+    // p=0.60 com T=2.15 achata em direção a 0.5
+    expect(b.prob_calibrated).toBeLessThan(a.prob_calibrated);
+    expect(b.prob_calibrated).toBeGreaterThan(0.5);
+  });
+
+  it("a curva isotônica tem prioridade sobre o T", () => {
+    const out = buildEdgeTable(baseSim, baseOdds, 1000, {
+      isotonicLookup: { over25: () => 0.42 },
+      temperature: { over25: 2.5 },
+    });
+    const over = out.find(c => c.market === "over25" && c.side === "over")!;
+    // valor da curva, intocado pelo T
+    expect(over.prob_calibrated).toBeCloseTo(0.42, 6);
+  });
+
+  it("T aplicado ao 1x2 preserva a soma das três probabilidades", () => {
+    const out = buildEdgeTable(baseSim, baseOdds, 1000, {
+      temperature: { "1x2": 1.7 },
+    });
+    const soma = ["home", "draw", "away"]
+      .map(s => out.find(c => c.market === "1x2" && c.side === s)!.prob_calibrated)
+      .reduce((a, b) => a + b, 0);
+    expect(soma).toBeCloseTo(1, 6);
+  });
+
+  it("T no 1x2 achata o favorito e levanta o azarão", () => {
+    const sem = buildEdgeTable(baseSim, baseOdds, 1000);
+    const com = buildEdgeTable(baseSim, baseOdds, 1000, { temperature: { "1x2": 2.0 } });
+    const pick = (o: typeof sem, side: string) =>
+      o.find(c => c.market === "1x2" && c.side === side)!.prob_calibrated;
+
+    expect(pick(com, "home")).toBeLessThan(pick(sem, "home")); // 0.50 → menor
+    expect(pick(com, "draw")).toBeGreaterThan(pick(sem, "draw")); // 0.25 → maior
+  });
+
+  it("btts também aceita T", () => {
+    const sem = buildEdgeTable(baseSim, baseOdds, 1000);
+    const com = buildEdgeTable(baseSim, baseOdds, 1000, { temperature: { btts: 2.6 } });
+    const a = sem.find(c => c.market === "btts" && c.side === "sim")!;
+    const b = com.find(c => c.market === "btts" && c.side === "sim")!;
+    expect(b.prob_calibrated).toBeLessThan(a.prob_calibrated);
+    // e o lado oposto continua complementar
+    const nao = com.find(c => c.market === "btts" && c.side === "nao")!;
+    expect(b.prob_calibrated + nao.prob_calibrated).toBeCloseTo(1, 6);
+  });
+
+  it("T = 1 é indistinguível de não passar temperatura", () => {
+    const sem = buildEdgeTable(baseSim, baseOdds, 1000);
+    const com = buildEdgeTable(baseSim, baseOdds, 1000, {
+      temperature: { "1x2": 1, over25: 1, btts: 1 },
+    });
+    for (let i = 0; i < sem.length; i++) {
+      expect(com[i].prob_calibrated).toBeCloseTo(sem[i].prob_calibrated, 9);
+    }
+  });
+
+  it("T ausente/inválido não altera nada (degrada gracioso)", () => {
+    const sem = buildEdgeTable(baseSim, baseOdds, 1000);
+    const com = buildEdgeTable(baseSim, baseOdds, 1000, {
+      temperature: { over25: Number.NaN },
+    });
+    const a = sem.find(c => c.market === "over25" && c.side === "over")!;
+    const b = com.find(c => c.market === "over25" && c.side === "over")!;
+    expect(b.prob_calibrated).toBeCloseTo(a.prob_calibrated, 9);
+  });
+
+  it("NÃO toca mercados secundários (corners/cards/sot usam o k)", () => {
+    const sim = { ...baseSim, sim_corners_total_mean: 10 };
+    const odds = { ...baseOdds, corners_over_95: 2.0, corners_under_95: 1.8 };
+    const sem = buildEdgeTable(sim, odds, 1000);
+    const com = buildEdgeTable(sim, odds, 1000, { temperature: { "1x2": 2.5 } });
+    const a = sem.find(c => c.market === "corners-over")!;
+    const b = com.find(c => c.market === "corners-over")!;
+    expect(b.prob_calibrated).toBeCloseTo(a.prob_calibrated, 9);
+  });
+});

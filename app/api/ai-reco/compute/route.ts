@@ -21,6 +21,7 @@ import {
 } from "@/lib/ai-reco/recommender";
 import { computeCostUsd } from "@/lib/ai-reco/pricing";
 import { getDistK } from "@/lib/ai-reco/dist-k-repository";
+import { getTemperature } from "@/lib/ai-reco/temp-repository";
 import { applyIsotonic } from "@/lib/calibracao/isotonic";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
@@ -239,6 +240,8 @@ export async function POST(request: Request): Promise<Response> {
   // Calibração de distribuição (corners/cards/sot): fallback do Poisson cru nas
   // linhas sem curva isotônica. Prioridade no buildEdgeTable: curva → k → raw.
   const distK = await getDistK(sim.model_version ?? "", supabase);
+  // Temperature scaling (B45): mesma correção que o batch Ruby aplica.
+  const temperature = await getTemperature(sim.model_version ?? "", supabase);
 
   // ---------------------------------------------------------------------------
   // 6. League calibrated detection
@@ -257,6 +260,7 @@ export async function POST(request: Request): Promise<Response> {
     isotonicLookup,
     blendAlpha,
     distK,
+    temperature,
   });
   const betCandidates = allCandidates.filter(
     (c) => c.edge_pct >= EDGE_THRESHOLD_PCT,

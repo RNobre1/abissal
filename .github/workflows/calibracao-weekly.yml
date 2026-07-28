@@ -79,6 +79,16 @@ jobs:
         run: pnpm exec tsx scripts/calibracao/fit-scoreline-cal.ts
 
       # Arena champion-challenger (ADR-011). Primeiro SEMEIA as predições do
+      # Temperature scaling por mercado (1x2/over25/btts). A sim ESTICA as
+      # probabilidades e um T corrige o viés monotônico. Promovido em 28/07
+      # após vencer a arena (n=7290, p<.001) — lição B45. Refit MECÂNICO
+      # data-driven, como os demais: não mexe em prompt/modelo (B24).
+      - name: Fit temperature scaling (T por mercado)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/fit-temperature.ts
+
       # champion ativo (backfill idempotente do fixture_simulations), depois
       # COMPARA via log-loss + paired bootstrap deflacionado. Ambos degradam
       # gracioso se a migration 0049 não estiver aplicada (exit 0 com mensagem).
