@@ -116,6 +116,18 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/seed-challenger-temperature.ts
 
+      # 3º challenger: cartões com o PERFIL DO ÁRBITRO (média em cartões +
+      # ν por árbitro). O achado de 28/07 é que a dispersão dos cartões varia
+      # POR ÁRBITRO (45 over / 42 sub / 31 ≈Poisson) — fitar ν global fita a
+      # média de duas populações opostas, o que explica o CMP global
+      # inconclusivo (B35-B37). FORWARD-ONLY: o detail_json tem retenção de
+      # ~4 dias, então rodar toda semana é o que acumula amostra.
+      - name: Seed challenger (referee cards)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/seed-challenger-referee-cards.ts
+
       - name: Compare champion vs challengers
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
