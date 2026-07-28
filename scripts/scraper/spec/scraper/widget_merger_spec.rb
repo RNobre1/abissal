@@ -205,6 +205,103 @@ RSpec.describe AdamStats::Scraper::WidgetMerger do
       expect(empty_referee.referee_record).to be_nil
     end
 
+    # O widget /referee/{id}/fixtures devolve ~30 campos POR JOGO apitado
+    # (cartões por lado, faltas, corners 1H/2H, chutes, pênaltis) e nós
+    # guardávamos só a média de booking points. Booking point é uma métrica
+    # composta (amarelo=10, vermelho=25 no choistats) — some a contagem de
+    # cartões e a forma da distribuição, que é justamente o que decide um
+    # mercado over/under.
+    describe 'campos ricos por jogo (28/07)' do
+      # 4 jogos completos com cartões e faltas explícitos.
+      let(:rich_fixtures) do
+        [
+          { 'id' => 200, 'status' => 'FT', 'homeBookingPoints' => 40, 'awayBookingPoints' => 30,
+            'homeYellows' => 4, 'awayYellows' => 3, 'homeReds' => 0, 'awayReds' => 0,
+            'homeYellowReds' => 0, 'awayYellowReds' => 0, 'homeFouls' => 14, 'awayFouls' => 11,
+            'referee' => { 'id' => 1, 'name' => 'Ref' } },
+          { 'id' => 201, 'status' => 'FT', 'homeBookingPoints' => 20, 'awayBookingPoints' => 45,
+            'homeYellows' => 2, 'awayYellows' => 3, 'homeReds' => 0, 'awayReds' => 1,
+            'homeYellowReds' => 0, 'awayYellowReds' => 1, 'homeFouls' => 9, 'awayFouls' => 16,
+            'referee' => { 'id' => 1, 'name' => 'Ref' } },
+          { 'id' => 202, 'status' => 'FT', 'homeBookingPoints' => 10, 'awayBookingPoints' => 10,
+            'homeYellows' => 1, 'awayYellows' => 1, 'homeReds' => 0, 'awayReds' => 0,
+            'homeYellowReds' => 0, 'awayYellowReds' => 0, 'homeFouls' => 8, 'awayFouls' => 7,
+            'referee' => { 'id' => 1, 'name' => 'Ref' } },
+          { 'id' => 203, 'status' => 'FT', 'homeBookingPoints' => 30, 'awayBookingPoints' => 20,
+            'homeYellows' => 3, 'awayYellows' => 2, 'homeReds' => 0, 'awayReds' => 0,
+            'homeYellowReds' => 0, 'awayYellowReds' => 0, 'homeFouls' => 12, 'awayFouls' => 10,
+            'referee' => { 'id' => 1, 'name' => 'Ref' } }
+        ]
+      end
+
+      def rec_for(fixtures)
+        described_class.merge(base, widgets.merge(referee_fixtures: fixtures)).referee_record
+      end
+
+      it 'conta CARTÕES por lado (amarelos + vermelhos), não só booking points' do
+        rec = rec_for(rich_fixtures)
+        # casa: (4+0 + 2+0 + 1+0 + 3+0)/4 = 10/4 = 2.5
+        expect(rec[:avg_home_cards]).to be_within(0.01).of(2.5)
+        # fora: (3+0 + 3+1 + 1+0 + 2+0)/4 = 10/4 = 2.5
+        expect(rec[:avg_away_cards]).to be_within(0.01).of(2.5)
+        expect(rec[:avg_total_cards]).to be_within(0.01).of(5.0)
+      end
+
+      it 'expõe % de jogos com 2+ cartões para cada lado' do
+        rec = rec_for(rich_fixtures)
+        # casa 2+: jogos 200(4), 201(2), 203(3) = 3/4 = 75%
+        expect(rec[:pct_home_2plus_cards]).to be_within(0.1).of(75.0)
+        # fora 2+: 200(3), 201(4), 203(2) = 3/4 = 75%
+        expect(rec[:pct_away_2plus_cards]).to be_within(0.1).of(75.0)
+        # ambos 2+ no mesmo jogo: 200, 201, 203 = 3/4 = 75%
+        expect(rec[:pct_both_2plus_cards]).to be_within(0.1).of(75.0)
+      end
+
+      it 'expõe a distribuição empírica de over/under do total de cartões' do
+        rec = rec_for(rich_fixtures)
+        # totais por jogo: 7, 6, 2, 5
+        dist = rec[:cards_over_pct]
+        expect(dist['3.5']).to be_within(0.1).of(75.0)  # 7,6,5 > 3.5
+        expect(dist['5.5']).to be_within(0.1).of(50.0)  # 7,6 > 5.5
+        expect(dist['6.5']).to be_within(0.1).of(25.0)  # 7 > 6.5
+      end
+
+      it 'expõe faltas por jogo — o driver causal do cartão' do
+        rec = rec_for(rich_fixtures)
+        # (14+11 + 9+16 + 8+7 + 12+10)/4 = 87/4 = 21.75
+        expect(rec[:avg_total_fouls]).to be_within(0.01).of(21.75)
+      end
+
+      it 'expõe o índice de dispersão dos cartões (var/média)' do
+        rec = rec_for(rich_fixtures)
+        # totais 7,6,2,5 → média 5.0, variância populacional 3.5 → 0.7
+        expect(rec[:cards_dispersion]).to be_within(0.01).of(0.7)
+      end
+
+      it 'degrada gracioso quando o payload não traz os campos novos (contrato antigo)' do
+        rec = rec_for(referee_fixtures)
+        # sem homeYellows/homeFouls, os campos novos são nil — nunca 0, que
+        # o consumidor leria como "árbitro que não dá cartão".
+        expect(rec[:avg_total_cards]).to be_nil
+        expect(rec[:avg_total_fouls]).to be_nil
+        expect(rec[:cards_dispersion]).to be_nil
+        expect(rec[:pct_both_2plus_cards]).to be_nil
+        # e o que já existia continua valendo
+        expect(rec[:avg_total_booking_points]).to be_within(0.05).of(68.75)
+      end
+
+      it 'ignora jogos não completados no cálculo dos campos novos' do
+        with_upcoming = rich_fixtures + [
+          { 'id' => 204, 'status' => 'NS', 'homeYellows' => 0, 'awayYellows' => 0,
+            'homeReds' => 0, 'awayReds' => 0, 'homeFouls' => 0, 'awayFouls' => 0,
+            'referee' => { 'id' => 1, 'name' => 'Ref' } }
+        ]
+        rec = rec_for(with_upcoming)
+        expect(rec[:completed]).to eq(4)
+        expect(rec[:avg_total_cards]).to be_within(0.01).of(5.0)
+      end
+    end
+
     it 'handles the case where all fixtures are upcoming (no completed games to average)' do
       upcoming_only = referee_fixtures.map { |f| f.merge('status' => 'NS', 'homeBookingPoints' => 0, 'awayBookingPoints' => 0) }
       result = described_class.merge(base, widgets.merge(referee_fixtures: upcoming_only))

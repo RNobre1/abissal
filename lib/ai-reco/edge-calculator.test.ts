@@ -490,3 +490,108 @@ describe("buildEdgeTable", () => {
     });
   });
 });
+
+// ── clamp de probabilidade degenerada (28/07) ──────────────────────────────
+// Espelha o spec Ruby (edge_calculator_spec.rb). Os dois caminhos precisam da
+// MESMA guarda: o Ruby serve o batch noturno, este TS serve o botão
+// on-demand de /fixtures/[id] e o value-bets. Fiar só um lado é a classe de
+// bug das lições B16/B25.
+describe("buildEdgeTable — clamp de probabilidade degenerada", () => {
+  const CEILING = 0.99;
+  const FLOOR = 0.01;
+
+  it("nunca devolve prob_estimated igual a 1.0", () => {
+    const out = buildEdgeTable({ ...baseSim, p_over_25: 1.0 }, baseOdds, 1000);
+    const over = out.find(c => c.market === "over25" && c.side === "over")!;
+    expect(over.prob_estimated).toBeLessThan(1.0);
+    expect(over.prob_estimated).toBeCloseTo(CEILING, 9);
+  });
+
+  it("nunca devolve prob_estimated igual a 0.0", () => {
+    const out = buildEdgeTable({ ...baseSim, p_over_25: 0.0 }, baseOdds, 1000);
+    const over = out.find(c => c.market === "over25" && c.side === "over")!;
+    expect(over.prob_estimated).toBeGreaterThan(0);
+    expect(over.prob_estimated).toBeCloseTo(FLOOR, 9);
+  });
+
+  it("clampa a prob CALIBRADA mesmo quando a curva isotônica satura em 1", () => {
+    // curva isotônica com platô no topo — satura em 1.0 para toda entrada
+    const saturated: Partial<Record<string, (p: number) => number>> = {
+      "1x2-home": () => 1.0,
+      "1x2-draw": () => 1.0,
+      "1x2-away": () => 1.0,
+      over25: () => 1.0,
+      btts: () => 1.0,
+    };
+    const out = buildEdgeTable({ ...baseSim, p_over_25: 0.9 }, baseOdds, 1000, {
+      isotonicLookup: saturated,
+    });
+    for (const c of out) {
+      expect(c.prob_calibrated).toBeLessThanOrEqual(CEILING);
+    }
+  });
+
+  it("o edge reflete a prob clampada, não a degenerada", () => {
+    const out = buildEdgeTable({ ...baseSim, p_over_25: 1.0 }, baseOdds, 1000);
+    const over = out.find(c => c.market === "over25" && c.side === "over")!;
+    // sem clamp seria (1.0 * 1.85 - 1) * 100 = 85.0
+    expect(over.edge_pct).toBeLessThan(85.0);
+    expect(over.edge_pct).toBeCloseTo((CEILING * 1.85 - 1) * 100, 6);
+  });
+
+  it("nenhum candidato sai com prob fora de [0.01, 0.99]", () => {
+    const out = buildEdgeTable(
+      { p_home: 1.0, p_draw: 0.0, p_away: 0.0, p_over_25: 1.0, p_btts: 0.0 },
+      baseOdds,
+      1000,
+    );
+    for (const c of out) {
+      expect(c.prob_estimated).toBeGreaterThanOrEqual(FLOOR);
+      expect(c.prob_estimated).toBeLessThanOrEqual(CEILING);
+      expect(c.prob_calibrated).toBeGreaterThanOrEqual(FLOOR);
+      expect(c.prob_calibrated).toBeLessThanOrEqual(CEILING);
+    }
+  });
+
+  it("não mexe em probabilidades normais", () => {
+    const out = buildEdgeTable(baseSim, baseOdds, 1000);
+    const home = out.find(c => c.market === "1x2" && c.side === "home")!;
+    expect(home.prob_estimated).toBeCloseTo(0.5, 9);
+    expect(home.edge_pct).toBeCloseTo(5.0, 1);
+  });
+});
+
+// Reprodução do caso real: CSKA Sofia x Qarabağ, corners-over 10.5, o
+// primeiro batch pós-religamento gravou prob_estimated = prob_calibrated = 1.0.
+// Média de corners altíssima faz poissonProbOver saturar em 1.
+describe("clamp — mercados secundários (o caso que originou o bug)", () => {
+  it("corners-over com média altíssima não sai com prob 1.0", () => {
+    const out = buildEdgeTable(
+      { ...baseSim, sim_corners_total_mean: 40 },
+      { ...baseOdds, corners_over_105: 2.48, corners_under_105: 1.5 },
+      1000,
+    );
+    const corners = out.filter(c => c.market.startsWith("corners"));
+    expect(corners.length).toBeGreaterThan(0);
+    for (const c of corners) {
+      expect(c.prob_estimated).toBeLessThanOrEqual(0.99);
+      expect(c.prob_estimated).toBeGreaterThanOrEqual(0.01);
+      expect(c.prob_calibrated).toBeLessThanOrEqual(0.99);
+      expect(c.prob_calibrated).toBeGreaterThanOrEqual(0.01);
+    }
+  });
+
+  it("cards e sot com média extrema também ficam dentro do range", () => {
+    const out = buildEdgeTable(
+      { ...baseSim, sim_cards_total_mean: 30, sim_sot_total_mean: 40 },
+      { ...baseOdds, cards_over_45: 2.0, cards_under_45: 1.8, sot_over_75: 2.0, sot_under_75: 1.8 },
+      1000,
+    );
+    const sec = out.filter(c => c.market.startsWith("cards") || c.market.startsWith("sot"));
+    expect(sec.length).toBeGreaterThan(0);
+    for (const c of sec) {
+      expect(c.prob_estimated).toBeLessThanOrEqual(0.99);
+      expect(c.prob_calibrated).toBeLessThanOrEqual(0.99);
+    }
+  });
+});

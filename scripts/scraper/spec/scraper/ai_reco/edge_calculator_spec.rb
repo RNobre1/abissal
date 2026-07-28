@@ -27,6 +27,57 @@ module AdamStats::Scraper::AiReco
       expect(home[:edge_pct]).to be_within(0.1).of(5.0)
     end
 
+    # Probabilidade degenerada (28/07). O Monte Carlo de 10k rodadas pode
+    # devolver 1.0 quando NENHUMA simulação cruzou a linha — e o primeiro
+    # batch pós-religamento produziu exatamente isso: CSKA Sofia x Qarabağ,
+    # corners-over 10.5 com prob_estimated = prob_calibrated = 1.0.
+    #
+    # p = 1.0 afirma "impossível perder", o que nenhum modelo de futebol
+    # sustenta: a incerteza de MODELO é ordens de grandeza maior que a de
+    # amostragem do MC. Pior, quebra as métricas logarítmicas — se o jogo sai
+    # do outro lado, log-loss = infinito e contamina a calibração inteira.
+    describe 'clamp de probabilidade degenerada' do
+      it 'nunca devolve prob_estimated igual a 1.0' do
+        sim = base_sim.merge(p_over_25: 1.0)
+        out = EdgeCalculator.build(sim, base_odds, 1000)
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        expect(over[:prob_estimated]).to be < 1.0
+        expect(over[:prob_estimated]).to be >= EdgeCalculator::PROB_CEILING - 1e-9
+      end
+
+      it 'nunca devolve prob_estimated igual a 0.0' do
+        sim = base_sim.merge(p_over_25: 0.0)
+        out = EdgeCalculator.build(sim, base_odds, 1000)
+        under = out.find { |c| c[:market] == 'over25' && c[:side] == 'under' }
+        # under = 1 - 0.0 = 1.0 → tem que ser clampado no teto
+        expect(under[:prob_estimated]).to be < 1.0
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        expect(over[:prob_estimated]).to be > 0.0
+      end
+
+      it 'clampa também a prob CALIBRADA (é ela que vai pro banco e pra UI)' do
+        sim = base_sim.merge(p_over_25: 1.0)
+        out = EdgeCalculator.build(sim, base_odds, 1000, isotonic_lookup: ->(_m, p) { p })
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        expect(over[:prob_calibrated]).to be < 1.0
+      end
+
+      it 'o edge derivado do clamp é menor que o edge da prob degenerada' do
+        sim = base_sim.merge(p_over_25: 1.0)
+        out = EdgeCalculator.build(sim, base_odds, 1000)
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        # sem clamp seria (1.0 * 1.85 - 1) * 100 = 85.0
+        expect(over[:edge_pct]).to be < 85.0
+      end
+
+      it 'não mexe em probabilidades normais' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000)
+        home = out.find { |c| c[:market] == '1x2' && c[:side] == 'home' }
+        expect(home[:prob_estimated]).to be_within(1e-9).of(0.50)
+        expect(home[:edge_pct]).to be_within(0.1).of(5.0)
+      end
+    end
+
     it 'ordena por edge desc' do
       out = EdgeCalculator.build(base_sim, base_odds, 1000)
       out.each_cons(2) { |a, b| expect(a[:edge_pct]).to be >= b[:edge_pct] }
