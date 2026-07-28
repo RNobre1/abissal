@@ -689,6 +689,24 @@ module AdamStats
                    all_candidates.find { |c| c[:market] == d[:market] && c[:side] == d[:side] }
                  end
 
+        # O LLM escolheu um par market+side que não está entre os candidates
+        # deste jogo (linha inexistente, side não-canônico, alucinação). Sem
+        # `chosen` não há odd — e persistir o 'bet' assim mesmo gravava
+        # odd_captured NULL, que o reconciler virava PL = -units mesmo quando a
+        # aposta GANHAVA. Rebaixa pra skip: sem odd não existe aposta.
+        if d[:verdict] == 'bet' && chosen.nil?
+          @logger.call(
+            "[ai-reco] fixture #{row['fixture_id']}: LLM escolheu #{d[:market]}/#{d[:side]} " \
+            "fora dos candidates — rebaixado pra skip"
+          )
+          d = d.merge(
+            verdict: 'skip',
+            units_final: 0,
+            kelly_pre: nil,
+            reduction_reason: 'llm_market_side_mismatch'
+          )
+        end
+
         # Sanity guard pos-IA: segunda camada defensiva (pre-filter ja
         # bloqueia o top, mas chosen != top em casos raros).
         d = apply_sanity_guard(d, chosen, league_calibrated)

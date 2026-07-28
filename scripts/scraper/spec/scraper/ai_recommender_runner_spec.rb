@@ -441,6 +441,59 @@ module AdamStats::Scraper
       end
     end
 
+    describe 'bet cujo market+side não casa com nenhum candidate' do
+      # Cadeia do bug (auditoria 09/06): parse_decision só exige a chave
+      # 'verdict', então o R1 pode devolver um par market+side ausente da lista
+      # de candidates daquele jogo (ex.: linha '95' quando só '85' foi
+      # oferecida). `chosen` vira nil, mas o insert persistia o 'bet' assim
+      # mesmo com odd_captured NULL — e o reconciler transformava vitória em
+      # -units. Agora rebaixa pra skip antes de gravar.
+      let(:candidates) { [{ market: 'corners-under', side: '85', odd: 2.0, edge_pct: 12.0, prob_calibrated: 0.6, kelly_units: 0.5 }] }
+      let(:row) do
+        { 'fixture_id' => 99, 'home_team' => 'A', 'away_team' => 'B',
+          'league' => 'L', 'kickoff_utc' => '2026-05-30T15:00:00Z' }
+      end
+
+      def persist(decision)
+        runner = described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true)
+        captured = nil
+        conn = instance_double(PG::Connection)
+        allow(conn).to receive(:exec_params) { |_sql, params| captured = params; double('PG::Result', first: nil) }
+        runner.send(:insert_reco, conn, row, candidates, true, { ok: true, decision: decision }, nil, 0.0)
+        captured
+      end
+
+      it 'rebaixa pra skip quando o side não existe nos candidates' do
+        p = persist({ verdict: 'bet', market: 'corners-under', side: '95',
+                      units_final: 1.0, confidence: 'alto', summary_line: 's', reasoning: 'r' })
+        expect(p[11]).to eq('skip')
+        expect(p[20]).to eq('llm_market_side_mismatch')
+      end
+
+      it 'nunca grava bet com odd_captured NULL (a raiz do PL invertido)' do
+        p = persist({ verdict: 'bet', market: 'corners-under', side: '95',
+                      units_final: 1.0, confidence: 'alto', summary_line: 's', reasoning: 'r' })
+        expect(p[11]).to eq('skip')
+        expect(p[17]).to be_nil       # odd_captured
+        expect(p[19]).to eq(0)        # units_final zerado — não há aposta
+      end
+
+      it 'rebaixa pra skip quando o market não existe nos candidates' do
+        p = persist({ verdict: 'bet', market: 'btts', side: 'sim',
+                      units_final: 1.0, confidence: 'alto', summary_line: 's', reasoning: 'r' })
+        expect(p[11]).to eq('skip')
+        expect(p[20]).to eq('llm_market_side_mismatch')
+      end
+
+      it 'preserva a bet quando market+side casam (não regride o happy path)' do
+        p = persist({ verdict: 'bet', market: 'corners-under', side: '85',
+                      units_final: 1.0, confidence: 'alto', summary_line: 's', reasoning: 'r' })
+        expect(p[11]).to eq('bet')
+        expect(p[17]).to eq(2.0)
+        expect(p[20]).not_to eq('llm_market_side_mismatch')
+      end
+    end
+
     describe 'LLM parse-error fallback copy' do
       it 'NAO vaza texto técnico em reasoning_full quando LLM falha' do
         # Regressão: ai_recommendations 309 (Fluminense), 194, 183, 136 tinham

@@ -29,7 +29,22 @@ if ARGV.include?('--help') || ARGV.include?('-h')
 end
 
 begin
-  AdamStats::Scraper::ClosingOddsCapture.new.run
+  stats = AdamStats::Scraper::ClosingOddsCapture.new.run
+
+  # Placar no step summary do GitHub Actions: sem isso, "verde capturando
+  # zero" fica indistinguível de "verde capturou tudo" — foi assim que o CLV
+  # ficou parado de 01/06 a 28/07 sem ninguém perceber.
+  if (summary_path = ENV['GITHUB_STEP_SUMMARY'])
+    zero_note = stats[:eligible].zero? ? "\n> ⚠️ Nenhuma reco elegível — se a IA está ligada, investigar.\n" : ''
+    File.open(summary_path, 'a') do |f|
+      f.puts "### closing-odds-capture\n"
+      f.puts "| elegíveis | odds gravadas | erros |"
+      f.puts "|---:|---:|---:|"
+      f.puts "| #{stats[:eligible]} | #{stats[:captured]} | #{stats[:errors]} |"
+      f.puts zero_note
+    end
+  end
+
   exit 0
 rescue StandardError => e
   warn "[capture_closing_odds] uncaught #{e.class}: #{e.message}"
