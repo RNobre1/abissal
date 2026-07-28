@@ -78,6 +78,71 @@ module AdamStats::Scraper::AiReco
       end
     end
 
+
+    # ── temperature scaling (28/07, lição B45) ────────────────────────────
+    # Espelha os testes do TS. Prioridade: curva isotônica → T → raw.
+    describe 'temperature scaling' do
+      it 'aplica T quando NÃO há curva isotônica' do
+        sem = EdgeCalculator.build(base_sim, base_odds, 1000)
+        com = EdgeCalculator.build(base_sim, base_odds, 1000, temperature: { 'over25' => 2.15 })
+        a = sem.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        b = com.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        expect(b[:prob_calibrated]).to be < a[:prob_calibrated]
+        expect(b[:prob_calibrated]).to be > 0.5
+      end
+
+      it 'a curva isotônica tem prioridade sobre o T' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000,
+                                   isotonic_lookup: { 'over25' => ->(_p) { 0.42 } },
+                                   temperature: { 'over25' => 2.5 })
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        expect(over[:prob_calibrated]).to be_within(1e-6).of(0.42)
+      end
+
+      it 'T no 1x2 preserva a soma das três probabilidades' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000, temperature: { '1x2' => 1.7 })
+        soma = %w[home draw away].sum do |s|
+          out.find { |c| c[:market] == '1x2' && c[:side] == s }[:prob_calibrated]
+        end
+        expect(soma).to be_within(1e-6).of(1.0)
+      end
+
+      it 'T no 1x2 achata o favorito e levanta o azarão' do
+        sem = EdgeCalculator.build(base_sim, base_odds, 1000)
+        com = EdgeCalculator.build(base_sim, base_odds, 1000, temperature: { '1x2' => 2.0 })
+        pick = ->(o, side) { o.find { |c| c[:market] == '1x2' && c[:side] == side }[:prob_calibrated] }
+        expect(pick.call(com, 'home')).to be < pick.call(sem, 'home')
+        expect(pick.call(com, 'draw')).to be > pick.call(sem, 'draw')
+      end
+
+      it 'btts aceita T e os dois lados seguem complementares' do
+        com = EdgeCalculator.build(base_sim, base_odds, 1000, temperature: { 'btts' => 2.6 })
+        s = com.find { |c| c[:market] == 'btts' && c[:side] == 'sim' }[:prob_calibrated]
+        n = com.find { |c| c[:market] == 'btts' && c[:side] == 'nao' }[:prob_calibrated]
+        expect(s + n).to be_within(1e-6).of(1.0)
+        expect(s).to be < base_sim[:p_btts]
+      end
+
+      it 'T = 1 e T ausente são indistinguíveis (identidade)' do
+        sem = EdgeCalculator.build(base_sim, base_odds, 1000)
+        com = EdgeCalculator.build(base_sim, base_odds, 1000,
+                                   temperature: { '1x2' => 1.0, 'over25' => 1.0, 'btts' => 1.0 })
+        sem.each_with_index do |c, i|
+          expect(com[i][:prob_calibrated]).to be_within(1e-9).of(c[:prob_calibrated])
+        end
+      end
+
+      it 'degrada gracioso com temperature vazio ou inválido' do
+        sem = EdgeCalculator.build(base_sim, base_odds, 1000)
+        [{}, nil, { 'over25' => 0 }].each do |temp|
+          com = EdgeCalculator.build(base_sim, base_odds, 1000, temperature: temp)
+          a = sem.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+          b = com.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+          expect(b[:prob_calibrated]).to be_within(1e-9).of(a[:prob_calibrated])
+        end
+      end
+    end
+
     it 'ordena por edge desc' do
       out = EdgeCalculator.build(base_sim, base_odds, 1000)
       out.each_cons(2) { |a, b| expect(a[:edge_pct]).to be >= b[:edge_pct] }

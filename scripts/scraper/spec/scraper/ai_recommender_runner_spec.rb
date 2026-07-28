@@ -441,6 +441,67 @@ module AdamStats::Scraper
       end
     end
 
+    # ── fiação da calibração (lição B25) ──────────────────────────────────
+    # B25 ensinou que ter a calibração no repo não basta: ela precisa estar
+    # WIRED no caminho de produção. O batch já rodou com prob CRUA uma vez
+    # porque o isotonic_lookup existia mas não era chamado. Estes specs travam
+    # a fiação de cada camada — se alguém remover a passagem de parâmetro,
+    # quebra aqui e não em produção seis semanas depois.
+    describe 'fiação da calibração no caminho de produção' do
+      it 'temperature_for delega pro TempLookup e memoiza por model_version' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true)
+        conn = instance_double(PG::Connection)
+
+        expect(AdamStats::Scraper::AiReco::TempLookup)
+          .to receive(:load).with(conn, 'v7').once.and_return({ '1x2' => 1.75 })
+
+        first = runner.send(:temperature_for, conn, 'v7')
+        second = runner.send(:temperature_for, conn, 'v7')
+
+        expect(first).to eq({ '1x2' => 1.75 })
+        expect(second).to eq(first) # 2ª chamada vem do cache (load chamado 1x)
+      end
+
+      it 'degrada pra {} quando não há T persistido — nunca quebra o batch' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true)
+        conn = instance_double(PG::Connection)
+        allow(AdamStats::Scraper::AiReco::TempLookup).to receive(:load).and_return({})
+        expect(runner.send(:temperature_for, conn, 'v7')).to eq({})
+      end
+
+      it 'o T carregado CHEGA no EdgeCalculator (contrato fim-a-fim)' do
+        runner = described_class.new(conn: conn_double, logger: logger, client: client, dry_run: true)
+        conn = instance_double(PG::Connection)
+        allow(conn).to receive(:exec_params).and_return(double('r', first: nil))
+
+        allow(AdamStats::Scraper::AiReco::IsotonicLookup).to receive(:load).and_return({})
+        allow(AdamStats::Scraper::AiReco::DistKLookup).to receive(:load).and_return({})
+        allow(AdamStats::Scraper::AiReco::TempLookup).to receive(:load).and_return({ 'over25' => 2.05 })
+
+        received = nil
+        allow(AdamStats::Scraper::AiReco::EdgeCalculator).to receive(:build) do |*_args, **kwargs|
+          received = kwargs[:temperature]
+          []
+        end
+
+        row = {
+          'fixture_id' => 1, 'home_team' => 'A', 'away_team' => 'B', 'league' => 'L',
+          'kickoff_utc' => '2026-08-01T15:00:00Z', 'model_version' => 'v7',
+          'p_home' => 0.5, 'p_draw' => 0.25, 'p_away' => 0.25,
+          'p_over_25' => 0.6, 'p_btts' => 0.55,
+          'detail_json' => JSON.generate({
+            'odds_summary' => {
+              'Result' => { 'A' => { 'decimal_odds' => 2.0 }, 'Draw' => { 'decimal_odds' => 3.5 }, 'B' => { 'decimal_odds' => 3.8 } },
+              'Match Goals Overs/Unders' => { 'Over 2.5' => { 'decimal_odds' => 1.85 }, 'Under 2.5' => { 'decimal_odds' => 2.0 } }
+            }
+          })
+        }
+
+        runner.send(:classify_fixture, conn, row, Set.new)
+        expect(received).to eq({ 'over25' => 2.05 })
+      end
+    end
+
     describe 'bet cujo market+side não casa com nenhum candidate' do
       # Cadeia do bug (auditoria 09/06): parse_decision só exige a chave
       # 'verdict', então o R1 pode devolver um par market+side ausente da lista

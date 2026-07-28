@@ -26,6 +26,10 @@
  */
 
 import { poissonProbOver, poissonProbUnder } from "./dist-helpers";
+import {
+  applyTemperature,
+  applyTemperatureVector,
+} from "@/lib/calibracao/temperature";
 
 export interface SimInput {
   p_home?: number | null;
@@ -141,7 +145,23 @@ export interface BuildOptions {
    *  Poisson (a sim subestima ~6–13%) nas linhas SEM curva. Ver
    *  docs/tasks/calibracao-distribuicao + lição B31. */
   distK?: DistKMap;
+  /** Temperature scaling por mercado PRINCIPAL ('1x2' | 'over25' | 'btts').
+   *
+   *  A sim ESTICA as probabilidades — subconfiante nas caudas baixas,
+   *  superconfiante nas altas — com a mesma assinatura em todo mercado. Um T
+   *  por mercado corrige esse viés monotônico. Promovido em 28/07 após vencer
+   *  a arena (n=7290, meanDelta +0.0121, IC95 sem cruzar zero, p<.001); ver
+   *  lição B45.
+   *
+   *  Prioridade: **curva isotônica → temperatura → raw**. A isotônica foi
+   *  fitada SOBRE probs raw, então aplicar T antes mudaria a entrada que ela
+   *  aprendeu; onde há curva ela ganha, onde não há o T corrige. Mesmo padrão
+   *  do `k` (B32). NÃO se aplica a corners/cards/sot — lá quem corrige é o k. */
+  temperature?: TemperatureMap;
 }
+
+/** T por mercado principal. Ausente ou não-finito ⇒ sem correção. */
+export type TemperatureMap = Partial<Record<"1x2" | "over25" | "btts", number>>;
 
 // R2 walk-forward (2026-05-25 noite): ¼ Kelly → ⅛ Kelly
 const DEFAULT_KELLY_FRACTION = 0.125;
@@ -169,11 +189,22 @@ function calibrate(
   metricKey: string,
   prob: number,
   lookup: BuildOptions["isotonicLookup"],
+  /** T do mercado. Só é usado quando NÃO existe curva pra `metricKey`. */
+  temperature?: number,
 ): number {
   const fn = lookup?.[metricKey];
-  if (!fn) return prob;
+  if (!fn) {
+    const T = usableTemp(temperature);
+    return T === null ? prob : applyTemperature(prob, T);
+  }
   const out = fn(prob);
   return Number.isFinite(out) ? Math.max(0, Math.min(1, out)) : prob;
+}
+
+/** T utilizável: número finito e positivo, e diferente de 1 (identidade). */
+function usableTemp(T: number | undefined): number | null {
+  if (typeof T !== "number" || !Number.isFinite(T) || T <= 0) return null;
+  return T === 1 ? null : T;
 }
 
 /** True quando existe curva própria pra metricKey (curva independente do lado). */
@@ -299,11 +330,12 @@ function computeBlend(
   alpha: number,
   lookup: BuildOptions["isotonicLookup"],
   calibratedOverride?: number,
+  temperature?: number,
 ): BlendedComputation {
   const prob_calibrated = clampProb(
     calibratedOverride !== undefined
       ? calibratedOverride
-      : calibrate(metricKey, prob_estimated, lookup),
+      : calibrate(metricKey, prob_estimated, lookup, temperature),
   );
   if (alpha >= 1.0 || prob_market === undefined || !Number.isFinite(prob_market)) {
     return {
@@ -340,7 +372,31 @@ export function buildEdgeTable(
   const alpha = clampAlpha(options.blendAlpha ?? DEFAULT_BLEND_ALPHA);
   const lookup = options.isotonicLookup;
   const distK = options.distK;
+  const temp = options.temperature;
   const out: EdgeCandidate[] = [];
+
+  // Temperature scaling do 1x2: aplicado no VETOR (não por classe), senão as
+  // três probabilidades deixariam de somar 1. Só entra quando nenhum dos três
+  // lados tem curva isotônica — curva ganha do T (ver nota em BuildOptions).
+  const t1x2 = usableTemp(temp?.["1x2"]);
+  const has1x2Curve =
+    hasCurve(lookup, "1x2-home") ||
+    hasCurve(lookup, "1x2-draw") ||
+    hasCurve(lookup, "1x2-away");
+  let temp1x2: { home: number; draw: number; away: number } | null = null;
+  if (
+    t1x2 !== null &&
+    !has1x2Curve &&
+    isFiniteNum(sim.p_home) &&
+    isFiniteNum(sim.p_draw) &&
+    isFiniteNum(sim.p_away)
+  ) {
+    const [home, draw, away] = applyTemperatureVector(
+      [sim.p_home, sim.p_draw, sim.p_away],
+      t1x2,
+    );
+    temp1x2 = { home, draw, away };
+  }
 
   // ---- 1X2 — devig conjunto dos 3 inversos (home, draw, away) ----
   const oneX2Devig =
@@ -384,6 +440,7 @@ export function buildEdgeTable(
       t.marketProb,
       alpha,
       lookup,
+      temp1x2 ? temp1x2[t.side as "home" | "draw" | "away"] : undefined,
     );
     out.push({
       market: "1x2",
@@ -409,6 +466,8 @@ export function buildEdgeTable(
         ouDevig?.[0],
         alpha,
         lookup,
+        undefined,
+        temp?.over25,
       );
       out.push({
         market: "over25",
@@ -426,9 +485,9 @@ export function buildEdgeTable(
       // Fix 2/3: o under tem curva PRÓPRIA ('over25-under') — calibração
       // assimétrica vs over. Sem a curva, fallback pra 1 − cal(over25).
       const underSim = 1 - sim.p_over_25;
-      const calOver = calibrate("over25", sim.p_over_25, lookup);
+      const calOver = calibrate("over25", sim.p_over_25, lookup, temp?.over25);
       const calUnder = hasCurve(lookup, "over25-under")
-        ? calibrate("over25-under", underSim, lookup)
+        ? calibrate("over25-under", underSim, lookup, temp?.over25)
         : 1 - calOver;
       const marketUnder = ouDevig?.[1];
       const blendedUnder =
@@ -456,7 +515,7 @@ export function buildEdgeTable(
   if (isFiniteNum(sim.p_btts)) {
     const sim_p = sim.p_btts;
     const nao_p = 1 - sim_p;
-    const calSim = calibrate("btts", sim_p, lookup);
+    const calSim = calibrate("btts", sim_p, lookup, temp?.btts);
     const calNao = hasCurve(lookup, "btts-nao")
       ? calibrate("btts-nao", nao_p, lookup)
       : 1 - calSim;

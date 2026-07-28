@@ -5,6 +5,7 @@ require_relative 'db'
 require_relative 'ai_reco/edge_calculator'
 require_relative 'ai_reco/isotonic_lookup'
 require_relative 'ai_reco/dist_k_lookup'
+require_relative 'ai_reco/temp_lookup'
 require_relative 'ai_reco/pricing'
 require_relative 'ai_reco/prompt_builder'
 
@@ -290,6 +291,15 @@ module AdamStats
           AiReco::DistKLookup.load(conn, model_version)
       end
 
+      # Fatores de TEMPERATURA (1x2/over25/btts) por model_version, memoizado.
+      # A sim estica as probabilidades e o T corrige (B45). Degrada gracioso
+      # pra {} → EdgeCalculator cai na isotônica/raw.
+      def temperature_for(conn, model_version)
+        @temp_cache ||= {}
+        @temp_cache[model_version] ||=
+          AiReco::TempLookup.load(conn, model_version)
+      end
+
       def client
         @client ||= begin
           require_relative 'ai_reco/openrouter_client'
@@ -318,11 +328,13 @@ module AdamStats
         # (fase 1 é serial → cache simples é seguro). Lookup vazio = identidade.
         isotonic_lookup = isotonic_lookup_for(conn, row['model_version'])
         dist_k = dist_k_for(conn, row['model_version'])
+        temperature = temperature_for(conn, row['model_version'])
         candidates = AiReco::EdgeCalculator.build(
           sim, odds, @bankroll,
           isotonic_lookup: isotonic_lookup,
           blend_alpha: @blend_alpha,
           dist_k: dist_k,
+          temperature: temperature,
         )
         bet_candidates = candidates.select { |c| c[:edge_pct] >= EDGE_THRESHOLD }
 

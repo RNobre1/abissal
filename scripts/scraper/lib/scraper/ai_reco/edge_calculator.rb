@@ -1,5 +1,7 @@
 require_relative 'dist_helpers'
 
+require_relative 'temperature'
+
 module AdamStats
   module Scraper
     module AiReco
@@ -45,9 +47,23 @@ module AdamStats
                   isotonic_lookup: nil,
                   kelly_fraction: DEFAULT_KELLY_FRACTION,
                   blend_alpha: DEFAULT_BLEND_ALPHA,
-                  dist_k: {})
+                  dist_k: {},
+                  temperature: {})
           alpha = clamp_alpha(blend_alpha)
+          temp = temperature || {}
           out = []
+
+          # Temperature do 1x2 é aplicada no VETOR (não por classe), senão as
+          # três probabilidades deixam de somar 1. Só entra quando NENHUM dos
+          # três lados tem curva isotônica — curva ganha do T (B45).
+          t_1x2 = temp['1x2']
+          has_1x2_curve = %w[1x2-home 1x2-draw 1x2-away].any? { |k| curve?(isotonic_lookup, k) }
+          temp_1x2 = nil
+          if Temperature.usable?(t_1x2) && !has_1x2_curve &&
+             finite?(sim[:p_home]) && finite?(sim[:p_draw]) && finite?(sim[:p_away])
+            v = Temperature.apply_vector([sim[:p_home], sim[:p_draw], sim[:p_away]], t_1x2)
+            temp_1x2 = { 'home' => v[0], 'draw' => v[1], 'away' => v[2] }
+          end
 
           # 1X2 — devig conjunto dos 3 inversos
           one_x2_devig = alpha < 1.0 ? devig_proportional([odds[:home], odds[:draw], odds[:away]]) : nil
@@ -59,7 +75,7 @@ module AdamStats
           one_x2.each do |t|
             next unless finite?(t[:prob]) && finite?(t[:odd])
 
-            cal = calibrate(t[:metric_key], t[:prob], isotonic_lookup)
+            cal = temp_1x2 ? temp_1x2[t[:side]] : calibrate(t[:metric_key], t[:prob], isotonic_lookup)
             blended = blend(cal, t[:mp], alpha)
             out << build_candidate('1x2', t[:side], t[:prob], cal, t[:mp], blended,
                                    t[:odd], bankroll, kelly_fraction, alpha)
@@ -68,7 +84,7 @@ module AdamStats
           # OVER/UNDER 2.5 — devig do par (over, under)
           ou_devig = alpha < 1.0 ? devig_proportional([odds[:over25], odds[:under25]]) : nil
           if finite?(sim[:p_over_25])
-            cal_over = calibrate('over25', sim[:p_over_25], isotonic_lookup)
+            cal_over = calibrate('over25', sim[:p_over_25], isotonic_lookup, temp['over25'])
             # Fix 2/3: o under tem curva PRÓPRIA ('over25-under') porque a
             # calibração é assimétrica (over ~ok, under era 1/18 na IA). Sem a
             # curva, fallback pra 1 − cal_over (comportamento pré-Fix2).
@@ -96,7 +112,7 @@ module AdamStats
           if finite?(sim[:p_btts])
             sim_p = sim[:p_btts]
             nao_p = 1.0 - sim_p
-            cal_sim = calibrate('btts', sim_p, isotonic_lookup)
+            cal_sim = calibrate('btts', sim_p, isotonic_lookup, temp['btts'])
             cal_nao = has_curve?(isotonic_lookup, 'btts-nao') ?
                         calibrate('btts-nao', nao_p, isotonic_lookup) :
                         (1.0 - cal_sim)
@@ -259,16 +275,28 @@ module AdamStats
           (v.is_a?(Numeric) && v.respond_to?(:finite?) && v.finite? && v > 0) ? v.to_f : nil
         end
 
-        def calibrate(metric_key, prob, lookup)
-          return prob unless lookup.is_a?(Hash)
+        # Ordem: curva isotônica → temperatura → raw. O `temperature` só é
+        # consultado quando NÃO existe curva pra `metric_key` — a isotônica foi
+        # fitada sobre probs raw, então aplicar T antes mudaria a entrada que
+        # ela aprendeu (B45).
+        def calibrate(metric_key, prob, lookup, temperature = nil)
+          fn = lookup.is_a?(Hash) ? (lookup[metric_key] || lookup[metric_key.to_sym]) : nil
 
-          fn = lookup[metric_key] || lookup[metric_key.to_sym]
-          return prob unless fn.respond_to?(:call)
+          unless fn.respond_to?(:call)
+            return Temperature.usable?(temperature) ? Temperature.apply(prob, temperature) : prob
+          end
 
           out = fn.call(prob)
           return prob unless out.is_a?(Numeric) && (!out.respond_to?(:finite?) || out.finite?)
 
           [[out, 0.0].max, 1.0].min
+        end
+
+        # True quando existe curva própria pra metric_key.
+        def curve?(lookup, metric_key)
+          return false unless lookup.is_a?(Hash)
+
+          (lookup[metric_key] || lookup[metric_key.to_sym]).respond_to?(:call)
         end
 
         def clamp_alpha(a)
