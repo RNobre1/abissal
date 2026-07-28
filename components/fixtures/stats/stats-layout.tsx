@@ -37,7 +37,8 @@ export const MOBILE_TABS: ReadonlyArray<{
   {
     id: "visao",
     label: "visão",
-    panels: ["AI_RECO", "B", "A-home", "A-away", "D", "E", "M", "K", "L", "N"],
+    // "I" (árbitro) migrou da extinta aba "odds" — ver nota abaixo.
+    panels: ["AI_RECO", "B", "A-home", "A-away", "D", "E", "M", "K", "L", "N", "I"],
   },
   {
     id: "simulacao",
@@ -59,11 +60,10 @@ export const MOBILE_TABS: ReadonlyArray<{
     label: "players",
     panels: ["G+"],
   },
-  {
-    id: "odds",
-    label: "odds",
-    panels: ["H", "I", "J"],
-  },
+  // A aba "odds" foi removida em 28/07. Ela tinha três painéis: "H"
+  // (MarketsBrowser) já não existia desde a B23, "J" (predictions do
+  // choistats) só tem dado em ~11% dos jogos, e "I" (árbitro) era o único
+  // que o Pilot realmente consultava — esse foi promovido pra "visão".
 ];
 
 interface StatsLayoutProps {

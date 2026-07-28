@@ -33,7 +33,6 @@ import { H2H } from "@/components/fixtures/stats/panels/h2h";
 import { Splits1h2h } from "@/components/fixtures/stats/panels/splits-1h-2h";
 import { EmpiricalHalves } from "@/components/fixtures/stats/panels/empirical-halves";
 import { Referee } from "@/components/fixtures/stats/panels/referee";
-import { Predictions } from "@/components/fixtures/stats/panels/predictions";
 import { Insights } from "@/components/fixtures/stats/panels/insights";
 import {
   MomentumChart,
@@ -733,18 +732,9 @@ function buildPanels(
       label: "referee",
       node: <Referee record={detail.referee_record ?? null} />,
     },
-    {
-      id: "J",
-      colSpan: "span 6 / span 6",
-      label: "predictions",
-      node: (
-        <Predictions
-          data={detail.predictions ?? []}
-          homeTeam={homeTeam}
-          awayTeam={awayTeam}
-        />
-      ),
-    },
+    // Painel J (predictions do choistats) removido em 28/07 — cobria ~11% dos
+    // jogos e não entrava em nenhuma decisão. O árbitro (I) foi promovido pra
+    // aba "visão" e a aba "odds" deixou de existir.
     {
       id: "N",
       colSpan: "span 12 / span 12",
