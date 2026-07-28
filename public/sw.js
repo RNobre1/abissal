@@ -24,6 +24,15 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(keys.filter((k) => k !== CACHE).map((k) => caches.delete(k))),
       )
+      // Navigation preload: manda o browser disparar a requisição de navegação
+      // EM PARALELO ao boot do service worker. Sem isso, toda abertura fria do
+      // PWA (SW dormindo) serializa [boot do SW] + [rede] — foi o que fazia o
+      // app parecer travado e exigir fechar/reabrir até o SW estar quente.
+      .then(() =>
+        self.registration && self.registration.navigationPreload
+          ? self.registration.navigationPreload.enable().catch(() => undefined)
+          : undefined,
+      )
       .then(() => self.clients.claim()),
   );
 });
@@ -32,9 +41,20 @@ self.addEventListener("fetch", (event) => {
   const req = event.request;
   if (req.method !== "GET") return;
 
-  // Navegações (HTML): tenta a rede; offline → fallback estático.
+  // Navegações (HTML): usa a resposta que o browser já adiantou via navigation
+  // preload quando existir; senão vai à rede. Offline → fallback estático.
   if (req.mode === "navigate") {
-    event.respondWith(fetch(req).catch(() => caches.match(OFFLINE_URL)));
+    event.respondWith(
+      (async () => {
+        try {
+          const preloaded = await event.preloadResponse;
+          if (preloaded) return preloaded;
+          return await fetch(req);
+        } catch {
+          return caches.match(OFFLINE_URL);
+        }
+      })(),
+    );
     return;
   }
 
