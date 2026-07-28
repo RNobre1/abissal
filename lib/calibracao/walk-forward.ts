@@ -17,6 +17,21 @@ export interface WalkForwardOpts {
   warmup: number;
   /** Parâmetro degenerado (sem fit) usado no warmup (ex.: Poisson). */
   defaultParam: number;
+  /**
+   * Refita o parâmetro a cada N jogos em vez de a cada jogo. Default 1
+   * (comportamento original).
+   *
+   * Motivação (28/07): fitar por jogo é O(n² · grade-de-busca) — o seed do
+   * challenger consumia 18 dos 20 minutos do cron semanal e morria no
+   * timeout, então `Seed challenger` era cancelado e `Compare` nunca rodava
+   * desde 05/07.
+   *
+   * Não introduz leakage: o parâmetro do jogo `i` continua fitado apenas em
+   * jogos ANTERIORES — no limite usa MENOS histórico (o do início do bloco),
+   * nunca mais. Estatisticamente é uma escolha conservadora, e o parâmetro
+   * praticamente não muda entre jogos consecutivos.
+   */
+  refitEvery?: number;
 }
 
 /**
@@ -31,9 +46,23 @@ export function walkForwardParams<T>(
   fit: (train: T[]) => number,
   opts: WalkForwardOpts,
 ): number[] {
+  const step = Math.max(1, Math.floor(opts.refitEvery ?? 1));
   const out = new Array<number>(games.length);
+
+  let cached: number | null = null;
+  let cachedAt = -1; // índice em que o cache foi fitado
+
   for (let i = 0; i < games.length; i++) {
-    out[i] = i >= opts.warmup ? fit(games.slice(0, i)) : opts.defaultParam;
+    if (i < opts.warmup) {
+      out[i] = opts.defaultParam;
+      continue;
+    }
+    // Refita ao entrar num novo bloco (ou na primeira vez após o warmup).
+    if (cached === null || i - cachedAt >= step) {
+      cached = fit(games.slice(0, i));
+      cachedAt = i;
+    }
+    out[i] = cached;
   }
   return out;
 }

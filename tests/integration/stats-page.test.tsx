@@ -641,15 +641,17 @@ describe("StatsPage explanatory-layer integration (T8)", () => {
     expect(legend ?? skeleton).not.toBeNull();
   });
 
-  // Painel J (predictions do choistats) removido em 28/07: cobria ~11% dos
-  // jogos e o Pilot não usava. O árbitro, que dividia a aba com ele, segue
-  // montado — é o dado dali que realmente entra na decisão.
-  it("não monta mais o painel J (predictions do choistats)", async () => {
+  // O painel J (predictions do choistats) chegou a sair junto com a aba
+  // "odds", mas o que o Pilot não usava era o browser de odds — as
+  // predictions ele quer. Voltaram, agora na aba "visão" junto do árbitro.
+  it("monta o painel J (predictions do choistats) quando há dado", async () => {
     setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
 
     const { container } = await renderPage("42");
 
-    expect(container.querySelector('[data-panel="J"]')).toBeNull();
+    const slotJ = container.querySelector('[data-panel="J"]');
+    expect(slotJ).not.toBeNull();
+    expect(slotJ?.querySelector("[data-prediction]")).not.toBeNull();
   });
 
   it("segue montando o painel I (árbitro)", async () => {
