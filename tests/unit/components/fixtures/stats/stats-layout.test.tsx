@@ -165,16 +165,21 @@ describe("StatsLayout — mobile tabs", () => {
     expect(container.querySelector("section[data-panels]")).toBeNull();
   });
 
-  it("exposes 6 tab triggers (visão · simulação · streaks · jogos · players · odds)", () => {
+  // A aba "odds" saiu em 28/07: o painel H (MarketsBrowser) já tinha sido
+  // removido na B23, o J (predictions do choistats) cobre só ~11% dos jogos e
+  // o Pilot não usa nenhum dos dois — sobrava o árbitro (I), que agora vive na
+  // aba "visão". Uma aba a menos = menos markup e menos hidratação no mobile.
+  it("exposes 5 tab triggers (visão · simulação · streaks · jogos · players)", () => {
     installMatchMedia(true);
     render(<StatsLayout fixtureId={42} hero={hero()} panels={allPanels()} />);
 
     const triggers = screen.getAllByRole("tab");
     const labels = triggers.map((t) => t.textContent?.toLowerCase() ?? "");
-    expect(triggers).toHaveLength(6);
+    expect(triggers).toHaveLength(5);
     expect(labels).toEqual(
-      expect.arrayContaining(["visão", "simulação", "streaks", "jogos", "players", "odds"]),
+      expect.arrayContaining(["visão", "simulação", "streaks", "jogos", "players"]),
     );
+    expect(labels).not.toContain("odds");
   });
 
   it("default tab 'visão' is active and shows panels A-home, D, M etc.", () => {
@@ -228,22 +233,24 @@ describe("StatsLayout — mobile tabs", () => {
     expect(container.querySelector('[data-panel="C-away"]')).not.toBeNull();
   });
 
-  it("clicking 'odds' tab mounts H, I, J", () => {
+  it("o árbitro (I) fica na aba 'visão' — é o único painel da antiga aba odds que o Pilot usa", () => {
     installMatchMedia(true);
     const { container } = render(
       <StatsLayout fixtureId={42} hero={hero()} panels={allPanels()} />,
     );
 
+    // 'visão' é a aba default, então o árbitro está montado de saída.
+    expect(container.querySelector('[data-panel="I"]')).not.toBeNull();
+  });
+
+  it("não existe mais aba 'odds'", () => {
+    installMatchMedia(true);
+    render(<StatsLayout fixtureId={42} hero={hero()} panels={allPanels()} />);
+
     const oddsTab = screen
       .getAllByRole("tab")
       .find((t) => t.textContent?.toLowerCase() === "odds");
-    act(() => {
-      fireEvent.mouseDown(oddsTab!, { button: 0 });
-    });
-
-    expect(container.querySelector('[data-panel="H"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel="I"]')).not.toBeNull();
-    expect(container.querySelector('[data-panel="J"]')).not.toBeNull();
+    expect(oddsTab).toBeUndefined();
   });
 
   it("clicking 'players' tab mounts the G+ panel", () => {

@@ -232,9 +232,81 @@ module AdamStats
           record[:avg_away_booking_points] = (away_bp / n).round(2)
           record[:avg_total_booking_points] = ((home_bp + away_bp) / n).round(2)
           record[:total_yellow_reds] = home_yr + away_yr
+
+          record.merge!(card_profile(completed))
+          record.merge!(foul_profile(completed))
         end
 
         record
+      end
+
+      # Linhas de over/under de cartões que o painel e o edge-calculator usam.
+      CARD_LINES = [2.5, 3.5, 4.5, 5.5, 6.5].freeze
+
+      # Perfil de CARTÕES do árbitro a partir da contagem por lado.
+      #
+      # Booking points (amarelo=10, vermelho=25) é uma métrica composta: dois
+      # árbitros com a mesma média de BP podem ter distribuições de cartões
+      # completamente diferentes, e é a distribuição que decide um over/under.
+      # Aqui extraímos a contagem real, o split casa/fora, a frequência de
+      # "2+ por time" e a dispersão empírica.
+      #
+      # Retorna todos os campos como `nil` quando o payload não traz
+      # `homeYellows`/`awayYellows` — nunca 0, que o consumidor leria como
+      # "árbitro que não dá cartão" (mesmo contrato tri-state da Lição B19).
+      def card_profile(completed)
+        empty = {
+          avg_home_cards: nil, avg_away_cards: nil, avg_total_cards: nil,
+          pct_home_2plus_cards: nil, pct_away_2plus_cards: nil,
+          pct_both_2plus_cards: nil, cards_over_pct: nil, cards_dispersion: nil
+        }
+        with_cards = completed.select { |f| f.key?('homeYellows') && f.key?('awayYellows') }
+        return empty if with_cards.empty?
+
+        n = with_cards.length.to_f
+        home = with_cards.map { |f| (f['homeYellows'] || 0).to_i + (f['homeReds'] || 0).to_i }
+        away = with_cards.map { |f| (f['awayYellows'] || 0).to_i + (f['awayReds'] || 0).to_i }
+        totals = home.zip(away).map { |h, a| h + a }
+
+        mean = totals.sum / n
+        variance = totals.sum { |t| (t - mean)**2 } / n
+
+        {
+          avg_home_cards: (home.sum / n).round(2),
+          avg_away_cards: (away.sum / n).round(2),
+          avg_total_cards: mean.round(2),
+          pct_home_2plus_cards: (100.0 * home.count { |c| c >= 2 } / n).round(1),
+          pct_away_2plus_cards: (100.0 * away.count { |c| c >= 2 } / n).round(1),
+          pct_both_2plus_cards: (
+            100.0 * home.zip(away).count { |h, a| h >= 2 && a >= 2 } / n
+          ).round(1),
+          # Distribuição empírica: P(total > linha) direto do histórico do
+          # árbitro, sem supor forma paramétrica nenhuma.
+          cards_over_pct: CARD_LINES.to_h do |line|
+            [line.to_s, (100.0 * totals.count { |t| t > line } / n).round(1)]
+          end,
+          # var/média: >1 over-disperso, <1 sub-disperso, ~1 Poisson. É o
+          # parâmetro que o debate NB × CMP (B34-B37) tentou fitar globalmente
+          # — aqui ele é observável POR ÁRBITRO.
+          cards_dispersion: mean.zero? ? nil : (variance / mean).round(2)
+        }
+      end
+
+      # Faltas por jogo. É o driver causal do cartão (árbitro rigoroso marca
+      # mais falta → mais cartão) e nunca tinha sido coletado, apesar de vir
+      # no mesmo payload.
+      def foul_profile(completed)
+        with_fouls = completed.select { |f| f.key?('homeFouls') && f.key?('awayFouls') }
+        return { avg_home_fouls: nil, avg_away_fouls: nil, avg_total_fouls: nil } if with_fouls.empty?
+
+        n = with_fouls.length.to_f
+        home = with_fouls.sum { |f| (f['homeFouls'] || 0).to_i }
+        away = with_fouls.sum { |f| (f['awayFouls'] || 0).to_i }
+        {
+          avg_home_fouls: (home / n).round(2),
+          avg_away_fouls: (away / n).round(2),
+          avg_total_fouls: ((home + away) / n).round(2)
+        }
       end
 
       def build_player_stats(data)

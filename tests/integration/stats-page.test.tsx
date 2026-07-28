@@ -641,13 +641,22 @@ describe("StatsPage explanatory-layer integration (T8)", () => {
     expect(legend ?? skeleton).not.toBeNull();
   });
 
-  it("mounts predictions slot J without crashing when predictions populated", async () => {
+  // Painel J (predictions do choistats) removido em 28/07: cobria ~11% dos
+  // jogos e o Pilot não usava. O árbitro, que dividia a aba com ele, segue
+  // montado — é o dado dali que realmente entra na decisão.
+  it("não monta mais o painel J (predictions do choistats)", async () => {
     setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
 
     const { container } = await renderPage("42");
 
-    const slotJ = container.querySelector('[data-panel="J"]');
-    expect(slotJ).not.toBeNull();
-    expect(slotJ?.querySelector("[data-prediction]")).not.toBeNull();
+    expect(container.querySelector('[data-panel="J"]')).toBeNull();
+  });
+
+  it("segue montando o painel I (árbitro)", async () => {
+    setRow(makeRow({ detail_json: makeRichDetail() as unknown }));
+
+    const { container } = await renderPage("42");
+
+    expect(container.querySelector('[data-panel="I"]')).not.toBeNull();
   });
 });

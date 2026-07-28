@@ -237,6 +237,61 @@ function secondaryCalibrate(
   return side === "over" ? poissonProbOver(m, line) : poissonProbUnder(m, line);
 }
 
+/**
+ * Probabilidade nunca é 0 nem 1.
+ *
+ * O Monte Carlo de 10k rodadas devolve 1.0 quando nenhuma simulação cruzou a
+ * linha, e o modelo passa a tratar isso como certeza — mas a incerteza de
+ * MODELO (forma da distribuição, escalação, arbitragem) é ordens de grandeza
+ * maior que a de amostragem do MC. Um p=1.0 num mercado de contagem é sempre
+ * artefato, nunca conhecimento.
+ *
+ * Dois danos concretos: infla edge/Kelly na direção errada, e quebra métricas
+ * logarítmicas — se o jogo sai do outro lado, log-loss = ∞ e contamina a
+ * calibração (a arena usa log-loss como árbitro, B34).
+ *
+ * NÃO substitui calibração: mercado de contagem em liga sem curva segue
+ * overconfiante (B31). É guarda-corpo, não conserto.
+ *
+ * Espelha `PROB_CEILING`/`PROB_FLOOR` do edge_calculator.rb — os dois lados
+ * precisam da mesma guarda.
+ */
+export const PROB_CEILING = 0.99;
+export const PROB_FLOOR = 0.01;
+
+export function clampProb<T extends number | null | undefined>(p: T): T {
+  // Preserva null/undefined: "não temos essa probabilidade" é diferente de
+  // "a probabilidade é o piso". Só clampa número finito.
+  if (typeof p !== "number" || !Number.isFinite(p)) return p;
+  return Math.max(PROB_FLOOR, Math.min(PROB_CEILING, p)) as T;
+}
+
+/**
+ * Normaliza um candidato pronto: probabilidades dentro de [FLOOR, CEILING] e
+ * edge/kelly recalculados a partir da probabilidade que de fato decide a
+ * aposta (`prob_blended`, ou `prob_calibrated` quando não há blending).
+ */
+function finalizeCandidate(
+  c: EdgeCandidate,
+  bankroll: number,
+  fraction: number,
+): EdgeCandidate {
+  const prob_calibrated = clampProb(c.prob_calibrated);
+  const prob_blended =
+    c.prob_blended === undefined ? undefined : clampProb(c.prob_blended);
+  // A prob que decide a aposta: o blend quando há blending, senão a calibrada.
+  const effective = prob_blended ?? prob_calibrated;
+
+  return {
+    ...c,
+    prob_estimated: clampProb(c.prob_estimated),
+    prob_calibrated,
+    prob_blended,
+    edge_pct: pct(effective, c.odd),
+    kelly_units: kellyUnits(effective, c.odd, bankroll, fraction),
+  };
+}
+
 function computeBlend(
   prob_estimated: number,
   metricKey: string,
@@ -245,10 +300,11 @@ function computeBlend(
   lookup: BuildOptions["isotonicLookup"],
   calibratedOverride?: number,
 ): BlendedComputation {
-  const prob_calibrated =
+  const prob_calibrated = clampProb(
     calibratedOverride !== undefined
       ? calibratedOverride
-      : calibrate(metricKey, prob_estimated, lookup);
+      : calibrate(metricKey, prob_estimated, lookup),
+  );
   if (alpha >= 1.0 || prob_market === undefined || !Number.isFinite(prob_market)) {
     return {
       prob_calibrated,
@@ -256,7 +312,9 @@ function computeBlend(
       prob_blended: prob_calibrated,
     };
   }
-  const prob_blended = alpha * prob_calibrated + (1 - alpha) * prob_market;
+  const prob_blended = clampProb(
+    alpha * prob_calibrated + (1 - alpha) * prob_market,
+  );
   return { prob_calibrated, prob_market, prob_blended };
 }
 
@@ -266,6 +324,18 @@ export function buildEdgeTable(
   bankroll: number,
   options: BuildOptions = {},
 ): EdgeCandidate[] {
+  // Clampa as probabilidades da simulação na ENTRADA: assim `prob_estimated`
+  // (que vai pro banco e pra UI) e tudo que é derivado dele já nascem sãos.
+  // A saída da isotônica é clampada de novo em computeBlend — a curva pode
+  // ter platô em 1.0 mesmo com entrada válida.
+  sim = {
+    ...sim,
+    p_home: clampProb(sim.p_home),
+    p_draw: clampProb(sim.p_draw),
+    p_away: clampProb(sim.p_away),
+    p_over_25: clampProb(sim.p_over_25),
+    p_btts: clampProb(sim.p_btts),
+  };
   const kFrac = options.kellyFraction ?? DEFAULT_KELLY_FRACTION;
   const alpha = clampAlpha(options.blendAlpha ?? DEFAULT_BLEND_ALPHA);
   const lookup = options.isotonicLookup;
@@ -439,7 +509,7 @@ export function buildEdgeTable(
     ];
     for (const [line, overKey, underKey, sideLbl] of cornerLines) {
       if (isFiniteNum(odds[overKey])) {
-        const p = poissonProbOver(mean, line);
+        const p = clampProb(poissonProbOver(mean, line));
         const cornersDevig = isFiniteNum(odds[underKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
@@ -457,7 +527,7 @@ export function buildEdgeTable(
         });
       }
       if (isFiniteNum(odds[underKey])) {
-        const p = poissonProbUnder(mean, line);
+        const p = clampProb(poissonProbUnder(mean, line));
         const cornersDevig = isFiniteNum(odds[overKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
@@ -487,7 +557,7 @@ export function buildEdgeTable(
     ];
     for (const [line, overKey, underKey, sideLbl] of cardLines) {
       if (isFiniteNum(odds[overKey])) {
-        const p = poissonProbOver(mean, line);
+        const p = clampProb(poissonProbOver(mean, line));
         const cardsDevig = isFiniteNum(odds[underKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
@@ -505,7 +575,7 @@ export function buildEdgeTable(
         });
       }
       if (isFiniteNum(odds[underKey])) {
-        const p = poissonProbUnder(mean, line);
+        const p = clampProb(poissonProbUnder(mean, line));
         const cardsDevig = isFiniteNum(odds[overKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
@@ -535,7 +605,7 @@ export function buildEdgeTable(
     ];
     for (const [line, overKey, underKey, sideLbl] of sotLines) {
       if (isFiniteNum(odds[overKey])) {
-        const p = poissonProbOver(mean, line);
+        const p = clampProb(poissonProbOver(mean, line));
         const sotDevig = isFiniteNum(odds[underKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
@@ -553,7 +623,7 @@ export function buildEdgeTable(
         });
       }
       if (isFiniteNum(odds[underKey])) {
-        const p = poissonProbUnder(mean, line);
+        const p = clampProb(poissonProbUnder(mean, line));
         const sotDevig = isFiniteNum(odds[overKey])
           ? devigProportional([odds[overKey], odds[underKey]])
           : null;
@@ -573,7 +643,15 @@ export function buildEdgeTable(
     }
   }
 
-  return out.sort((a, b) => b.edge_pct - a.edge_pct);
+  // Guarda-corpo ÚNICO de saída: clampa as três probabilidades e recalcula
+  // edge/kelly a partir da prob efetivamente usada. Fica aqui, e não em cada
+  // `out.push`, porque três mercados (over25-under, btts-sim, btts-nao)
+  // calculam calibração e blend inline sem passar por `computeBlend` — e um
+  // mercado novo escaparia de novo. Um ponto de saída cobre todos, hoje e
+  // depois (mesma classe de bug das lições B16/B25: fiar só um caminho).
+  return out
+    .map((c) => finalizeCandidate(c, bankroll, kFrac))
+    .sort((a, b) => b.edge_pct - a.edge_pct);
 }
 
 function clampAlpha(a: number): number {

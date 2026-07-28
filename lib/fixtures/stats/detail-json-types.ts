@@ -135,6 +135,27 @@ export interface RefereeRecord {
   avg_home_booking_points: number;
   avg_away_booking_points: number;
   total_yellow_reds: number;
+
+  // Perfil de cartões/faltas (28/07). Todos OPCIONAIS: registros gravados
+  // antes dessa data — e payloads do choistats sem os campos por jogo — não
+  // os têm. `null` significa "não sabemos", nunca "zero": um árbitro com
+  // avg_total_cards = 0 seria um árbitro que não apita cartão.
+  avg_home_cards?: number | null;
+  avg_away_cards?: number | null;
+  avg_total_cards?: number | null;
+  /** % dos jogos em que o lado levou 2+ cartões. */
+  pct_home_2plus_cards?: number | null;
+  pct_away_2plus_cards?: number | null;
+  /** % dos jogos em que AMBOS os lados levaram 2+. */
+  pct_both_2plus_cards?: number | null;
+  /** Faltas por jogo — driver causal do cartão. */
+  avg_home_fouls?: number | null;
+  avg_away_fouls?: number | null;
+  avg_total_fouls?: number | null;
+  /** var/média do total de cartões: >1 over-disperso, <1 sub-disperso. */
+  cards_dispersion?: number | null;
+  /** P(total de cartões > linha), empírico. Chave = linha ("4.5"). */
+  cards_over_pct?: Record<string, number> | null;
 }
 
 // ─── 5. odds_summary ────────────────────────────────────────────────────

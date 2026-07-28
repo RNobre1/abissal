@@ -288,6 +288,10 @@ module AdamStats
 
         def build_candidate(market, side, prob_est, prob_cal, prob_market, prob_blended,
                             odd, bankroll, fraction, alpha)
+          prob_est = clamp_prob(prob_est)
+          prob_cal = clamp_prob(prob_cal)
+          prob_blended = clamp_prob(prob_blended)
+
           edge = (prob_blended * odd - 1.0) * 100.0
           units = kelly_units(prob_blended, odd, bankroll, fraction)
           result = {
@@ -300,6 +304,30 @@ module AdamStats
             result[:prob_blended] = prob_blended
           end
           result
+        end
+
+        # Probabilidade nunca é 0 nem 1.
+        #
+        # O Monte Carlo de 10k rodadas devolve 1.0 quando nenhuma simulação
+        # cruzou a linha, e o modelo trata isso como certeza — mas a incerteza
+        # de MODELO (forma da distribuição, escalação, arbitragem, tempo) é
+        # ordens de grandeza maior que a de amostragem do MC. Um p=1.0 num
+        # mercado de contagem é sempre artefato, nunca conhecimento.
+        #
+        # Dois danos concretos: (a) infla o edge e o Kelly na direção errada;
+        # (b) quebra métricas logarítmicas — se o jogo sai do outro lado,
+        # log-loss = ∞ e contamina a calibração inteira (a arena usa log-loss
+        # como árbitro, B34).
+        #
+        # O teto NÃO substitui calibração — mercados de contagem em liga
+        # sem curva seguem overconfiantes (B31). É guarda-corpo, não conserto.
+        PROB_CEILING = 0.99
+        PROB_FLOOR = 0.01
+
+        def clamp_prob(p)
+          return p unless p.is_a?(Numeric) && p.finite?
+
+          [[p, PROB_FLOOR].max, PROB_CEILING].min
         end
 
         def kelly_units(prob, odd, bankroll, fraction)
