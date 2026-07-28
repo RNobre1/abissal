@@ -53,19 +53,33 @@ module AdamStats
         @logger = logger
       end
 
+      # Devolve o placar da rodada: `{ eligible:, captured:, errors: }`.
+      # O caller (bin/capture_closing_odds) publica isso no step summary — sem
+      # ele, "verde capturando zero" é indistinguível de "verde capturou tudo",
+      # que foi exatamente como o CLV ficou parado 8 semanas sem ninguém ver.
       def run
+        stats = { eligible: 0, captured: 0, errors: 0 }
+
         with_connection do |conn|
           recos = conn.query(ELIGIBLE_QUERY).to_a
+          stats[:eligible] = recos.length
           @logger.call("[closing-odds] elegíveis: #{recos.length} recos")
 
           recos.each do |row|
             begin
-              process_reco(conn, row)
+              stats[:captured] += process_reco(conn, row).to_i
             rescue StandardError => e
+              stats[:errors] += 1
               @logger.call("[closing-odds] fixture=#{row['fixture_id']} reco=#{row['id']} falhou: #{e.class}: #{e.message}")
             end
           end
         end
+
+        @logger.call(
+          "[closing-odds] resumo: #{stats[:eligible]} elegíveis, " \
+          "#{stats[:captured]} odds gravadas, #{stats[:errors]} erros"
+        )
+        stats
       end
 
       private
@@ -82,20 +96,22 @@ module AdamStats
         @client ||= ChoistatsApiClient.new
       end
 
+      # Retorna quantas odds gravou (0 nos caminhos de saída antecipada), pra
+      # o `run` somar no placar da rodada.
       def process_reco(conn, row)
         fixture_id = row['fixture_id'].to_i
-        return if fixture_id.zero?
+        return 0 if fixture_id.zero?
 
         payload = client.fetch_widget(:odds, fixture_id: fixture_id)
         unless payload.is_a?(Array)
           @logger.call("[closing-odds] fixture=#{fixture_id}: sem odds (payload #{payload.class})")
-          return
+          return 0
         end
 
         snapshots = parse_odds(payload, home_team: row['home_team'], away_team: row['away_team'])
         if snapshots.empty?
           @logger.call("[closing-odds] fixture=#{fixture_id}: payload sem markets reconhecidos")
-          return
+          return 0
         end
 
         inserted = 0
@@ -111,6 +127,7 @@ module AdamStats
           inserted += 1
         end
         @logger.call("[closing-odds] fixture=#{fixture_id}: #{inserted} odds capturadas")
+        inserted
       end
 
       # Converte o payload Choistats em snapshots `{ market, side, odd_close }`

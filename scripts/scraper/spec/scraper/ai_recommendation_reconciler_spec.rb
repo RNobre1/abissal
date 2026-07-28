@@ -275,6 +275,78 @@ RSpec.describe AdamStats::Scraper::AiRecommendationReconciler do
     end
   end
 
+  # ── side desconhecido → tri-state (NUNCA grada no lado oposto) ─────────────
+  #
+  # O contrato tri-state da Lição B19 valia só pro MARKET; o SIDE caía em
+  # ternário (`side == 'over' ? ... : ...`), então qualquer valor não-canônico
+  # vindo do LLM ('yes', 'sim' em over25, typo) era gradado como se a aposta
+  # fosse no lado OPOSTO — inventando vitória ou derrota que ninguém apostou.
+
+  describe 'side não-canônico' do
+    it 'over25 com side "yes" NÃO resolve (não grada como under)' do
+      row = pending_row('market' => 'over25', 'side' => 'yes', 'odd_captured' => 1.85, 'units_final' => 1.0)
+      # 1-1 = 2 gols: sob o bug, "yes" cairia no ramo under e viraria VITÓRIA.
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 1, away_goals: 1))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+    end
+
+    it 'btts com side "yes" NÃO resolve (não grada como nao)' do
+      row = pending_row('market' => 'btts', 'side' => 'yes', 'odd_captured' => 1.80, 'units_final' => 1.0)
+      # 1-0: sob o bug, "yes" cairia no ramo !both e viraria VITÓRIA.
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 1, away_goals: 0))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+    end
+
+    it '1x2 com side desconhecido NÃO resolve (comportamento já correto — regressão)' do
+      row = pending_row('market' => '1x2', 'side' => 'casa', 'odd_captured' => 2.1, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 2, away_goals: 1))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+    end
+
+    it 'marca unresolvable quando side desconhecido e já passou MAX_ATTEMPTS_DAYS' do
+      stale = (Time.now.utc - (described_class::MAX_ATTEMPTS_DAYS + 1) * 86_400).iso8601
+      row = pending_row('market' => 'over25', 'side' => 'yes', 'kickoff_utc' => stale,
+                        'odd_captured' => 1.85, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 1, away_goals: 1))
+      expect(updates.flatten).to include('unresolvable')
+    end
+  end
+
+  # ── odd_captured ausente/inválida → irresolvível ──────────────────────────
+  #
+  # `odd_captured` NULL virava 0.0 no compute_pl, e uma aposta GANHA recebia
+  # (0.0 - 1.0) * units = -units: vitória contabilizada como derrota no ROI.
+  # Resolver só as derrotas (deixando as vitórias de fora) enviesaria o ROI
+  # pra baixo, então odd inválida é irresolvível nos DOIS casos.
+
+  describe 'odd_captured ausente ou inválida' do
+    it 'bet GANHA com odd_captured nil NÃO resolve (não vira PL negativo)' do
+      row = pending_row('odd_captured' => nil, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 2, away_goals: 1))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+      expect(updates.flatten).not_to include(a_value_within(0.001).of(-1.0))
+    end
+
+    it 'bet PERDIDA com odd_captured nil NÃO resolve (evita viés só-derrotas no ROI)' do
+      row = pending_row('odd_captured' => nil, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 0, away_goals: 2))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+    end
+
+    it 'odd_captured <= 1.0 é inválida (odd decimal é sempre > 1) e NÃO resolve' do
+      row = pending_row('odd_captured' => 1.0, 'units_final' => 1.0)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 2, away_goals: 1))
+      expect(updates.any? { |p| p.include?('resolved') }).to be false
+    end
+
+    it 'verdict=skip com odd nula segue resolvendo normal (não é aposta)' do
+      row = pending_row('verdict' => 'skip', 'market' => nil, 'side' => nil,
+                        'odd_captured' => nil, 'units_final' => nil)
+      updates = run_with(rows: [row], widget: finished_widget(home_goals: 2, away_goals: 1))
+      expect(updates.first).to include('resolved')
+    end
+  end
+
   # ── skip ─────────────────────────────────────────────────────────────────
 
   describe 'verdict=skip' do

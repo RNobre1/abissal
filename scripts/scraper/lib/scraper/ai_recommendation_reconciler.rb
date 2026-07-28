@@ -128,6 +128,18 @@ module AdamStats
           return
         end
 
+        # Bet sem odd utilizável: mesmo caminho do tri-state acima. Sem odd não
+        # existe PL confiável, e gradar assim mesmo já custou caro uma vez
+        # (vitória virando -units via odd 0.0 no compute_pl).
+        unless valid_odd?(row)
+          @logger.call(
+            "[ai-reco-reconciler] reco #{row['id']} tem odd_captured inválida " \
+            "(#{row['odd_captured'].inspect}) — irresolvível, PL não computado"
+          )
+          stale ? mark_stale(conn, row, stats) : (stats[:pending] += 1)
+          return
+        end
+
         pl = compute_pl(row, won)
         mark_resolved_bet(conn, row['id'].to_i, home_goals, away_goals, won, pl)
         stats[:resolved] += 1
@@ -176,10 +188,24 @@ module AdamStats
         )
       end
 
+      # Odd decimal válida é sempre > 1.0 (1.0 = stake de volta, 0 lucro).
+      # `odd_captured` NULL/0/<=1 significa que o runner persistiu a bet sem
+      # casar market+side com nenhum candidate — não dá pra computar PL.
+      # Tratamos como irresolvível nos DOIS casos (won e lost): resolver só as
+      # derrotas (onde o PL é -units independente da odd) enviesaria o ROI pra
+      # baixo, e ROI é a métrica que dirige as decisões do projeto.
+      def valid_odd?(row)
+        odd = row['odd_captured']
+        !odd.nil? && odd.to_f > 1.0
+      end
+
       # Avalia se a aposta (market, side) foi vencedora dado os actuals.
       # Retorna true/false; ou nil quando o stat secundário necessário ainda
       # não está disponível (caller mantém pending em vez de marcar derrota).
-      # Mercados não reconhecidos -> nil (defensivo: não inventa derrota).
+      # Mercados E SIDES não reconhecidos -> nil (defensivo: não inventa
+      # derrota nem vitória). O side entrou no contrato tri-state em 28/07:
+      # antes, ternário gradava qualquer side não-canônico do LLM ('yes',
+      # typo) como se a aposta fosse no lado OPOSTO.
       def bet_won?(row, actuals)
         market = row['market'].to_s
         side   = row['side'].to_s
@@ -194,10 +220,16 @@ module AdamStats
           when 'away' then ag > hg
           end
         when 'over25'
-          side == 'over' ? (hg + ag) > 2 : (hg + ag) <= 2
+          case side
+          when 'over'  then (hg + ag) > 2
+          when 'under' then (hg + ag) <= 2
+          end
         when 'btts'
           both = hg >= 1 && ag >= 1
-          side == 'sim' ? both : !both
+          case side
+          when 'sim' then both
+          when 'nao' then !both
+          end
         when 'corners-over', 'corners-under'
           over_under(actuals[:home_corners], actuals[:away_corners], market, side)
         when 'sot-over', 'sot-under'

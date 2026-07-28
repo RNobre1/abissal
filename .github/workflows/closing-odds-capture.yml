@@ -47,3 +47,18 @@ jobs:
           DATABASE_URL: ${{ secrets.SCRAPER_DATABASE_URL }}
           ADAMCHOI_API_TOKEN: ${{ secrets.ADAMCHOI_API_TOKEN }}
         run: bundle exec bin/capture_closing_odds
+
+      # Closing odds só existem na janela ao redor do KO: um run vermelho perde
+      # o dado pra SEMPRE, e CLV é a única métrica que sobrevive a small-sample.
+      # Era o único cron de dados sem alerta (auditoria 09/06).
+      - name: Ping healthchecks (success)
+        if: success() && env.HEALTHCHECKS_CLOSING_ODDS_URL != ''
+        env:
+          HEALTHCHECKS_CLOSING_ODDS_URL: ${{ secrets.HEALTHCHECKS_CLOSING_ODDS_URL }}
+        run: curl -fsS --retry 3 "$HEALTHCHECKS_CLOSING_ODDS_URL" || true
+
+      - name: Ping healthchecks (fail)
+        if: (failure() || cancelled()) && env.HEALTHCHECKS_CLOSING_ODDS_URL != ''
+        env:
+          HEALTHCHECKS_CLOSING_ODDS_URL: ${{ secrets.HEALTHCHECKS_CLOSING_ODDS_URL }}
+        run: curl -fsS --retry 3 "${HEALTHCHECKS_CLOSING_ODDS_URL}/fail" || true

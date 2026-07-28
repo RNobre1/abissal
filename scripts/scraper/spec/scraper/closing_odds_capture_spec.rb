@@ -60,6 +60,48 @@ module AdamStats::Scraper
       conn
     end
 
+    # O cron ficou VERDE capturando zero de 01/06 a 28/07 (kill switch da IA ⇒
+    # nenhuma reco verdict='bet' ⇒ nenhuma elegível) e ninguém notou, porque
+    # "exit 0" era indistinguível de "capturou tudo". `run` agora devolve o
+    # placar pro caller publicar no step summary / healthcheck.
+    describe '#run devolve o placar da rodada' do
+      it 'retorna eligible e captured quando captura odds' do
+        stats = described_class.new(conn: conn_double, client: client, logger: logger).run
+        expect(stats[:eligible]).to eq(1)
+        expect(stats[:captured]).to be > 0
+      end
+
+      it 'retorna zeros quando não há recos elegíveis (o modo de falha silencioso)' do
+        stats = described_class.new(conn: conn_double(rows: []), client: client, logger: logger).run
+        expect(stats[:eligible]).to eq(0)
+        expect(stats[:captured]).to eq(0)
+      end
+
+      it 'conta eligible mesmo quando o payload não rende odds (captured=0)' do
+        c = double('ChoistatsApiClient')
+        allow(c).to receive(:fetch_widget).and_return(nil)
+        stats = described_class.new(conn: conn_double, client: c, logger: logger).run
+        expect(stats[:eligible]).to eq(1)
+        expect(stats[:captured]).to eq(0)
+      end
+
+      it 'não deixa uma fixture com erro zerar o placar das demais' do
+        rows = [reco_row, reco_row.merge('id' => 43, 'fixture_id' => 19427225)]
+        c = double('ChoistatsApiClient')
+        call = 0
+        allow(c).to receive(:fetch_widget) do
+          call += 1
+          raise StandardError, 'boom' if call == 1
+
+          odds_payload
+        end
+        stats = described_class.new(conn: conn_double(rows: rows), client: c, logger: logger).run
+        expect(stats[:eligible]).to eq(2)
+        expect(stats[:captured]).to be > 0
+        expect(stats[:errors]).to eq(1)
+      end
+    end
+
     describe 'fixture selection' do
       it 'queries ai_recommendations com verdict=bet e kickoff_utc nas próximas 4h' do
         conn = conn_double
