@@ -44,6 +44,11 @@ const sb = createClient(
 const DRY = process.argv.includes("--dry");
 const MODEL = "challenger-cards-cmp-v1";
 const WARMUP = 50;
+// Refit do ν a cada N jogos em vez de a cada jogo. Fitar por jogo é
+// O(n² · grade) e fazia este seed consumir 18 dos 20 minutos do cron semanal,
+// morrendo no timeout — `Seed challenger` cancelado e `Compare` nunca rodado
+// desde 05/07. Não há leakage: o ν de um jogo segue fitado só no passado.
+const REFIT_EVERY = 25;
 
 interface Resolved { fixtureId: number; mean: number; total: number; resolvedAt: string }
 interface Upcoming { fixtureId: number; mean: number }
@@ -142,7 +147,7 @@ async function main() {
   if (resolved.length < WARMUP) { console.log(`[challenger-cards-cmp] < ${WARMUP} resolvidos — exit 0.`); return; }
 
   // Walk-forward: ν por jogo resolvido (fit só no passado). ν ao vivo p/ futuros.
-  const nuWF = walkForwardParams(resolved, fitNu, { warmup: WARMUP, defaultParam: 1 });
+  const nuWF = walkForwardParams(resolved, fitNu, { warmup: WARMUP, defaultParam: 1, refitEvery: REFIT_EVERY });
   const liveNu = liveParam(resolved, fitNu, { warmup: WARMUP, defaultParam: 1 });
   const liveR = liveParam(resolved, fitR, { warmup: WARMUP, defaultParam: 1e7 });
 

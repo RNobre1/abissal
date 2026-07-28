@@ -233,14 +233,15 @@ describe("StatsLayout — mobile tabs", () => {
     expect(container.querySelector('[data-panel="C-away"]')).not.toBeNull();
   });
 
-  it("o árbitro (I) fica na aba 'visão' — é o único painel da antiga aba odds que o Pilot usa", () => {
+  it("árbitro (I) e predictions (J) ficam na aba 'visão'", () => {
     installMatchMedia(true);
     const { container } = render(
       <StatsLayout fixtureId={42} hero={hero()} panels={allPanels()} />,
     );
 
-    // 'visão' é a aba default, então o árbitro está montado de saída.
+    // 'visão' é a aba default, então ambos estão montados de saída.
     expect(container.querySelector('[data-panel="I"]')).not.toBeNull();
+    expect(container.querySelector('[data-panel="J"]')).not.toBeNull();
   });
 
   it("não existe mais aba 'odds'", () => {

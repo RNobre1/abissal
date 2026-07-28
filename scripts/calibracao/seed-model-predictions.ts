@@ -418,6 +418,9 @@ function activeChampionVersion(sims: any[]): string | null {
 
 const R_GRID = [1, 2, 3, 4, 6, 8, 12, 20, 40, 100, 1e7];
 const COUNT_WARMUP = 50;
+// Ver nota em seed-challenger-cards-cmp.ts: refit por bloco em vez de por
+// jogo. Mesma garantia de walk-forward, custo dividido por REFIT_EVERY.
+const REFIT_EVERY = 25;
 
 /** Fita r (NB) num conjunto de treino por grid-search (log-loss). */
 function fitR(train: Array<{ mean: number; total: number }>): number {
@@ -449,7 +452,7 @@ function walkForwardCountR(sims: any[], stat: string): { byFixture: Map<number, 
     games.push({ fid: Number(s.fixture_id), mean: hp + ap, total: Number(ah) + Number(aa), t: s.actual_resolved_at ?? "" });
   }
   games.sort((a, b) => (a.t < b.t ? -1 : 1));
-  const rWF = walkForwardParams(games, fitR, { warmup: COUNT_WARMUP, defaultParam: 1e7 });
+  const rWF = walkForwardParams(games, fitR, { warmup: COUNT_WARMUP, defaultParam: 1e7, refitEvery: REFIT_EVERY });
   const byFixture = new Map<number, number>();
   games.forEach((g, i) => byFixture.set(g.fid, rWF[i]));
   const liveR = liveParam(games, fitR, { warmup: COUNT_WARMUP, defaultParam: 1e7 });

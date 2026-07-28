@@ -24,7 +24,11 @@ concurrency:
 jobs:
   calibracao:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # 20min era apertado demais: de 05/07 a 26/07 TODA execução foi cancelada
+    # no timeout com o `Seed challenger` consumindo 18 dos 20 minutos, e o
+    # `Compare` nunca rodou. O refit em blocos (walk-forward refitEvery) cortou
+    # o custo desse step; 30min dá folga real em vez de empurrar o problema.
+    timeout-minutes: 30
     steps:
       # read-only (não dá git push) → persist-credentials:false (least-privilege,
       # item 10 do optimizing-github-actions).
@@ -92,6 +96,16 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/calibracao/seed-challenger-cards-cmp.ts
 
+      # 2º challenger: temperature scaling nas probs de mercado (1x2/over25/
+      # btts). A sim ESTICA as probabilidades — subconfiante embaixo,
+      # superconfiante em cima — e um T por mercado corrige esse viés
+      # monotônico. Walk-forward, cobertura total, shadow.
+      - name: Seed challenger (temperature scaling)
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/calibracao/seed-challenger-temperature.ts
+
       - name: Compare champion vs challengers
         env:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
@@ -112,3 +126,32 @@ jobs:
         env:
           HEALTHCHECKS_CALIBRATE_URL: ${{ secrets.HEALTHCHECKS_CALIBRATE_URL }}
         run: curl -fsS --retry 3 "${HEALTHCHECKS_CALIBRATE_URL}/fail" || true
+
+  # Rede de segurança contra TIMEOUT do job acima.
+  #
+  # Quando `timeout-minutes` estoura, o GitHub cancela o job inteiro — e os
+  # steps de ping, mesmo os condicionais, são pulados junto. Foi exatamente o
+  # que aconteceu de 05/07 a 26/07: quatro execuções seguidas cortadas no
+  # timeout, `Compare` nunca rodou, e o Healthchecks.io nunca soube porque o
+  # step de /fail (`if: failure()`) não dispara em cancelamento.
+  #
+  # Um job separado com `if: always()` sobrevive ao cancelamento do outro e
+  # cobre os três desfechos ruins: failure, cancelled e skipped.
+  notify-failure:
+    needs: calibracao
+    if: always() && needs.calibracao.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping healthchecks (fail — cobre timeout/cancelamento)
+        env:
+          HEALTHCHECKS_CALIBRATE_URL: ${{ secrets.HEALTHCHECKS_CALIBRATE_URL }}
+          RESULT: ${{ needs.calibracao.result }}
+        run: |
+          set -euo pipefail
+          echo "calibracao terminou como: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${HEALTHCHECKS_CALIBRATE_URL:-}" ]; then
+            curl -fsS --retry 3 "${HEALTHCHECKS_CALIBRATE_URL}/fail" || true
+          else
+            echo "HEALTHCHECKS_CALIBRATE_URL não configurado — sem ping." >> "$GITHUB_STEP_SUMMARY"
+          fi
