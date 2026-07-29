@@ -153,10 +153,11 @@ export interface BuildOptions {
    *  a arena (n=7290, meanDelta +0.0121, IC95 sem cruzar zero, p<.001); ver
    *  lição B45.
    *
-   *  Prioridade: **curva isotônica → temperatura → raw**. A isotônica foi
-   *  fitada SOBRE probs raw, então aplicar T antes mudaria a entrada que ela
-   *  aprendeu; onde há curva ela ganha, onde não há o T corrige. Mesmo padrão
-   *  do `k` (B32). NÃO se aplica a corners/cards/sot — lá quem corrige é o k. */
+   *  COMPÕE com a curva isotônica: curva primeiro, T depois (29/07). A ordem
+   *  anterior era "curva OU T", mas held-out temporal 70/30 (n_test=865)
+   *  mostrou que compor bate escolher, e que as curvas de over25/btts estavam
+   *  OVERFITANDO (piores que raw out-of-sample) — dar prioridade a elas
+   *  mantinha o prejuízo. NÃO se aplica a corners/cards/sot — lá é o k. */
   temperature?: TemperatureMap;
 }
 
@@ -192,13 +193,21 @@ function calibrate(
   /** T do mercado. Só é usado quando NÃO existe curva pra `metricKey`. */
   temperature?: number,
 ): number {
+  const T = usableTemp(temperature);
   const fn = lookup?.[metricKey];
-  if (!fn) {
-    const T = usableTemp(temperature);
-    return T === null ? prob : applyTemperature(prob, T);
-  }
+
+  // Sem curva: o T age sozinho sobre a prob crua.
+  if (!fn) return T === null ? prob : applyTemperature(prob, T);
+
   const out = fn(prob);
-  return Number.isFinite(out) ? Math.max(0, Math.min(1, out)) : prob;
+  const curved = Number.isFinite(out) ? Math.max(0, Math.min(1, out)) : prob;
+
+  // COM curva: compõe — a curva primeiro, o T depois. Medido em held-out
+  // temporal 70/30 (n_test=865): compor bate escolher em 1x2-home
+  // (raw .6935 | iso .6826 | T .6844 | iso+T .6805). E as curvas de
+  // over25/btts estavam OVERFITANDO — piores que não calibrar nada
+  // out-of-sample — então dar prioridade à curva mantinha o prejuízo.
+  return T === null ? curved : applyTemperature(curved, T);
 }
 
 /** T utilizável: número finito e positivo, e diferente de 1 (identidade). */
@@ -379,20 +388,22 @@ export function buildEdgeTable(
   // três probabilidades deixariam de somar 1. Só entra quando nenhum dos três
   // lados tem curva isotônica — curva ganha do T (ver nota em BuildOptions).
   const t1x2 = usableTemp(temp?.["1x2"]);
-  const has1x2Curve =
-    hasCurve(lookup, "1x2-home") ||
-    hasCurve(lookup, "1x2-draw") ||
-    hasCurve(lookup, "1x2-away");
   let temp1x2: { home: number; draw: number; away: number } | null = null;
   if (
     t1x2 !== null &&
-    !has1x2Curve &&
     isFiniteNum(sim.p_home) &&
     isFiniteNum(sim.p_draw) &&
     isFiniteNum(sim.p_away)
   ) {
+    // Compõe: cada lado passa pela sua curva (quando existe) e o vetor
+    // resultante é reescalado pelo T de uma vez — aplicar o T por classe
+    // separadamente quebraria a soma 1.
     const [home, draw, away] = applyTemperatureVector(
-      [sim.p_home, sim.p_draw, sim.p_away],
+      [
+        calibrate("1x2-home", sim.p_home, lookup),
+        calibrate("1x2-draw", sim.p_draw, lookup),
+        calibrate("1x2-away", sim.p_away, lookup),
+      ],
       t1x2,
     );
     temp1x2 = { home, draw, away };

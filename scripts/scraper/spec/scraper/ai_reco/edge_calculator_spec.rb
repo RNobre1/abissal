@@ -91,10 +91,21 @@ module AdamStats::Scraper::AiReco
         expect(b[:prob_calibrated]).to be > 0.5
       end
 
-      it 'a curva isotônica tem prioridade sobre o T' do
+      # 29/07: passou de "curva OU T" pra "curva E DEPOIS T". Held-out 70/30
+      # (n_test=865) mostrou que compor bate escolher, e que as curvas de
+      # over25/btts estavam OVERFITANDO (piores que raw out-of-sample).
+      it 'COMPÕE curva isotônica e temperatura (não é ou-exclusivo)' do
         out = EdgeCalculator.build(base_sim, base_odds, 1000,
                                    isotonic_lookup: { 'over25' => ->(_p) { 0.42 } },
                                    temperature: { 'over25' => 2.5 })
+        over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
+        expect(over[:prob_calibrated]).to be > 0.42
+        expect(over[:prob_calibrated]).to be < 0.5
+      end
+
+      it 'sem T, a curva age sozinha (retrocompatível)' do
+        out = EdgeCalculator.build(base_sim, base_odds, 1000,
+                                   isotonic_lookup: { 'over25' => ->(_p) { 0.42 } })
         over = out.find { |c| c[:market] == 'over25' && c[:side] == 'over' }
         expect(over[:prob_calibrated]).to be_within(1e-6).of(0.42)
       end

@@ -54,14 +54,23 @@ module AdamStats
           out = []
 
           # Temperature do 1x2 é aplicada no VETOR (não por classe), senão as
-          # três probabilidades deixam de somar 1. Só entra quando NENHUM dos
-          # três lados tem curva isotônica — curva ganha do T (B45).
+          # três probabilidades deixam de somar 1. COMPÕE com as curvas: cada
+          # lado passa pela sua curva antes do reescalonamento (B45/B48).
           t_1x2 = temp['1x2']
-          has_1x2_curve = %w[1x2-home 1x2-draw 1x2-away].any? { |k| curve?(isotonic_lookup, k) }
           temp_1x2 = nil
-          if Temperature.usable?(t_1x2) && !has_1x2_curve &&
+          if Temperature.usable?(t_1x2) &&
              finite?(sim[:p_home]) && finite?(sim[:p_draw]) && finite?(sim[:p_away])
-            v = Temperature.apply_vector([sim[:p_home], sim[:p_draw], sim[:p_away]], t_1x2)
+            # Compõe: cada lado passa pela sua curva (quando existe) e o vetor
+            # resultante é reescalado pelo T de uma vez — aplicar o T por
+            # classe separadamente quebraria a soma 1.
+            v = Temperature.apply_vector(
+              [
+                calibrate('1x2-home', sim[:p_home], isotonic_lookup),
+                calibrate('1x2-draw', sim[:p_draw], isotonic_lookup),
+                calibrate('1x2-away', sim[:p_away], isotonic_lookup)
+              ],
+              t_1x2
+            )
             temp_1x2 = { 'home' => v[0], 'draw' => v[1], 'away' => v[2] }
           end
 
@@ -281,15 +290,25 @@ module AdamStats
         # ela aprendeu (B45).
         def calibrate(metric_key, prob, lookup, temperature = nil)
           fn = lookup.is_a?(Hash) ? (lookup[metric_key] || lookup[metric_key.to_sym]) : nil
+          t_usable = Temperature.usable?(temperature)
 
+          # Sem curva: o T age sozinho sobre a prob crua.
           unless fn.respond_to?(:call)
-            return Temperature.usable?(temperature) ? Temperature.apply(prob, temperature) : prob
+            return t_usable ? Temperature.apply(prob, temperature) : prob
           end
 
           out = fn.call(prob)
-          return prob unless out.is_a?(Numeric) && (!out.respond_to?(:finite?) || out.finite?)
+          curved = if out.is_a?(Numeric) && (!out.respond_to?(:finite?) || out.finite?)
+                     [[out, 0.0].max, 1.0].min
+                   else
+                     prob
+                   end
 
-          [[out, 0.0].max, 1.0].min
+          # COM curva: COMPÕE — curva primeiro, T depois. A ordem anterior era
+          # "curva OU T"; held-out 70/30 (n_test=865) mostrou que compor bate
+          # escolher, e que as curvas de over25/btts estavam OVERFITANDO
+          # (piores que raw out-of-sample) — priorizá-las mantinha o prejuízo.
+          t_usable ? Temperature.apply(curved, temperature) : curved
         end
 
         # True quando existe curva própria pra metric_key.
