@@ -9,6 +9,8 @@ import {
   computePotentialReturn,
   detectConflicts,
   type SlipLeg,
+  formatOddCombined,
+  isSlipImplausible,
 } from "../compute";
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -122,18 +124,61 @@ describe("detectConflicts", () => {
 
   it("detects past kickoff (ko_utc already passed)", () => {
     const pastDate = new Date(Date.now() - 3600 * 1000).toISOString();
-    const legs = [
-      makeLeg({ fixture_id: 100, kickoff_utc: pastDate }),
-    ];
+    const legs = [makeLeg({ fixture_id: 100, kickoff_utc: pastDate })];
     const conflicts = detectConflicts(legs);
     expect(conflicts.some((c) => c.type === "past_kickoff")).toBe(true);
   });
 
   it("does NOT flag future kickoff", () => {
     const futureDate = new Date(Date.now() + 3600 * 1000).toISOString();
-    const legs = [
-      makeLeg({ fixture_id: 100, kickoff_utc: futureDate }),
-    ];
+    const legs = [makeLeg({ fixture_id: 100, kickoff_utc: futureDate })];
     expect(detectConflicts(legs).some((c) => c.type === "past_kickoff")).toBe(false);
+  });
+});
+
+// ── Regressão: odd combinada astronômica quebrava a barra do bilhete ────────
+describe("formatOddCombined", () => {
+  /**
+   * O FAB do bilhete mostrava "×43317375962504075673.00" e o número
+   * transbordava a barra no celular. Não era erro de cálculo: o bilhete tinha
+   * 82 pernas acumuladas, e 82 odds multiplicadas dão 10^19 mesmo.
+   */
+  it("mantém 2 casas nas odds normais", () => {
+    expect(formatOddCombined(1)).toBe("1,00");
+    expect(formatOddCombined(2.5)).toBe("2,50");
+    expect(formatOddCombined(29.37)).toBe("29,37");
+    expect(formatOddCombined(999.99)).toBe("999,99");
+  });
+
+  it("corta as casas decimais nos milhares, onde não importam", () => {
+    expect(formatOddCombined(1234.56)).toBe("1.235");
+    expect(formatOddCombined(99999)).toBe("99.999");
+  });
+
+  it("usa notação científica acima de 1 milhão", () => {
+    expect(formatOddCombined(4.33e19)).toMatch(/^4,3×10¹⁹$/);
+    expect(formatOddCombined(1e6)).toMatch(/^1,0×10⁶$/);
+  });
+
+  it("degrada sem quebrar em valores inválidos", () => {
+    expect(formatOddCombined(Number.NaN)).toBe("—");
+    expect(formatOddCombined(Number.POSITIVE_INFINITY)).toBe("—");
+  });
+});
+
+describe("isSlipImplausible", () => {
+  /**
+   * Múltipla de 82 pernas é inapostável — nenhuma casa aceita e a
+   * probabilidade combinada é ~0. O app deixava acumular sem avisar.
+   */
+  it("não reclama de bilhete normal", () => {
+    expect(isSlipImplausible(1)).toBe(false);
+    expect(isSlipImplausible(12)).toBe(false);
+    expect(isSlipImplausible(20)).toBe(false);
+  });
+
+  it("sinaliza acima de 20 pernas", () => {
+    expect(isSlipImplausible(21)).toBe(true);
+    expect(isSlipImplausible(82)).toBe(true);
   });
 });

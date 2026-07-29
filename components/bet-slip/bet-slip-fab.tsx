@@ -11,6 +11,7 @@
  */
 
 import type { SlipLeg } from "@/lib/bet-slip/compute";
+import { formatOddCombined, isSlipImplausible } from "@/lib/bet-slip/compute";
 import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 interface BetSlipFABProps {
@@ -26,12 +27,15 @@ export function BetSlipFAB({ legs, oddCombined, stakeTotal, onOpen }: BetSlipFAB
   if (legs.length === 0) return null;
 
   const legCount = legs.length;
-  const oddDisplay = oddCombined.toFixed(2);
+  // `toFixed(2)` cuspia "43317375962504075673.00" num bilhete de 82 pernas e o
+  // número transbordava a barra no celular. Ver formatOddCombined.
+  const oddDisplay = formatOddCombined(oddCombined);
+  const implausivel = isSlipImplausible(legCount);
 
   return (
     <div
       data-bet-slip-fab
-      className="fixed right-4 z-50 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] sm:right-6 lg:bottom-5"
+      className="fixed right-4 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-50 sm:right-6 lg:bottom-5"
     >
       <button
         type="button"
@@ -43,13 +47,7 @@ export function BetSlipFAB({ legs, oddCombined, stakeTotal, onOpen }: BetSlipFAB
           });
           onOpen();
         }}
-        className="
-          flex items-center gap-2 rounded-[var(--radius)] border border-[var(--color-vermelho)]
-          bg-[var(--color-surface-2)] px-4 py-3 shadow-lg
-          hover:bg-[var(--color-surface-3)]
-          focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-vermelho)]
-          active:scale-95 transition-transform motion-reduce:transition-none
-        "
+        className="flex items-center gap-2 rounded-[var(--radius)] border border-[var(--color-vermelho)] bg-[var(--color-surface-2)] px-4 py-3 shadow-lg transition-transform hover:bg-[var(--color-surface-3)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--color-vermelho)] active:scale-95 motion-reduce:transition-none"
       >
         <span
           className="num flex h-6 w-6 items-center justify-center rounded-full bg-[var(--color-vermelho)] text-xs font-bold text-white tabular-nums"
@@ -57,19 +55,25 @@ export function BetSlipFAB({ legs, oddCombined, stakeTotal, onOpen }: BetSlipFAB
         >
           {legCount}
         </span>
-        <span className="label font-semibold text-[var(--color-ink)]">
-          Bilhete
-        </span>
+        <span className="label font-semibold text-[var(--color-ink)]">Bilhete</span>
         <span
           aria-hidden="true"
-          className="num text-[var(--color-ink-muted)] tabular-nums text-sm"
+          className="num text-sm text-[var(--color-ink-muted)] tabular-nums"
         >
           ×{oddDisplay}
         </span>
+        {implausivel ? (
+          <span
+            title={`${legCount} pernas — nenhuma casa aceita múltipla desse tamanho`}
+            className="label text-[var(--color-vermelho)]"
+          >
+            ⚠
+          </span>
+        ) : null}
         {stakeTotal != null && stakeTotal > 0 ? (
           <span
             aria-hidden="true"
-            className="num text-[var(--color-ink-muted)] tabular-nums text-sm"
+            className="num text-sm text-[var(--color-ink-muted)] tabular-nums"
           >
             · R$ {stakeTotal.toFixed(2).replace(".", ",")}
           </span>
