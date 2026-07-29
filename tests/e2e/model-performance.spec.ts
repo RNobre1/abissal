@@ -70,4 +70,42 @@ test.describe("desempenho do modelo por liga", () => {
     await expect(escanteios).toHaveText(/[+−≈]/);
     await expect(page.locator('[data-sim-signal="fouls"]')).toHaveText("");
   });
+
+  test("o sinal muda de lugar conforme a largura, sem sumir nem estourar", async ({
+    page,
+    viewport,
+  }) => {
+    await abrePrimeiroJogo(page);
+    if ((await page.locator("[data-sim-signal]").count()) === 0) return;
+
+    // A tabela vive atrás de chromes diferentes (aba no mobile, accordion
+    // fechado no desktop), então `toBeVisible` mediria o chrome, não a regra.
+    // O que importa é qual dos dois sinais o CSS deixa renderizar em cada
+    // largura — `display` computado responde isso sem abrir nada.
+    const displayDe = (sel: string) =>
+      page
+        .locator(sel)
+        .first()
+        .evaluate((el) => getComputedStyle(el).display);
+
+    const estreito = (viewport?.width ?? 1280) < 640;
+    const inline = await displayDe('[data-sim-signal-inline="corners"]');
+    const coluna = await displayDe('[data-sim-signal="corners"]');
+
+    if (estreito) {
+      // 412px: uma 4ª coluna colidia com o nome do time e cortava o símbolo.
+      expect(inline).not.toBe("none");
+      expect(coluna).toBe("none");
+    } else {
+      expect(coluna).not.toBe("none");
+      expect(inline).toBe("none");
+    }
+
+    // Em qualquer largura, a página não rola na horizontal.
+    const { scrollW, clientW } = await page.evaluate(() => ({
+      scrollW: document.documentElement.scrollWidth,
+      clientW: document.documentElement.clientWidth,
+    }));
+    expect(scrollW).toBeLessThanOrEqual(clientW);
+  });
 });

@@ -32,11 +32,15 @@ function shortDate(iso: string | null): string | null {
   return `${dd}/${mm}`;
 }
 
-/** Barra de 10 blocos — leitura rápida sem arrastar lib de chart pro bundle. */
+/**
+ * Barra de 10 blocos — leitura rápida sem arrastar lib de chart pro bundle.
+ * Escondida abaixo de `sm`: em 412px (Galaxy S23 FE) os 10 caracteres empurram
+ * a tabela e cada linha quebra em duas.
+ */
 function Bar({ rate }: { rate: number }) {
   const filled = Math.max(0, Math.min(10, Math.round(rate * 10)));
   return (
-    <span aria-hidden className="ml-2 text-[var(--color-ink-faint)]">
+    <span aria-hidden className="ml-2 hidden text-[var(--color-ink-faint)] sm:inline">
       {"▓".repeat(filled)}
       {"░".repeat(10 - filled)}
     </span>
@@ -84,11 +88,19 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
         </p>
       ) : null}
 
+      {/*
+        Mobile (412px, Galaxy S23 FE): o rótulo do mercado quebra a linha em duas
+        se ficar tudo numa célula só. A linha do mercado vira uma segunda linha
+        menor sob o nome, e o cabeçalho "chamou" encurta pra "n".
+      */}
       <table className="mt-3 w-full text-sm">
         <thead>
           <tr className="label text-[var(--color-ink-faint)]">
             <th className="py-1 text-left font-normal">mercado</th>
-            <th className="py-1 text-right font-normal">chamou</th>
+            <th className="py-1 text-right font-normal">
+              <span className="sm:hidden">n</span>
+              <span className="hidden sm:inline">chamou</span>
+            </th>
             <th className="py-1 text-right font-normal">acertou</th>
             <th className="py-1 text-right font-normal">vs chutar</th>
           </tr>
@@ -99,14 +111,21 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
               key={`${m.market}-${m.line ?? "x"}`}
               title={`IC95 ${pct(m.ci95.lo)}–${pct(m.ci95.hi)} · chutar sempre o lado mais comum acerta ${pct(m.baseRate)}`}
             >
-              <td className="py-1">{m.label}</td>
-              <td className="num py-1 text-right">{m.calls}</td>
-              <td className="num py-1 text-right whitespace-nowrap">
+              <td className="py-1 pr-2">
+                <span className="block leading-tight">{m.shortLabel}</span>
+                {m.line !== null && m.dominantSide ? (
+                  <span className="label block leading-tight text-[var(--color-ink-faint)]">
+                    {m.dominantSide === "under" ? "menos de" : "mais de"} {m.line}
+                  </span>
+                ) : null}
+              </td>
+              <td className="num py-1 text-right align-top">{m.calls}</td>
+              <td className="num py-1 text-right align-top whitespace-nowrap">
                 {pct(m.rate)}
                 <Bar rate={m.rate} />
               </td>
               <td
-                className={`num py-1 text-right ${
+                className={`num py-1 text-right align-top ${
                   m.lift < 0 ? "text-[var(--color-vermelho)]" : ""
                 }`}
               >

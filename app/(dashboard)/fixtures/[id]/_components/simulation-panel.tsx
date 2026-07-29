@@ -374,7 +374,12 @@ function SimulationBody({
               >
                 {awayTeam}
               </th>
-              <th className="label py-1 text-right font-normal text-[var(--color-ink-faint)]">
+              {/*
+                Coluna "lado" só a partir de `sm`. Em 412px (Galaxy S23 FE) uma
+                4ª coluna colide com o nome do time no cabeçalho e o símbolo é
+                cortado na borda — no mobile o sinal vai colado à métrica.
+              */}
+              <th className="label hidden py-1 text-right font-normal text-[var(--color-ink-faint)] sm:table-cell">
                 lado
               </th>
             </tr>
@@ -393,6 +398,15 @@ function SimulationBody({
                 >
                   <td className="py-1.5 text-[var(--color-ink-display)]">
                     {r.label}
+                    {signal ? (
+                      <span
+                        className="num ml-1.5 sm:hidden"
+                        title={signal.text}
+                        data-sim-signal-inline={r.key}
+                      >
+                        {signal.symbol}
+                      </span>
+                    ) : null}
                     {noSplit ? (
                       <span className="label ml-2 text-[var(--color-ink-faint)]">
                         total do jogo
@@ -406,7 +420,7 @@ function SimulationBody({
                     {statValue(awayStats, r.key)}
                   </td>
                   <td
-                    className="num py-1.5 text-right text-[var(--color-ink-display)]"
+                    className="num hidden py-1.5 text-right text-[var(--color-ink-display)] sm:table-cell"
                     data-sim-signal={r.key}
                   >
                     {signal ? (
