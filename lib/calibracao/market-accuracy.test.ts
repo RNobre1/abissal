@@ -186,14 +186,29 @@ describe("marketAccuracies", () => {
     expect(out.rate).toBeCloseTo(0.5, 6);
   });
 
-  it("escolhe a linha canônica com mais chamadas", () => {
-    // média 14: chama over em 8.5/9.5/10.5. média 10: chama em 8.5 e 10.5,
-    // zona morta em 9.5. Logo 8.5 e 10.5 empatam em 3 chamadas e 9.5 tem 2 —
-    // a escolhida nunca é a 9.5.
-    const rows = [cornersRow(7, 7, 20), cornersRow(7, 7, 2), cornersRow(5, 5, 20)];
+  it("escolhe a linha canônica mais próxima da mediana REAL da liga", () => {
+    // Totais reais concentrados em 8 ⇒ mediana 8 ⇒ a linha canônica mais
+    // próxima é 8.5, não a que tiver mais chamadas.
+    const rows = Array.from({ length: 12 }, () => cornersRow(7, 7, 8));
     const out = marketAccuracies(rows).find((m) => m.market === "corners")!;
-    expect(out.calls).toBe(3);
-    expect(out.line).not.toBe(9.5);
+    expect(out.line).toBe(8.5);
+  });
+
+  it("acompanha a mediana quando a liga é de jogos abertos", () => {
+    // Totais reais em 11 ⇒ mediana 11 ⇒ linha canônica mais próxima é 10.5.
+    const rows = Array.from({ length: 12 }, () => cornersRow(7, 7, 11));
+    const out = marketAccuracies(rows).find((m) => m.market === "corners")!;
+    expect(out.line).toBe(10.5);
+  });
+
+  it("a escolha da linha não olha o acerto (não é cherry-picking)", () => {
+    // Mesma mediana real (8), dois cenários de acerto opostos: a linha
+    // escolhida tem que ser a mesma nos dois.
+    const acertando = Array.from({ length: 12 }, () => cornersRow(7, 7, 8));
+    const errando = Array.from({ length: 12 }, () => cornersRow(1, 1, 8));
+    const a = marketAccuracies(acertando).find((m) => m.market === "corners")!;
+    const b = marketAccuracies(errando).find((m) => m.market === "corners")!;
+    expect(a.line).toBe(b.line);
   });
 
   it("calcula a taxa-base sobre o universo, não sobre as chamadas", () => {

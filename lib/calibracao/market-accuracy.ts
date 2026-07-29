@@ -237,9 +237,64 @@ function probSide(p: number | null): "over" | "under" | null {
 }
 
 /**
+ * Mediana observada do total real daquele mercado no conjunto. É uma propriedade
+ * da LIGA (quantos escanteios os jogos dela costumam ter), não do modelo.
+ */
+function observedMedian(rows: AccuracyRow[], metric: CountMarket): number | null {
+  const [hk, ak] = ACTUAL_KEYS[metric];
+  const totals: number[] = [];
+  for (const r of rows) {
+    const h = num(r[hk]);
+    const a = num(r[ak]);
+    if (h !== null && a !== null) totals.push(h + a);
+  }
+  if (totals.length === 0) return null;
+  totals.sort((x, y) => x - y);
+  return totals[Math.floor(totals.length / 2)];
+}
+
+/**
+ * Escolhe qual das linhas canônicas representa o mercado no painel: a mais
+ * próxima da mediana REAL observada na liga — ou seja, a linha que uma casa de
+ * apostas de fato ofereceria para aqueles jogos.
+ *
+ * Os dois critérios óbvios foram testados contra produção (2026-07-29) e ambos
+ * enviesam, porque selecionam olhando o comportamento do próprio modelo — que é
+ * exatamente o que se quer medir:
+ *
+ *   - "linha com mais chamadas" escolhe sempre a mais extrema, onde a sim chama
+ *     o mesmo lado em ~100% dos jogos. Ela só concorda com a taxa-base e o lift
+ *     zera POR CONSTRUÇÃO (ex.: Serie B escanteios 8.5 — acerto 69.2%, base
+ *     69.2%, lift +0.0pp).
+ *   - "linha mais balanceada" escolhe onde a média projetada cai em cima da
+ *     linha, e aí as chamadas se dividem por RUÍDO, não por discriminação —
+ *     produzindo lifts de −45pp que são artefato de seleção.
+ *
+ * A mediana observada não olha nem o modelo nem o acerto. É estável, corresponde
+ * ao mercado real, e é a mesma referência usada no backtest da tendência
+ * (docs/pesquisas/tendencia-recente-poder-preditivo.md).
+ */
+function pickLine(
+  candidates: Array<{ line: number; t: Tally }>,
+  median: number | null,
+): { line: number; t: Tally } | null {
+  const withCalls = candidates.filter((c) => c.t.calls > 0);
+  if (withCalls.length === 0) return null;
+  if (median === null) {
+    return withCalls.reduce((best, c) => (c.t.calls > best.t.calls ? c : best));
+  }
+  return withCalls.reduce((best, c) => {
+    const d = Math.abs(c.line - median) - Math.abs(best.line - median);
+    if (d < 0) return c;
+    if (d === 0 && c.t.calls > best.t.calls) return c;
+    return best;
+  });
+}
+
+/**
  * Agrega o acerto por mercado. Para os mercados de contagem, avalia TODAS as
- * linhas canônicas e devolve a com mais chamadas — é a que a liga de fato
- * oferece decisão, e olhar as três na UI seria ruído.
+ * linhas canônicas e devolve a da mediana da liga (ver `pickLine`) — olhar as
+ * três na UI seria ruído.
  */
 export function marketAccuracies(
   rows: AccuracyRow[],
@@ -249,8 +304,7 @@ export function marketAccuracies(
   const out: MarketAccuracy[] = [];
 
   for (const metric of Object.keys(MARKET_LINES) as CountMarket[]) {
-    let best: { line: number; t: Tally } | null = null;
-    for (const line of MARKET_LINES[metric]) {
+    const candidates = MARKET_LINES[metric].map((line) => {
       const t = emptyTally();
       for (const r of rows) {
         record(
@@ -259,8 +313,9 @@ export function marketAccuracies(
           countOutcome(r, metric, line),
         );
       }
-      if (best === null || t.calls > best.t.calls) best = { line, t };
-    }
+      return { line, t };
+    });
+    const best = pickLine(candidates, observedMedian(rows, metric));
     const acc = best && finish(metric, best.line, best.t, tier);
     if (acc) out.push(acc);
   }
