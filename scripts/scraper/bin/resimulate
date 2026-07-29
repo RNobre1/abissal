@@ -1,0 +1,116 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# resimulate — re-roda a simulação sobre o `detail_json` JÁ ARMAZENADO de todas
+# as fixtures vivas, sem tocar na API do choistats.
+#
+# POR QUÊ (2026-07-29): o conserto do SeasonAvgs (v8) só afeta simulações
+# geradas dali pra frente. As fixtures já coletadas carregam projeções v7
+# degeneradas — 38% delas com ZERO escanteios/cartões/gols, porque o time não
+# tinha jogos na temporada nova e o bloco `avgs` vinha zerado. Sem este batch,
+# os jogos de hoje e dos próximos dias continuariam mostrando zero até o
+# scrape seguinte.
+#
+# SEGURANÇA (herda o SimulationHook, não reimplementa):
+#   - `model_version` faz parte da chave de dedup ⇒ as linhas v7 (com seus
+#     actual_*/correct_*) ficam INTACTAS; v8 entra em paralelo.
+#   - TERMINAL_STATUSES: linha 'resolved'/'unresolvable' nunca é reescrita.
+#   - DELETE+INSERT na mesma conexão ⇒ idempotente, nunca empilha.
+#
+# Uso:
+#   DATABASE_URL=<pooler> bundle exec bin/resimulate [--dry-run] [--limit N]
+#
+# --dry-run  simula tudo e imprime o resumo SEM escrever no banco.
+
+require 'date'
+require 'json'
+
+require_relative '../lib/scraper/db'
+require_relative '../lib/scraper/fixture'
+require_relative '../lib/scraper/orchestrator'
+require_relative '../lib/scraper/simulation/runner'
+
+dry_run = ARGV.include?('--dry-run')
+limit_idx = ARGV.index('--limit')
+limit = limit_idx ? ARGV[limit_idx + 1].to_i : nil
+
+SELECT_SQL = <<~SQL
+  SELECT f.match_date, f.ko_time, f.home_team, f.away_team, f.league,
+         f.source_url, f.country, f.detail_json
+  FROM fixtures f
+  WHERE f.detail_json IS NOT NULL
+  ORDER BY f.id
+SQL
+
+rows = AdamStats::Scraper::DB.with_connection do |conn|
+  conn.exec(SELECT_SQL).to_a
+end
+rows = rows.first(limit) if limit&.positive?
+warn "[resimulate] fixtures com detail_json: #{rows.size} (dry_run=#{dry_run})"
+
+fixtures = []
+details = {}
+rows.each do |r|
+  detail = r['detail_json']
+  detail = begin
+    JSON.parse(detail)
+  rescue StandardError
+    nil
+  end if detail.is_a?(String)
+  next unless detail.is_a?(Hash)
+
+  # `match_date` volta do PG como String; o hook (via UkTimeHelper) chama
+  # `.year` nela pra montar o kickoff_utc. Converter aqui, não lá.
+  md = begin
+    Date.parse(r['match_date'].to_s)
+  rescue StandardError
+    nil
+  end
+  next if md.nil?
+
+  fixtures << AdamStats::Scraper::Fixture.new(
+    match_date: md, ko_time: r['ko_time'],
+    home_team: r['home_team'], away_team: r['away_team'],
+    league: r['league'], source_url: r['source_url'], country: r['country']
+  )
+  details[r['source_url']] = detail
+end
+
+# ── Antes: quantas projeções degeneradas o motor ANTIGO produzia? ───────────
+zero_before = 0
+zero_after = 0
+unsim_after = 0
+ok_after = 0
+details.each_value do |d|
+  sim = AdamStats::Scraper::Simulation::Runner.simulate(d, n: 400)
+  if sim[:status] == 'unsimulable'
+    unsim_after += 1
+    next
+  end
+  ok_after += 1
+  corners = sim.dig(:sim_stats, :home, :corners, :p50).to_f +
+            sim.dig(:sim_stats, :away, :corners, :p50).to_f
+  zero_after += 1 if corners <= 0
+  # o bloco cru, como o motor v7 lia (sem o fallback do SeasonAvgs)
+  hh = d.dig('avgs', 'home_home')
+  aa = d.dig('avgs', 'away_away')
+  zero_before += 1 if hh.is_a?(Hash) && aa.is_a?(Hash) &&
+                      (hh['num_matches'].to_i.zero? || aa['num_matches'].to_i.zero?)
+end
+
+warn ''
+warn "[resimulate] fixtures simuláveis .......... #{ok_after}"
+warn "[resimulate] insimuláveis (sem dado nenhum) #{unsim_after}"
+warn "[resimulate] tinham avgs zerado (v7 => 0) . #{zero_before}"
+warn "[resimulate] AINDA projetam zero (v8) ..... #{zero_after}"
+warn ''
+
+if dry_run
+  warn '[resimulate] --dry-run: nada foi escrito.'
+  exit 0
+end
+
+AdamStats::Scraper::SimulationHook.run(
+  fixtures, details, logger: ->(m) { warn m }
+)
+warn '[resimulate] concluído.'
