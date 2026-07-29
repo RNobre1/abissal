@@ -55,3 +55,26 @@ describe("signalFor", () => {
     expect(Number(m![1])).toBeGreaterThan(50);
   });
 });
+
+describe("signalFor · campo `call` (texto do mobile)", () => {
+  /**
+   * No mobile o sinal vai por EXTENSO na linha secundária: "−" solto ao lado do
+   * nome lia como hífen perdido e "+" como erro de digitação. Mas quando não há
+   * chamada, `call` é null pra o mobile OMITIR a linha — gastar uma linha
+   * inteira escrevendo "sem chamada" é pior que não dizer nada.
+   */
+  it("traz o lado e a convicção por extenso", () => {
+    expect(signalFor(sim(20), "corners")!.call).toMatch(/mais de 10\.5 \(\d+%\)/);
+    expect(signalFor(sim(2), "corners")!.call).toMatch(/menos de 8\.5 \(\d+%\)/);
+  });
+
+  it("é null quando não há chamada, pro mobile omitir", () => {
+    const s = signalFor(sim(10), "corners")!;
+    expect(s.symbol).toBe("≈");
+    expect(s.call).toBeNull();
+  });
+
+  it("não usa o separador do símbolo — parênteses em vez de ·", () => {
+    expect(signalFor(sim(20), "corners")!.call).not.toMatch(/·/);
+  });
+});

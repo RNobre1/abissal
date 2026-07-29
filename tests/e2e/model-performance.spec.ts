@@ -82,6 +82,14 @@ test.describe("desempenho do modelo por liga", () => {
     // fechado no desktop), então `toBeVisible` mediria o chrome, não a regra.
     // O que importa é qual dos dois sinais o CSS deixa renderizar em cada
     // largura — `display` computado responde isso sem abrir nada.
+    //
+    // O elemento inline só existe quando HÁ chamada (métrica em cima do muro
+    // não gera linha no mobile), então o teste procura qualquer métrica que
+    // tenha os dois lados presentes em vez de fixar em `corners`.
+    const comInline = await page.locator("[data-sim-signal-inline]").all();
+    if (comInline.length === 0) return; // nenhuma métrica chamou lado neste jogo
+
+    const chave = await comInline[0].getAttribute("data-sim-signal-inline");
     const displayDe = (sel: string) =>
       page
         .locator(sel)
@@ -89,8 +97,8 @@ test.describe("desempenho do modelo por liga", () => {
         .evaluate((el) => getComputedStyle(el).display);
 
     const estreito = (viewport?.width ?? 1280) < 640;
-    const inline = await displayDe('[data-sim-signal-inline="corners"]');
-    const coluna = await displayDe('[data-sim-signal="corners"]');
+    const inline = await displayDe(`[data-sim-signal-inline="${chave}"]`);
+    const coluna = await displayDe(`[data-sim-signal="${chave}"]`);
 
     if (estreito) {
       // 412px: uma 4ª coluna colidia com o nome do time e cortava o símbolo.

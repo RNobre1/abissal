@@ -184,7 +184,7 @@ export function signalFor(
   simStats: unknown,
   metric: CountMarket,
   distK?: DistKMap,
-): { symbol: string; text: string } | null {
+): { symbol: string; text: string; call: string | null } | null {
   const lines = MARKET_LINES[metric];
   if (!lines) return null;
   const mean = countTotalMean(simStats, metric);
@@ -197,13 +197,25 @@ export function signalFor(
   if (prob === null) return null;
 
   if (side === null) {
-    return { symbol: "≈", text: `sem chamada · ${Math.round(prob * 100)}%` };
+    // `call: null` ⇒ o mobile OMITE a linha. No desktop o "≈" cabe numa coluna
+    // própria e comunica "em cima do muro"; no mobile, escrever "sem chamada"
+    // por extenso gastaria uma linha inteira pra dizer "ignore isto".
+    return {
+      symbol: "≈",
+      text: `sem chamada · ${Math.round(prob * 100)}%`,
+      call: null,
+    };
   }
   const conf = side === "over" ? prob : 1 - prob;
   const strong = conf >= STRONG_THRESHOLD;
   const symbol = side === "over" ? (strong ? "++" : "+") : strong ? "−−" : "−";
   const rotulo = side === "over" ? "mais de" : "menos de";
-  return { symbol, text: `${rotulo} ${line} · ${Math.round(conf * 100)}%` };
+  const pctConf = Math.round(conf * 100);
+  return {
+    symbol,
+    text: `${rotulo} ${line} · ${pctConf}%`,
+    call: `${rotulo} ${line} (${pctConf}%)`,
+  };
 }
 
 function statValue(
@@ -342,7 +354,8 @@ function SimulationBody({
       </section>
 
       {/* ── Aba/seção de stats: números EXATOS por time ── */}
-      <section className="flex flex-col gap-2">
+      {/* mt-6: sem isso a barra do BTTS encosta neste título no mobile. */}
+      <section className="mt-6 flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
           <h4 className="label text-[var(--color-ink-muted)]">
             Stats projetadas por time
@@ -363,13 +376,13 @@ function SimulationBody({
                 Métrica
               </th>
               <th
-                className="label py-1 text-right font-normal"
+                className="label py-1 pl-3 text-right font-normal"
                 style={{ color: teamColor("home") }}
               >
                 {homeTeam}
               </th>
               <th
-                className="label py-1 text-right font-normal"
+                className="label py-1 pl-3 text-right font-normal"
                 style={{ color: teamColor("away") }}
               >
                 {awayTeam}
@@ -396,27 +409,36 @@ function SimulationBody({
                   className="border-t border-[var(--color-line)]"
                   data-sim-stat={r.key}
                 >
-                  <td className="py-1.5 text-[var(--color-ink-display)]">
-                    {r.label}
-                    {signal ? (
-                      <span
-                        className="num ml-1.5 sm:hidden"
-                        title={signal.text}
-                        data-sim-signal-inline={r.key}
-                      >
-                        {signal.symbol}
-                      </span>
-                    ) : null}
-                    {noSplit ? (
-                      <span className="label ml-2 text-[var(--color-ink-faint)]">
-                        total do jogo
-                      </span>
-                    ) : null}
+                  <td className="py-1.5 pr-2 text-[var(--color-ink-display)]">
+                    <span className="block leading-tight">{r.label}</span>
+                    {/*
+                      Em BLOCO: inline, "total do jogo" esticava a célula em duas
+                      linhas e os números da direita centralizavam no meio,
+                      desalinhando a coluna inteira no mobile.
+
+                      E no mobile o sinal vai POR EXTENSO aqui, não como símbolo
+                      solto ao lado do nome: "Finalizações no alvo −" lia como um
+                      hífen perdido e "Cartões +" como erro de digitação. Símbolo
+                      críptico só funciona com o cabeçalho "lado" ao lado dele,
+                      que é o caso do desktop.
+                    */}
+                    <span className="label block leading-tight text-[var(--color-ink-faint)]">
+                      {noSplit ? "total do jogo" : null}
+                      {noSplit && signal?.call ? " · " : null}
+                      {signal?.call ? (
+                        <span
+                          data-sim-signal-inline={r.key}
+                          className="whitespace-nowrap sm:hidden"
+                        >
+                          {signal.call}
+                        </span>
+                      ) : null}
+                    </span>
                   </td>
-                  <td className="num py-1.5 text-right text-[var(--color-ink-display)]">
+                  <td className="num py-1.5 pl-3 text-right align-top text-[var(--color-ink-display)]">
                     {statValue(homeStats, r.key)}
                   </td>
-                  <td className="num py-1.5 text-right text-[var(--color-ink-display)]">
+                  <td className="num py-1.5 pl-3 text-right align-top text-[var(--color-ink-display)]">
                     {statValue(awayStats, r.key)}
                   </td>
                   <td
@@ -435,7 +457,15 @@ function SimulationBody({
             })}
           </tbody>
         </table>
-        <p className="label text-[var(--color-ink-faint)]">
+        {/*
+          Duas legendas: no mobile não existe coluna "lado" nem símbolo — falar
+          de "+/−/≈" ali descreveria uma UI que o usuário não está vendo.
+        */}
+        <p className="label text-[var(--color-ink-faint)] sm:hidden">
+          A linha cinza sob a métrica é o que a simulação apostaria na linha padrão da
+          casa. Métrica sem ela: a simulação está em cima do muro.
+        </p>
+        <p className="label hidden text-[var(--color-ink-faint)] sm:block">
           &ldquo;lado&rdquo;: o que a simulação apostaria na linha padrão da casa.{" "}
           <span className="num">+</span> mais / <span className="num">−</span> menos ·
           dobrado = convicção alta · <span className="num">≈</span> em cima do muro.
