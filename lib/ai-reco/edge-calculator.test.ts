@@ -619,13 +619,37 @@ describe("buildEdgeTable — temperature scaling", () => {
     expect(b.prob_calibrated).toBeGreaterThan(0.5);
   });
 
-  it("a curva isotônica tem prioridade sobre o T", () => {
+  // 29/07: a ordem passou de "curva OU T" para "curva E DEPOIS T".
+  // Held-out temporal 70/30 (n_test=865) mostrou que compor bate escolher:
+  //   1x2-home  raw .6935 | iso .6826 | T .6844 | iso+T .6805  ← composição
+  // E, pior, as curvas de over25/btts estavam OVERFITANDO — piores que não
+  // calibrar nada out-of-sample (over25 .6944 vs raw .6925; btts .6984 vs
+  // .6970). Dar prioridade à curva sobre o T mantinha esse prejuízo.
+  it("compõe curva isotônica E temperatura (não é ou-exclusivo)", () => {
     const out = buildEdgeTable(baseSim, baseOdds, 1000, {
       isotonicLookup: { over25: () => 0.42 },
       temperature: { over25: 2.5 },
     });
     const over = out.find(c => c.market === "over25" && c.side === "over")!;
-    // valor da curva, intocado pelo T
+    // 0.42 achatado por T=2.5 puxa em direção a 0.5, sem chegar lá
+    expect(over.prob_calibrated).toBeGreaterThan(0.42);
+    expect(over.prob_calibrated).toBeLessThan(0.5);
+  });
+
+  it("sem curva, o T age sozinho sobre a prob crua", () => {
+    const out = buildEdgeTable(baseSim, baseOdds, 1000, {
+      temperature: { over25: 2.5 },
+    });
+    const over = out.find(c => c.market === "over25" && c.side === "over")!;
+    expect(over.prob_calibrated).toBeLessThan(0.6);
+    expect(over.prob_calibrated).toBeGreaterThan(0.5);
+  });
+
+  it("sem T, a curva age sozinha (retrocompatível)", () => {
+    const out = buildEdgeTable(baseSim, baseOdds, 1000, {
+      isotonicLookup: { over25: () => 0.42 },
+    });
+    const over = out.find(c => c.market === "over25" && c.side === "over")!;
     expect(over.prob_calibrated).toBeCloseTo(0.42, 6);
   });
 

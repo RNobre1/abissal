@@ -91,6 +91,80 @@ function predFor(metric: Metric, r: ResolvedRow): number | null {
   }
 }
 
+/**
+ * Gate out-of-sample: a curva só é persistida se BATER o raw em dado que não
+ * viu. Decide por MAIORIA sobre vários cortes temporais.
+ *
+ * Por que maioria e não um split só: as diferenças de log-loss aqui são da
+ * ordem de 0.002–0.015, que é a mesma ordem do ruído amostral. Medido em
+ * 29/07, um único corte 70/30 invertia o veredito de over25 e btts conforme a
+ * fatia usada — decisão instável vira coin flip com aparência de rigor. Com 5
+ * cortes, o padrão fica consistente (T venceu 14 dos 20 testes; a isotônica
+ * sozinha, 1).
+ */
+const GATE_CUTS = [0.5, 0.6, 0.7, 0.8, 0.85];
+
+function heldOutGate(pairs: Array<[number, number]>): {
+  keep: boolean;
+  raw: number;
+  curved: number;
+  nTest: number;
+} {
+  const votes = GATE_CUTS.map((f) => singleCutGate(pairs, f)).filter((v) => v !== null) as Array<{
+    keep: boolean;
+    raw: number;
+    curved: number;
+    nTest: number;
+  }>;
+  if (votes.length === 0) {
+    // Sem amostra pra dividir: conservador — sem evidência, não calibra.
+    return { keep: false, raw: NaN, curved: NaN, nTest: 0 };
+  }
+  const keeps = votes.filter((v) => v.keep).length;
+  return {
+    keep: keeps > votes.length / 2,
+    raw: votes.reduce((a, v) => a + v.raw, 0) / votes.length,
+    curved: votes.reduce((a, v) => a + v.curved, 0) / votes.length,
+    nTest: Math.round(votes.reduce((a, v) => a + v.nTest, 0) / votes.length),
+  };
+}
+
+function singleCutGate(
+  pairs: Array<[number, number]>,
+  frac: number,
+): { keep: boolean; raw: number; curved: number; nTest: number } | null {
+  const MIN_TEST = 50;
+  const cut = Math.floor(pairs.length * frac);
+  const train = pairs.slice(0, cut);
+  const test = pairs.slice(cut);
+  if (test.length < MIN_TEST || train.length < MIN_TEST) return null;
+
+  const curve = fitIsotonic(train);
+  const clamp = (p: number) => Math.min(Math.max(p, 0.01), 0.99);
+  const ll = (get: (p: number) => number) =>
+    -test.reduce((acc, [p, o]) => {
+      const q = clamp(get(p));
+      return acc + (o * Math.log(q) + (1 - o) * Math.log(1 - q));
+    }, 0) / test.length;
+
+  const lookup = (p: number): number => {
+    if (p <= curve[0][0]) return curve[0][1];
+    if (p >= curve[curve.length - 1][0]) return curve[curve.length - 1][1];
+    let lo = 0;
+    let hi = curve.length - 1;
+    while (lo < hi) {
+      const mid = Math.ceil((lo + hi) / 2);
+      if (curve[mid][0] <= p) lo = mid;
+      else hi = mid - 1;
+    }
+    return curve[lo][1];
+  };
+
+  const raw = ll((p) => p);
+  const curved = ll(lookup);
+  return { keep: curved < raw, raw, curved, nTest: test.length };
+}
+
 async function main() {
   // 1. fetch resolved sims
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -152,6 +226,34 @@ async function main() {
         continue;
       }
       const curve = fitIsotonic(pairs);
+
+      // GATE OUT-OF-SAMPLE (29/07). Sem isto, uma curva overfitada é
+      // persistida e passa a ser aplicada em produção mesmo sendo PIOR que
+      // não calibrar nada. Foi o que aconteceu: medido em held-out temporal
+      // 70/30 (n_test=865), as curvas ativas de over25 e btts estavam piores
+      // que o raw (over25 .6944 vs .6925; btts .6984 vs .6970), exatamente o
+      // overfit que a lição B34 previa abaixo de ~500 pontos.
+      //
+      // Agora a curva só é persistida se BATER o raw em dado que ela não viu.
+      // Quando não bate, a curva ativa é aposentada e o mercado passa a
+      // depender só do temperature scaling — que é validado out-of-sample.
+      const gate = heldOutGate(pairs);
+      if (!gate.keep) {
+        console.log(
+          `[reject] ${version} ${metric}: curva PIOR que raw no held-out ` +
+            `(${gate.curved.toFixed(4)} vs ${gate.raw.toFixed(4)}, n_test=${gate.nTest}) — aposentando a ativa`,
+        );
+        await c
+          .from("model_calibration")
+          .update({ effective_until: new Date().toISOString() })
+          .eq("model_version", version)
+          .eq("metric", metric)
+          .is("effective_until", null);
+        continue;
+      }
+      console.log(
+        `[gate ok] ${version} ${metric}: ${gate.curved.toFixed(4)} vs raw ${gate.raw.toFixed(4)} (n_test=${gate.nTest})`,
+      );
 
       // Mark previous active as expired
       await c
