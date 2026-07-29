@@ -57,8 +57,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
   def build_deps(fetcher_responses: { list_html => list_html }, parsed_list: [fixture_a, fixture_b],
                  detail_parsed: { fixture_a.source_url => { stats: 1 }, fixture_b.source_url => { stats: 2 } },
                  persist_stats: AdamStats::Scraper::Stats.new(inserted: 2, updated: 0, failed: 0),
-                 purge_count: 5, healthcheck: double('hc', ping_start: true, ping_success: true, ping_failure: true),
-                 baseline: double('baseline', recompute!: 0))
+                 purge_count: 5, healthcheck: double('hc', ping_start: true, ping_success: true, ping_failure: true))
     fetcher = double('fetcher')
     allow(fetcher).to receive(:fetch) do |url, **_kwargs|
       fetcher_responses.fetch(url) { detail_html }
@@ -82,7 +81,6 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       persister: persister,
       simulation_hook: simulation_hook,
       repo: repo,
-      baseline: baseline,
       healthcheck: healthcheck,
       base_url: 'https://example.test',
       success_url: 'https://hc-ping.com/abc',
@@ -279,7 +277,6 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       fake_persister = double('persister')
       fake_repo    = double('repo', purge_older_than: 0)
       fake_hc      = double('hc', ping_start: nil, ping_success: nil, ping_failure: nil)
-      fake_baseline = double('baseline', recompute!: nil)
 
       # Intercept the collect_details call to capture the fetcher used
       allow(AdamStats::Scraper::Orchestrator).to receive(:collect_details) do |**kwargs|
@@ -305,7 +302,6 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
         persister: fake_persister,
         repo: fake_repo,
         healthcheck: fake_hc,
-        baseline: fake_baseline,
         base_url: 'https://example.test',
         success_url: nil,
         fail_url: nil
@@ -334,7 +330,6 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
         fake_persister = double('persister')
         fake_repo      = double('repo', purge_older_than: 0)
         fake_hc        = double('hc', ping_start: nil, ping_success: nil, ping_failure: nil)
-        fake_baseline  = double('baseline', recompute!: nil)
 
         allow(AdamStats::Scraper::Orchestrator).to receive(:resolve_list_fetcher) do |fetcher|
           captured_fetcher = fetcher
@@ -345,8 +340,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
           persister: fake_persister,
           repo: fake_repo,
           healthcheck: fake_hc,
-          baseline: fake_baseline,
-          base_url: 'https://example.test',
+            base_url: 'https://example.test',
           success_url: nil,
           fail_url: nil
         )

@@ -8,7 +8,6 @@ require_relative 'healthcheck'
 require_relative 'parser'
 require_relative 'persister'
 require_relative 'detail_parser'
-require_relative 'league_baseline'
 require_relative 'playwright_session'
 require_relative 'prediction_reconciler'
 require_relative 'simulation_reconciler'
@@ -352,7 +351,6 @@ module AdamStats
         persister: Persister,
         simulation_hook: SimulationHook,
         repo: DefaultRepo,
-        baseline: LeagueBaseline,
         healthcheck: Healthcheck,
         retention_days: DEFAULT_RETENTION_DAYS,
         league_slugs: DEFAULT_LEAGUE_SLUGS,
@@ -447,20 +445,27 @@ module AdamStats
         end
 
         deleted = repo.purge_older_than(retention_days)
-        # Recompute league baselines após o batch — agrega trends de todas as
-        # fixtures atualmente armazenadas. Não trava o pipeline se falhar.
-        begin
-          baseline.recompute!
-        rescue StandardError => e
-          logger.call("[scrape] baseline recompute failed: #{e.class}: #{e.message}")
-        end
+        # O recompute de `league_baselines` foi REMOVIDO em 2026-07-29. A cadeia
+        # estava rompida de ponta a ponta: `extract_trends` só roda no caminho
+        # HTML/Playwright (deprecated — lição A6), então `detail_json.trends`
+        # vinha vazio em 12/12 fixtures, a tabela tinha 0 linhas em produção e
+        # `fetch_for_league` nunca era chamado por ninguém. O recompute ainda
+        # fazia TRUNCATE + full scan de `detail_json` (136 KB × 748 fixtures ≈
+        # 100 MB/dia) pra produzir zero linhas.
+        #
+        # A pergunta que a tabela responderia — "qual a taxa-base desta liga?" —
+        # tem resposta melhor em `lib/calibracao/market-accuracy.ts`, calculada
+        # dos resultados REAIS reconciliados. O proxy via streaks errava até
+        # 14pp (Premier League: 35.6% vs 50.0% real).
+        #
+        # Ver docs/pesquisas/auditoria-shape-produtor-consumidor.md.
 
         # AI Recommender — DESACOPLADO do scrape (Parte B — 2026-05-29, Lição B20).
         # Antes rodava aqui inline, mas a inferência R1 (~p95 195s/chamada) inflava
         # o runtime e estourava o `timeout-minutes` do scrape, truncando a coleta.
         # Agora vive no seu próprio workflow (.github/workflows/ai-reco.yml →
         # bin/run_ai_recommender → AiRecommenderJob), num cron logo após este.
-        # O scrape só coleta + simula + reconcilia + recompute de baseline, e volta
+        # O scrape só coleta + simula + reconcilia, e volta
         # a terminar em ~10-15min. `recommendations_created` permanece no RunStats
         # por compatibilidade, mas é sempre 0 aqui (a IA-2 não roda neste pipeline).
         run_stats = RunStats.new(
