@@ -58,11 +58,16 @@ O critério reusa exatamente o que a produção já usa para apostar — não in
 |---|---|---|
 | escanteios | 8.5 · 9.5 · 10.5 | `sim_stats.home.corners.p50 + away.corners.p50` |
 | cartões | 3.5 · 4.5 · 5.5 | idem, `cards` |
-| finalizações no alvo | 7.5 · 9.5 · 10.5 | idem, `shots_on_target` |
+| finalizações no alvo | 7.5 · 9.5 · 10.5 | idem, `sot` |
 | gols (over/under) | 2.5 | `p_over_25` (escalar direto) |
 | 1x2 | — | `p_home`/`p_draw`/`p_away` → `correct_winner` |
 | BTTS | — | `p_btts` vs `actual_btts` |
 | placar exato | — | já coberto por `lib/calibracao/scoreline-accuracy.ts` |
+
+> **Chave `sot`, não `shots_on_target`.** O produtor (`ai_recommender_runner.rb:488`,
+> `secondary_stat_total_mean(sim_stats, 'sot')`) grava `sot`. `lib/calibracao/sim-reliability.ts:421`
+> lê `shots_on_target` e por isso `sotCrps()` devolve `null` desde sempre — bug adjacente,
+> consertado junto (mesma classe dos quatro bugs de shape já documentados no projeto).
 
 **Conversão média → probabilidade:** `poissonProbOver(mean, line)` de `lib/ai-reco/dist-helpers.ts`,
 com a calibração de distribuição (`dist-k`) aplicada — a mesma composição que o recomendador usa.
