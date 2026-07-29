@@ -14,7 +14,7 @@ export interface ResolvedSimRow {
 }
 
 // ── Wave G: Secondary actuals extension ──────────────────────────────────────
-// sim_stats JSON shape: { home: { corners: {p10,p50,p90}, cards: {...}, shots_on_target: {...} },
+// sim_stats JSON shape: { home: { corners: {p10,p50,p90}, cards: {...}, sot: {...} },
 //                         away: { ... } }
 // Secondary actuals: actual_btts, actual_corners_{home,away}, actual_cards_{home,away},
 //                    actual_sot_{home,away} — populated by the reconciler when available.
@@ -39,7 +39,7 @@ interface SimStatsMetric {
 interface SimStatsSide {
   corners?: SimStatsMetric | null;
   cards?: SimStatsMetric | null;
-  shots_on_target?: SimStatsMetric | null;
+  sot?: SimStatsMetric | null;
   goals?: SimStatsMetric | null;
 }
 
@@ -95,9 +95,7 @@ export function reliabilityBins(
     const ag = r.actual_away_goals;
     if (hg == null || ag == null) continue;
 
-    const observed = metric === "1x2-home"
-      ? (hg > ag ? 1 : 0)
-      : (hg + ag > 2.5 ? 1 : 0);
+    const observed = metric === "1x2-home" ? (hg > ag ? 1 : 0) : hg + ag > 2.5 ? 1 : 0;
 
     const idx = Math.min(9, Math.max(0, Math.floor(p * 10)));
     acc[idx].sumP += p;
@@ -126,7 +124,10 @@ export function brierOverTime(
   rows: ResolvedSimRow[],
   granularity: "week" | "month",
 ): BrierBucket[] {
-  const groups = new Map<string, { sum1: number; n1: number; sumO: number; nO: number }>();
+  const groups = new Map<
+    string,
+    { sum1: number; n1: number; sumO: number; nO: number }
+  >();
   for (const r of rows) {
     if (!r.actual_resolved_at) continue;
     const date = new Date(r.actual_resolved_at);
@@ -140,10 +141,14 @@ export function brierOverTime(
     const hg = r.actual_home_goals;
     const ag = r.actual_away_goals;
     if (
-      hg != null && ag != null &&
-      Number.isFinite(ph) && Number.isFinite(pd) && Number.isFinite(pa)
+      hg != null &&
+      ag != null &&
+      Number.isFinite(ph) &&
+      Number.isFinite(pd) &&
+      Number.isFinite(pa)
     ) {
-      const outcome: "home" | "draw" | "away" = hg > ag ? "home" : hg < ag ? "away" : "draw";
+      const outcome: "home" | "draw" | "away" =
+        hg > ag ? "home" : hg < ag ? "away" : "draw";
       g.sum1 += brierScoreMulticlass({ home: ph, draw: pd, away: pa }, outcome);
       g.n1 += 1;
     }
@@ -166,7 +171,9 @@ export function brierOverTime(
 }
 
 function isoWeekLabel(d: Date): string {
-  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+  const target = new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()),
+  );
   const dayNum = target.getUTCDay() || 7;
   target.setUTCDate(target.getUTCDate() + 4 - dayNum);
   const yearStart = new Date(Date.UTC(target.getUTCFullYear(), 0, 1));
@@ -196,7 +203,10 @@ export interface MarketDeviation {
  * precisar de coluna home_team aqui (out of scope na F2).
  */
 export function marketDeviation(rows: ResolvedSimRow[]): MarketDeviation[] {
-  const byLeague = new Map<string, { sumAbs: number; sumP: number; sumM: number; n: number }>();
+  const byLeague = new Map<
+    string,
+    { sumAbs: number; sumP: number; sumM: number; n: number }
+  >();
   for (const r of rows) {
     if (!r.league) continue;
     const p = Number(r.p_home);
@@ -293,9 +303,12 @@ function extractPctSummary(
   const p50 = m.p50 == null ? null : Number(m.p50);
   const p90 = m.p90 == null ? null : Number(m.p90);
   if (
-    p10 == null || !Number.isFinite(p10) ||
-    p50 == null || !Number.isFinite(p50) ||
-    p90 == null || !Number.isFinite(p90)
+    p10 == null ||
+    !Number.isFinite(p10) ||
+    p50 == null ||
+    !Number.isFinite(p50) ||
+    p90 == null ||
+    !Number.isFinite(p90)
   ) {
     return null;
   }
@@ -307,7 +320,7 @@ function extractPctSummary(
  * Returns null if no rows have both sim_stats distribution and actual value.
  *
  * @param rows - resolved sim rows with secondary fields
- * @param simMetric - key in sim_stats (e.g. "corners", "cards", "shots_on_target")
+ * @param simMetric - key in sim_stats (e.g. "corners", "cards", "sot")
  * @param getActual - function to extract total actual count from a row (e.g. corners_home + corners_away)
  */
 function countCrpsMean(
@@ -382,16 +395,12 @@ function combineSidePercentiles(
  * actual_corners_home/away will be NULL until an alternate data source is wired.
  */
 export function cornersCrps(rows: ResolvedSimRowSecondary[]): number | null {
-  return countCrpsMean(
-    rows,
-    "corners",
-    (r) => {
-      const h = r.actual_corners_home;
-      const a = r.actual_corners_away;
-      if (h == null || a == null) return null;
-      return h + a;
-    },
-  );
+  return countCrpsMean(rows, "corners", (r) => {
+    const h = r.actual_corners_home;
+    const a = r.actual_corners_away;
+    if (h == null || a == null) return null;
+    return h + a;
+  });
 }
 
 /**
@@ -399,31 +408,25 @@ export function cornersCrps(rows: ResolvedSimRowSecondary[]): number | null {
  * See cornersCrps for the known data availability limitation.
  */
 export function cardsCrps(rows: ResolvedSimRowSecondary[]): number | null {
-  return countCrpsMean(
-    rows,
-    "cards",
-    (r) => {
-      const h = r.actual_cards_home;
-      const a = r.actual_cards_away;
-      if (h == null || a == null) return null;
-      return h + a;
-    },
-  );
+  return countCrpsMean(rows, "cards", (r) => {
+    const h = r.actual_cards_home;
+    const a = r.actual_cards_away;
+    if (h == null || a == null) return null;
+    return h + a;
+  });
 }
 
 /**
- * Mean CRPS for shots-on-target (home + away total) vs sim_stats.*.shots_on_target.
+ * Mean CRPS for shots-on-target (home + away total) vs sim_stats.*.sot.
+ * A chave é `sot`: o produtor (ai_recommender_runner.rb:488) nunca gravou
+ * `shots_on_target` aqui. Ver docs/pesquisas/auditoria-shape-produtor-consumidor.md.
  * See cornersCrps for the known data availability limitation.
  */
 export function sotCrps(rows: ResolvedSimRowSecondary[]): number | null {
-  return countCrpsMean(
-    rows,
-    "shots_on_target",
-    (r) => {
-      const h = r.actual_sot_home;
-      const a = r.actual_sot_away;
-      if (h == null || a == null) return null;
-      return h + a;
-    },
-  );
+  return countCrpsMean(rows, "sot", (r) => {
+    const h = r.actual_sot_home;
+    const a = r.actual_sot_away;
+    if (h == null || a == null) return null;
+    return h + a;
+  });
 }

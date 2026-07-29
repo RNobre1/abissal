@@ -290,3 +290,23 @@ describe("marketAccuracies", () => {
     expect(marketAccuracies([])).toEqual([]);
   });
 });
+
+// ── Task 3: trava contra o shape REAL do produtor ────────────────────────
+import { REAL_SIM_STATS } from "./market-accuracy.fixtures";
+
+describe("shape real do produtor", () => {
+  it("deriva média dos três mercados de contagem numa linha de produção", () => {
+    expect(countTotalMean(REAL_SIM_STATS, "corners")).toBe(12);
+    expect(countTotalMean(REAL_SIM_STATS, "cards")).toBe(3);
+    expect(countTotalMean(REAL_SIM_STATS, "sot")).toBe(7);
+  });
+
+  it("produz chamada em todos os mercados de contagem", () => {
+    for (const metric of ["corners", "cards", "sot"] as const) {
+      const anyCall = MARKET_LINES[metric].some(
+        (l) => marketCall(REAL_SIM_STATS, metric, l).side !== null,
+      );
+      expect(anyCall, `nenhuma chamada em ${metric}`).toBe(true);
+    }
+  });
+});
