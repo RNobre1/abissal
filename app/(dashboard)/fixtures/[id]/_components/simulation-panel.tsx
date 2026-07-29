@@ -11,6 +11,14 @@ import { scorelineDisplay } from "@/lib/fixtures/scoreline-display";
 import { InfoPopover } from "@/components/fixtures/stats/_primitives/info-popover";
 import { PanelShell } from "@/components/fixtures/stats/panels/_shell";
 import {
+  countTotalMean,
+  marketCall,
+  MARKET_LINES,
+  STRONG_THRESHOLD,
+  type CountMarket,
+} from "@/lib/calibracao/market-accuracy";
+import type { DistKMap } from "@/lib/ai-reco/dist-k-repository";
+import {
   TeamLegend,
   teamColor,
 } from "@/components/fixtures/stats/_primitives/team-legend";
@@ -129,13 +137,7 @@ function UnavailableBody({ reason }: { reason: string }) {
   );
 }
 
-function Unavailable({
-  reason,
-  chrome,
-}: {
-  reason: string;
-  chrome: "shell" | "bare";
-}) {
+function Unavailable({ reason, chrome }: { reason: string; chrome: "shell" | "bare" }) {
   if (chrome === "bare") return <UnavailableBody reason={reason} />;
   return (
     <PanelShell title="Simulação pré-jogo" eyebrow="Monte Carlo">
@@ -165,6 +167,44 @@ const STAT_ROWS: SimStatRow[] = [
   { key: "offsides", label: "Impedimentos", totalOnly: true },
   { key: "tackles", label: "Desarmes", totalOnly: true },
 ];
+
+/** Métricas que têm linha de mercado — só elas recebem sinal de lado. */
+const SIGNAL_METRICS = new Set<string>(["corners", "cards", "sot"]);
+
+/**
+ * Traduz a projeção da simulação no LADO que ela apostaria, na linha padrão de
+ * mercado. É a mesma conta do painel de desempenho por liga: o `−` que aparece
+ * aqui é exatamente o `−` cujo acerto histórico aquele painel mede.
+ *
+ * Ancora na linha canônica mais próxima da média projetada — a que a casa de
+ * fato ofereceria pro jogo. Métrica sem linha (faltas, impedimentos, desarmes)
+ * não recebe símbolo.
+ */
+export function signalFor(
+  simStats: unknown,
+  metric: CountMarket,
+  distK?: DistKMap,
+): { symbol: string; text: string } | null {
+  const lines = MARKET_LINES[metric];
+  if (!lines) return null;
+  const mean = countTotalMean(simStats, metric);
+  if (mean === null) return null;
+
+  const line = lines.reduce((best, l) =>
+    Math.abs(l - mean) < Math.abs(best - mean) ? l : best,
+  );
+  const { side, prob } = marketCall(simStats, metric, line, distK);
+  if (prob === null) return null;
+
+  if (side === null) {
+    return { symbol: "≈", text: `sem chamada · ${Math.round(prob * 100)}%` };
+  }
+  const conf = side === "over" ? prob : 1 - prob;
+  const strong = conf >= STRONG_THRESHOLD;
+  const symbol = side === "over" ? (strong ? "++" : "+") : strong ? "−−" : "−";
+  const rotulo = side === "over" ? "mais de" : "menos de";
+  return { symbol, text: `${rotulo} ${line} · ${Math.round(conf * 100)}%` };
+}
 
 function statValue(
   bucket: Record<string, Record<string, number>> | undefined,
@@ -210,9 +250,7 @@ function SimulationBody({
           isotônica. Renderizado no início do body (não no eyebrow) porque
           o panel é chamado com chrome="bare" e o eyebrow vive no
           SimulationDisclosure, que não recebe sim como prop. */}
-      {sim.calibrated_via_isotonic ? (
-        <CalibrationBadge n={sim.calibration_n} />
-      ) : null}
+      {sim.calibrated_via_isotonic ? <CalibrationBadge n={sim.calibration_n} /> : null}
 
       {/* ── Placar provável + barras de probabilidade ── */}
       <section className="flex flex-col gap-4">
@@ -243,10 +281,16 @@ function SimulationBody({
             </span>
             <ul className="flex flex-col gap-1">
               {score.rest.map((s) => (
-                <li key={s.score} className="flex items-center gap-2" data-scoreline={s.score}>
+                <li
+                  key={s.score}
+                  className="flex items-center gap-2"
+                  data-scoreline={s.score}
+                >
                   <span
                     className="num w-10 shrink-0 text-sm tabular-nums"
-                    style={{ color: s.isDraw ? "var(--color-ink-muted)" : "var(--color-ink)" }}
+                    style={{
+                      color: s.isDraw ? "var(--color-ink-muted)" : "var(--color-ink)",
+                    }}
                   >
                     {s.score}
                   </span>
@@ -261,14 +305,15 @@ function SimulationBody({
                       }}
                     />
                   </div>
-                  <span className="num w-9 shrink-0 text-right text-xs tabular-nums text-[var(--color-ink-faint)]">
+                  <span className="num w-9 shrink-0 text-right text-xs text-[var(--color-ink-faint)] tabular-nums">
                     {pct(s.prob)}
                   </span>
                 </li>
               ))}
             </ul>
             <span className="text-[10px] text-[var(--color-ink-faint)]">
-              top {score.rest.length + 1} cobre ~{pct(score.coverage)} das simulações — placar exato é incerto
+              top {score.rest.length + 1} cobre ~{pct(score.coverage)} das simulações —
+              placar exato é incerto
             </span>
           </div>
         ) : null}
@@ -279,11 +324,7 @@ function SimulationBody({
             value={sim.p_home}
             accent={teamColor("home")}
           />
-          <ProbBar
-            label="Empate"
-            value={sim.p_draw}
-            accent="var(--color-ink-faint)"
-          />
+          <ProbBar label="Empate" value={sim.p_draw} accent="var(--color-ink-faint)" />
           <ProbBar
             label={`Vitória ${awayTeam}`}
             value={sim.p_away}
@@ -291,11 +332,7 @@ function SimulationBody({
           />
         </div>
         <div className="grid grid-cols-1 gap-3 @md/card:grid-cols-2">
-          <ProbBar
-            label="Over 2.5"
-            value={sim.p_over_25}
-            accent="var(--color-depth)"
-          />
+          <ProbBar label="Over 2.5" value={sim.p_over_25} accent="var(--color-depth)" />
           <ProbBar
             label="Ambos marcam (BTTS)"
             value={sim.p_btts}
@@ -312,9 +349,9 @@ function SimulationBody({
           </h4>
           <InfoPopover label="como ler as stats projetadas">
             <p>
-              Mediana (p50) das 10k iterações por time. Métricas sem split de
-              tempo são marcadas <strong>total do jogo</strong>. Posse de bola
-              não é simulada — por isso não aparece.
+              Mediana (p50) das 10k iterações por time. Métricas sem split de tempo são
+              marcadas <strong>total do jogo</strong>. Posse de bola não é simulada —
+              por isso não aparece.
             </p>
           </InfoPopover>
         </div>
@@ -337,11 +374,17 @@ function SimulationBody({
               >
                 {awayTeam}
               </th>
+              <th className="label py-1 text-right font-normal text-[var(--color-ink-faint)]">
+                lado
+              </th>
             </tr>
           </thead>
           <tbody>
             {STAT_ROWS.map((r) => {
               const noSplit = r.totalOnly || !sim.per_half_available;
+              const signal = SIGNAL_METRICS.has(r.key)
+                ? signalFor(sim.sim_stats, r.key as CountMarket)
+                : null;
               return (
                 <tr
                   key={r.key}
@@ -362,28 +405,42 @@ function SimulationBody({
                   <td className="num py-1.5 text-right text-[var(--color-ink-display)]">
                     {statValue(awayStats, r.key)}
                   </td>
+                  <td
+                    className="num py-1.5 text-right text-[var(--color-ink-display)]"
+                    data-sim-signal={r.key}
+                  >
+                    {signal ? (
+                      <span title={signal.text}>
+                        <span aria-hidden>{signal.symbol}</span>
+                        <span className="sr-only">{signal.text}</span>
+                      </span>
+                    ) : null}
+                  </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
         <p className="label text-[var(--color-ink-faint)]">
-          Amostra do modelo: {homeTeam} {sampleSize.home ?? "—"} jogos ·{" "}
-          {awayTeam} {sampleSize.away ?? "—"} jogos
+          &ldquo;lado&rdquo;: o que a simulação apostaria na linha padrão da casa.{" "}
+          <span className="num">+</span> mais / <span className="num">−</span> menos ·
+          dobrado = convicção alta · <span className="num">≈</span> em cima do muro.
+        </p>
+        <p className="label text-[var(--color-ink-faint)]">
+          Amostra do modelo: {homeTeam} {sampleSize.home ?? "—"} jogos · {awayTeam}{" "}
+          {sampleSize.away ?? "—"} jogos
         </p>
       </section>
 
       {/* ── Campo: provável escalação ── */}
       <section className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center gap-1.5">
-          <h4 className="label text-[var(--color-ink-muted)]">
-            Provável escalação
-          </h4>
+          <h4 className="label text-[var(--color-ink-muted)]">Provável escalação</h4>
           <InfoPopover label="sobre a provável escalação">
             <p>
-              Esta é a <strong>provável escalação</strong> projetada do
-              histórico de minutos/titularidade — <strong>não</strong> é a
-              escalação confirmada. A escalação real só sai ~1h antes do jogo.
+              Esta é a <strong>provável escalação</strong> projetada do histórico de
+              minutos/titularidade — <strong>não</strong> é a escalação confirmada. A
+              escalação real só sai ~1h antes do jogo.
             </p>
           </InfoPopover>
         </div>
@@ -417,16 +474,11 @@ export function SimulationPanel({
 }: SimulationPanelProps) {
   if (!sim) {
     return (
-      <Unavailable
-        reason="scraper ainda não computou esta partida"
-        chrome={chrome}
-      />
+      <Unavailable reason="scraper ainda não computou esta partida" chrome={chrome} />
     );
   }
   if (sim.status === "unsimulable") {
-    return (
-      <Unavailable reason="dados insuficientes para simular" chrome={chrome} />
-    );
+    return <Unavailable reason="dados insuficientes para simular" chrome={chrome} />;
   }
 
   const body = (
@@ -450,11 +502,10 @@ export function SimulationPanel({
           Monte Carlo
           <InfoPopover label="o que é a simulação pré-jogo">
             <p>
-              Resultado de uma simulação Monte Carlo (10k iterações) computada
-              no scraper a partir das médias de temporada. Mostra o placar mais
-              provável, probabilidades de mercado e a alocação de eventos por
-              jogador. Não é palpite do mercado nem opinião — é a distribuição
-              do modelo.
+              Resultado de uma simulação Monte Carlo (10k iterações) computada no
+              scraper a partir das médias de temporada. Mostra o placar mais provável,
+              probabilidades de mercado e a alocação de eventos por jogador. Não é
+              palpite do mercado nem opinião — é a distribuição do modelo.
             </p>
           </InfoPopover>
         </span>
@@ -477,20 +528,14 @@ function CalibrationBadge({ n }: { n: number | null }) {
     <span
       data-calibrated-via="isotonic"
       title="Probabilidades 1X2 ajustadas pela curva isotônica ativa para este model_version."
-      className="inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--color-line-subtle)] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-muted)]"
+      className="inline-flex items-center rounded-[var(--radius-sm)] border border-[var(--color-line-subtle)] bg-[var(--color-surface-2)] px-1.5 py-0.5 text-[10px] tracking-[0.12em] text-[var(--color-ink-muted)] uppercase"
     >
       {label}
     </span>
   );
 }
 
-function PlayerChip({
-  player,
-  odds,
-}: {
-  player: SimPlayerEvent;
-  odds?: PlayerOdds;
-}) {
+function PlayerChip({ player, odds }: { player: SimPlayerEvent; odds?: PlayerOdds }) {
   const likelyScorer = player.p_goal >= 0.25;
   const cardProne = player.p_card >= 0.25;
   // Caça-valor manual (sim vs odd da casa) — só quando há odds. Não é

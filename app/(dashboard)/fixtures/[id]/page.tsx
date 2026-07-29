@@ -9,7 +9,11 @@ import type {
   OddsSummary,
   RefereeRecord,
 } from "@/lib/fixtures/stats/detail-json-types";
-import { StatsLayout, renderPanelSlot, type PanelSlot } from "@/components/fixtures/stats/stats-layout";
+import {
+  StatsLayout,
+  renderPanelSlot,
+  type PanelSlot,
+} from "@/components/fixtures/stats/stats-layout";
 import { DecisionZone } from "@/components/fixtures/decision-zone";
 import { Hero, type HeroKpiBundle } from "@/components/fixtures/stats/hero";
 import {
@@ -61,8 +65,13 @@ import type { PlayerOddsMap } from "@/lib/fixtures/stats/player-market-value";
 import { SimulationDisclosure } from "./_components/simulation-disclosure";
 import { ShadowModelsToggle } from "./_components/shadow-models-toggle";
 import { getShadowParams } from "@/lib/calibracao/shadow-params-repository";
-import { cardsShadowRows, type CardsShadowRow } from "@/lib/fixtures/shadow-card-predictions";
+import {
+  cardsShadowRows,
+  type CardsShadowRow,
+} from "@/lib/fixtures/shadow-card-predictions";
 import { AiRecoPanel } from "./_components/ai-reco-panel";
+import { ModelPerformancePanel } from "@/components/fixtures/model-performance-panel";
+import { getLeaguePerformance } from "@/lib/calibracao/league-accuracy-repository";
 
 export const dynamic = "force-dynamic";
 
@@ -119,20 +128,15 @@ function pickResultOdds(
 
   const draw = direct("Draw");
 
-  const nonDraw = Object.entries(market).filter(
-    ([k]) => k.toLowerCase() !== "draw",
-  );
+  const nonDraw = Object.entries(market).filter(([k]) => k.toLowerCase() !== "draw");
 
   const matchByContains = (team: string): number | null => {
     const needle = team.toLowerCase();
     const hit = nonDraw.find(
       ([name]) =>
-        name.toLowerCase().includes(needle) ||
-        needle.includes(name.toLowerCase()),
+        name.toLowerCase().includes(needle) || needle.includes(name.toLowerCase()),
     );
-    return hit && typeof hit[1].decimal_odds === "number"
-      ? hit[1].decimal_odds
-      : null;
+    return hit && typeof hit[1].decimal_odds === "number" ? hit[1].decimal_odds : null;
   };
 
   let home = matchByContains(homeTeam);
@@ -158,9 +162,7 @@ function pickResultOdds(
  * upstream). lightweight-charts requires ascending timestamps, so we reverse
  * and skip matches without a parseable date or `goals_ft_for` value.
  */
-function buildMomentumSeries(
-  matches: NormalizedRecentMatch[],
-): MomentumPoint[] {
+function buildMomentumSeries(matches: NormalizedRecentMatch[]): MomentumPoint[] {
   const out: MomentumPoint[] = [];
   // newest→oldest → flip to oldest→newest for the timescale axis.
   for (let i = matches.length - 1; i >= 0; i--) {
@@ -186,11 +188,11 @@ function deriveHeroKpis(
   const btts = odds["BTTS"] as OddsMarket | undefined;
   const ref = (detail.referee_record ?? null) as RefereeRecord | null;
 
-  const { home: home_odd, draw: draw_odd, away: away_odd } = pickResultOdds(
-    result,
-    homeTeam,
-    awayTeam,
-  );
+  const {
+    home: home_odd,
+    draw: draw_odd,
+    away: away_odd,
+  } = pickResultOdds(result, homeTeam, awayTeam);
 
   return {
     home_odd,
@@ -233,8 +235,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
   const detail = (row.detail_json ?? null) as DetailJson | null;
 
   const kickoffIso = toIsoUtc(row.kickoff_utc);
-  const kickoffBrt =
-    formatUtcAsBrt(kickoffIso) ?? trimKoTime(row.ko_time) ?? null;
+  const kickoffBrt = formatUtcAsBrt(kickoffIso) ?? trimKoTime(row.ko_time) ?? null;
 
   // Pre-game simulation (separate scalar-only table). Degrades to null when
   // the migration/table is absent — the SIM panel shows a graceful
@@ -267,8 +268,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
   // (tabela faltando, RLS, etc.) — o painel ainda renderiza os 4 botões
   // legados sem o modal de bet.
   const aposteiHouses = await fetchAposteiHouses();
-  const linkedBet =
-    aiReco !== null ? await fetchLinkedBet(aiReco.id, untyped) : null;
+  const linkedBet = aiReco !== null ? await fetchLinkedBet(aiReco.id, untyped) : null;
 
   const bankrollSettings = await fetchBankrollSettings(untyped);
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
@@ -301,6 +301,20 @@ export default async function StatsPage({ params }: StatsPageProps) {
     /* shadow é experimental — nunca quebra a página */
   }
 
+  // Desempenho histórico do modelo NESTA liga — o contexto que diz quanto
+  // confiar na simulação acima. Cai pro agregado global quando a liga tem
+  // amostra fraca. Nunca quebra a página: sem dado, o painel some.
+  let leaguePerf: Awaited<ReturnType<typeof getLeaguePerformance>> = null;
+  try {
+    leaguePerf = await getLeaguePerformance(
+      row.league ?? null,
+      sim?.model_version ?? null,
+      untyped,
+    );
+  } catch {
+    leaguePerf = null;
+  }
+
   const panels = buildPanels(
     detail,
     row.home_team,
@@ -313,6 +327,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
     linkedBet,
     bankrollSettings,
     shadowCards,
+    leaguePerf,
   );
 
   // DecisionZone: Hero + AiRecoPanel + MomentumChart no topo, com divisor
@@ -360,11 +375,11 @@ export default async function StatsPage({ params }: StatsPageProps) {
  * scalar-safe FIXTURE_COLUMNS path, so this introduces no new heavy select.
  * Used only to honestly surface the model's sample size in the SIM panel.
  */
-function readAvgsSampleSize(
-  detail: DetailJson | null,
-): { home: number | null; away: number | null } {
-  const avgs = (detail as unknown as { avgs?: Record<string, unknown> } | null)
-    ?.avgs;
+function readAvgsSampleSize(detail: DetailJson | null): {
+  home: number | null;
+  away: number | null;
+} {
+  const avgs = (detail as unknown as { avgs?: Record<string, unknown> } | null)?.avgs;
   const pick = (block: unknown): number | null => {
     if (!block || typeof block !== "object") return null;
     const n = (block as Record<string, unknown>).num_matches;
@@ -449,9 +464,7 @@ async function fetchLinkedBet(
   try {
     const { data, error } = await supabase
       .from("bets")
-      .select(
-        "id, total_stake, total_odds, status, house_id, placed_at",
-      )
+      .select("id, total_stake, total_odds, status, house_id, placed_at")
       .eq("ai_recommendation_id", aiRecommendationId)
       .order("placed_at", { ascending: false })
       .limit(1)
@@ -510,8 +523,7 @@ async function fetchBankrollSettings(
         ? ((data as Record<string, unknown>).balance as number | undefined)
         : null;
       const bankroll =
-        balance ??
-        (typeof b === "number" && Number.isFinite(b) && b > 0 ? b : null);
+        balance ?? (typeof b === "number" && Number.isFinite(b) && b > 0 ? b : null);
       if (bankroll) {
         return { bankroll, units_per_bankroll: 1 };
       }
@@ -540,6 +552,7 @@ function buildPanels(
   } | null,
   bankrollSettings: { bankroll: number; units_per_bankroll: number },
   shadowCards: { rows: CardsShadowRow[]; nu: number | null; r: number | null },
+  leaguePerf: Awaited<ReturnType<typeof getLeaguePerformance>>,
 ): PanelSlot[] {
   // Computa stake default usando banca real do Pilot (fix #1: defaultStake=0 bug).
   // computeDefaultStake retorna 0 quando units_final é null → sem fallback espúrio.
@@ -562,9 +575,22 @@ function buildPanels(
           playerOdds={playerOddsFromDetail(detail)}
           chrome="bare"
         />
-        <ShadowModelsToggle rows={shadowCards.rows} nu={shadowCards.nu} r={shadowCards.r} />
+        <ShadowModelsToggle
+          rows={shadowCards.rows}
+          nu={shadowCards.nu}
+          r={shadowCards.r}
+        />
       </SimulationDisclosure>
     ),
+  };
+
+  // Entra logo depois da simulação: o painel diz quanto o histórico da liga
+  // sustenta os números que acabaram de ser mostrados.
+  const modelPerfSlot: PanelSlot = {
+    id: "MODEL_PERF",
+    colSpan: "span 12 / span 12",
+    label: "desempenho do modelo nesta liga",
+    node: <ModelPerformancePanel perf={leaguePerf} />,
   };
 
   const aiRecoSlot: PanelSlot = {
@@ -585,7 +611,7 @@ function buildPanels(
     ),
   };
 
-  if (!detail) return [aiRecoSlot, simSlot];
+  if (!detail) return [aiRecoSlot, simSlot, modelPerfSlot];
 
   const homeRecord = deriveTeamRecord(detail.team_record?.home);
   const awayRecord = deriveTeamRecord(detail.team_record?.away);
@@ -650,6 +676,7 @@ function buildPanels(
       ),
     },
     simSlot,
+    modelPerfSlot,
     {
       id: "A-home",
       colSpan: "span 6 / span 6",
@@ -666,13 +693,7 @@ function buildPanels(
       id: "D",
       colSpan: "span 6 / span 6",
       label: "h2h",
-      node: (
-        <H2H
-          matches={detail.h2h ?? []}
-          homeTeam={homeTeam}
-          awayTeam={awayTeam}
-        />
-      ),
+      node: <H2H matches={detail.h2h ?? []} homeTeam={homeTeam} awayTeam={awayTeam} />,
     },
     {
       id: "E",
@@ -705,13 +726,7 @@ function buildPanels(
       colSpan: "span 6 / span 6",
       h: 360,
       label: "radar comparison",
-      node: (
-        <RadarComparison
-          homeTeam={homeTeam}
-          awayTeam={awayTeam}
-          data={radar}
-        />
-      ),
+      node: <RadarComparison homeTeam={homeTeam} awayTeam={awayTeam} data={radar} />,
     },
     {
       id: "L",
