@@ -1,4 +1,5 @@
 require 'digest'
+require_relative 'season_avgs'
 require_relative 'rates'
 require_relative 'score_model'
 require_relative 'secondary_stats'
@@ -16,7 +17,11 @@ module AdamStats
       #   - no HT split ⇒ per_half_available: false
       #   - insufficient/garbage detail ⇒ { status: 'unsimulable' }, no raise.
       module Runner
-        MODEL_VERSION = 'sim-v1-poisson-dc-nb-mc10k-v7'.freeze
+        # v8 (2026-07-29): SeasonAvgs — bloco `avgs` zerado (time sem jogos na
+        # temporada nova) passa a derivar de `recent_matches` em vez de projetar
+        # ZERO. Bump obrigatório: as sims v7 gravadas com projeção degenerada não
+        # podem se misturar às novas na calibração.
+        MODEL_VERSION = 'sim-v1-poisson-dc-nb-mc10k-v8'.freeze
         DEFAULT_N = 10_000
         # Baseline-day fallback threshold (POC: < 6 teams ⇒ noisy day slice).
         MIN_TEAMS_FOR_DAY_BASELINE = 6
@@ -51,7 +56,11 @@ module AdamStats
           d = detail_json
           return unsimulable unless d.is_a?(Hash)
 
-          avgs = fetch(d, 'avgs')
+          # Time sem jogos na temporada nova volta do choistats com o bloco
+          # `avgs` inteiro zerado. Antes de qualquer guard, reconstrói esses
+          # blocos a partir de `recent_matches` (ver SeasonAvgs). Sem isso a sim
+          # projetava ZERO — 38% dos jogos em 30/07/2026, com a virada europeia.
+          avgs = SeasonAvgs.fill(fetch(d, 'avgs'), fetch(d, 'recent_matches'))
           return unsimulable unless usable_avgs?(avgs)
 
           league = (fetch(d, 'league') || '').to_s
@@ -112,7 +121,15 @@ module AdamStats
           aa = fetch(avgs, 'away_away')
           return false unless hh.is_a?(Hash) && aa.is_a?(Hash)
 
-          !val(hh, 'avgGoalsFor').nil? && !val(aa, 'avgGoalsFor').nil?
+          # POSITIVO, não apenas não-nil: `avgGoalsFor: 0` é o que o choistats
+          # devolve pra time sem jogos na temporada, e 0.0 passava neste guard
+          # (0 não é nil), fazendo a sim projetar zero em tudo. Quando há série
+          # recente o SeasonAvgs já preencheu antes daqui; se chegou zerado até
+          # este ponto, não há dado nenhum e a fixture é honestamente
+          # insimulável. Auditoria 2026-07-29.
+          h = val(hh, 'avgGoalsFor')
+          a = val(aa, 'avgGoalsFor')
+          !h.nil? && h.positive? && !a.nil? && a.positive?
         end
         private_class_method :usable_avgs?
 
