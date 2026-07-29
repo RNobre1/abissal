@@ -145,8 +145,10 @@ export const MIN_LEAGUE_CALLS = 30;
 export interface MarketAccuracy {
   /** "corners" | "cards" | "sot" | "goals" | "1x2" | "btts" */
   market: string;
-  /** Rótulo pronto pra UI, em PT-BR. Ex: "escanteios · menos de 9.5". */
+  /** Rótulo completo, pra tabela. Ex: "escanteios · menos de 9.5". */
   label: string;
+  /** Só o nome do mercado, pra frase corrida. Ex: "escanteios". */
+  shortLabel: string;
   line: number | null;
   dominantSide: "over" | "under" | null;
   calls: number;
@@ -213,9 +215,11 @@ function finish(
     line === null
       ? ""
       : ` · ${dominantSide === "under" ? "menos de" : "mais de"} ${line}`;
+  const short = MARKET_LABEL[market] ?? market;
   return {
     market,
-    label: `${MARKET_LABEL[market] ?? market}${lineLabel}`,
+    label: `${short}${lineLabel}`,
+    shortLabel: short,
     line,
     dominantSide,
     calls: t.calls,
@@ -365,6 +369,7 @@ export function marketAccuracies(
     out.push({
       market: "1x2",
       label: MARKET_LABEL["1x2"],
+      shortLabel: MARKET_LABEL["1x2"],
       line: null,
       dominantSide: null,
       calls: calls1x2,

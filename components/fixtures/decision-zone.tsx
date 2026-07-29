@@ -18,14 +18,17 @@ interface DecisionZoneProps {
   hero: ReactNode;
   reco: ReactNode;
   momentum: ReactNode | null;
+  /**
+   * Desempenho histórico do modelo nesta liga. Fica na zona de decisão, não
+   * entre os painéis técnicos: "posso confiar nesta simulação?" é pergunta de
+   * decisão, e dentro do accordion técnico (fechado por padrão) ninguém veria.
+   */
+  modelPerf?: ReactNode | null;
 }
 
-export function DecisionZone({ hero, reco, momentum }: DecisionZoneProps) {
+export function DecisionZone({ hero, reco, momentum, modelPerf }: DecisionZoneProps) {
   return (
-    <section
-      data-section="decision-zone"
-      className="flex flex-col gap-4"
-    >
+    <section data-section="decision-zone" className="flex flex-col gap-4">
       {/* Hero — identificação do jogo + KPIs de mercado */}
       <div data-decision-slot="hero">{hero}</div>
 
@@ -33,8 +36,11 @@ export function DecisionZone({ hero, reco, momentum }: DecisionZoneProps) {
       <div data-decision-slot="reco">{reco}</div>
 
       {/* Momentum Chart — tendência recente dos times */}
-      {momentum != null ? (
-        <div data-decision-slot="momentum">{momentum}</div>
+      {momentum != null ? <div data-decision-slot="momentum">{momentum}</div> : null}
+
+      {/* Quanto o modelo acerta nesta liga — o contexto que qualifica tudo acima */}
+      {modelPerf != null ? (
+        <div data-decision-slot="model-perf">{modelPerf}</div>
       ) : null}
 
       {/* Divisor explícito separando zona de decisão dos painéis técnicos */}
@@ -44,7 +50,7 @@ export function DecisionZone({ hero, reco, momentum }: DecisionZoneProps) {
         className="flex items-center gap-3 py-2"
       >
         <span className="flex-1 border-t border-[var(--color-line)]" aria-hidden />
-        <span className="label shrink-0 text-[var(--color-ink-faint)] tracking-widest">
+        <span className="label shrink-0 tracking-widest text-[var(--color-ink-faint)]">
           análise técnica ↓
         </span>
         <span className="flex-1 border-t border-[var(--color-line)]" aria-hidden />

@@ -8,6 +8,7 @@ function market(over: Partial<MarketAccuracy> = {}): MarketAccuracy {
   return {
     market: "corners",
     label: "escanteios · menos de 9.5",
+    shortLabel: "escanteios",
     line: 9.5,
     dominantSide: "under",
     calls: 52,
@@ -90,8 +91,8 @@ describe("ModelPerformancePanel", () => {
       <ModelPerformancePanel
         perf={perf({
           markets: [
-            market({ market: "corners", label: "escanteios", lift: 0.12 }),
-            market({ market: "cards", label: "cartões", lift: -0.15 }),
+            market({ market: "corners", label: "escanteios", shortLabel: "escanteios", lift: 0.12 }),
+            market({ market: "cards", label: "cartões", shortLabel: "cartões", lift: -0.15 }),
           ],
         })}
       />,

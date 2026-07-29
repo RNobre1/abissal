@@ -50,8 +50,8 @@ function headline(markets: MarketAccuracy[]): string {
   const ruim = ranked[ranked.length - 1];
   if (!bom) return "";
   const partes: string[] = [];
-  if (bom.lift > 0.02) partes.push(`vai bem em ${bom.label}`);
-  if (ruim !== bom && ruim.lift < -0.02) partes.push(`fraco em ${ruim.label}`);
+  if (bom.lift > 0.02) partes.push(`vai bem em ${bom.shortLabel}`);
+  if (ruim !== bom && ruim.lift < -0.02) partes.push(`fraco em ${ruim.shortLabel}`);
   return partes.join(" · ") || "sem destaque claro nesta liga";
 }
 
@@ -66,7 +66,10 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
       : "todas as ligas";
 
   return (
-    <details className="rounded-lg border border-[var(--color-line)] p-4">
+    <details
+      data-testid="model-performance"
+      className="rounded-lg border border-[var(--color-line)] p-4"
+    >
       <summary className="cursor-pointer list-none">
         <span className="label text-[var(--color-ink-muted)]">
           desempenho do modelo nesta liga ({escopo})

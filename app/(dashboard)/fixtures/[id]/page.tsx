@@ -335,7 +335,10 @@ export default async function StatsPage({ params }: StatsPageProps) {
   // O momentumPanel é extraído da lista e injetado na zona de decisão.
   const momentumPanel = panels.find((p) => p.id === "B") ?? null;
   const aiRecoPanel = panels.find((p) => p.id === "AI_RECO") ?? null;
-  const technicalPanels = panels.filter((p) => p.id !== "B" && p.id !== "AI_RECO");
+  const modelPerfPanel = panels.find((p) => p.id === "MODEL_PERF") ?? null;
+  const technicalPanels = panels.filter(
+    (p) => p.id !== "B" && p.id !== "AI_RECO" && p.id !== "MODEL_PERF",
+  );
 
   return (
     <StatsLayout
@@ -354,6 +357,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
           }
           reco={aiRecoPanel?.node ?? null}
           momentum={momentumPanel != null ? renderPanelSlot(momentumPanel) : null}
+          modelPerf={modelPerfPanel != null ? renderPanelSlot(modelPerfPanel) : null}
         />
       }
       panels={technicalPanels}
