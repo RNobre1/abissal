@@ -72,9 +72,7 @@ export function parseOrdinal(raw: unknown): number | null {
 function normalizeSplit(raw: unknown): TeamSplitDerived | null {
   const rec = asRecord(raw);
   if (!rec) return null;
-  const rawForm = safeArray(rec.form).filter(
-    (x): x is string => typeof x === "string",
-  );
+  const rawForm = safeArray(rec.form).filter((x): x is string => typeof x === "string");
   return {
     type: safeString(rec.type, "All"),
     played: safeNumber(rec.played),
@@ -100,9 +98,7 @@ export function deriveTeamRecord(raw: unknown): TeamRecordDerived | null {
   // The side-specific split: prefer the matching key (home or away), fallback
   // to whichever is present (some malformed inputs may have only one).
   const split =
-    normalizeSplit(rec.home) ??
-    normalizeSplit(rec.away) ??
-    normalizeSplit(rec.split);
+    normalizeSplit(rec.home) ?? normalizeSplit(rec.away) ?? normalizeSplit(rec.split);
   const overall = normalizeSplit(rec.overall);
 
   if (!split && !overall) return null;
@@ -144,9 +140,7 @@ function normalizeMatch(
     ? safeNumberOrNull(rec.awayGoalsFt)
     : safeNumberOrNull(rec.homeGoalsFt);
   const goals_2h_for =
-    goals_ft_for != null && goals_1h_for != null
-      ? goals_ft_for - goals_1h_for
-      : null;
+    goals_ft_for != null && goals_1h_for != null ? goals_ft_for - goals_1h_for : null;
   const goals_2h_against =
     goals_ft_against != null && goals_1h_against != null
       ? goals_ft_against - goals_1h_against
@@ -263,22 +257,34 @@ export function deriveRecentMatchStats(
 
 // ─── 3. deriveSplits1h2h ────────────────────────────────────────────────
 
-function avg(values: Array<number | null>): number {
-  if (values.length === 0) return 0;
-  const sum = values.reduce<number>((acc, v) => acc + (v ?? 0), 0);
-  return sum / values.length;
+/**
+ * Média dos valores PRESENTES. `null` é ausência de medição, não zero: fica
+ * fora do numerador E do denominador, e sem nenhum valor válido a resposta é
+ * `null` (a UI mostra "—").
+ *
+ * Antes somava `(v ?? 0)` dividindo pelo total, então o painel "1T vs 2T"
+ * exibia "cantos 1T 0.00" para quase todo jogo — o choistats manda
+ * `homeCorners1h: null` na maioria das partidas, e 10 nulls davam 0/10 = 0.
+ * Mesma classe do bug do bloco `avgs` zerado (B50).
+ */
+function avg(values: Array<number | null>): number | null {
+  const validos = values.filter(
+    (v): v is number => typeof v === "number" && Number.isFinite(v),
+  );
+  if (validos.length === 0) return null;
+  return validos.reduce((acc, v) => acc + v, 0) / validos.length;
 }
 
 export function deriveSplits1h2h(matches: NormalizedRecentMatch[]): Splits1h2h {
   if (!Array.isArray(matches) || matches.length === 0) {
     return {
-      goals_1h_avg: 0,
-      goals_2h_avg: 0,
-      corners_1h_avg: 0,
-      corners_2h_avg: 0,
-      cards_1h_avg: 0,
-      cards_2h_avg: 0,
-      sot_for_avg: 0,
+      goals_1h_avg: null,
+      goals_2h_avg: null,
+      corners_1h_avg: null,
+      corners_2h_avg: null,
+      cards_1h_avg: null,
+      cards_2h_avg: null,
+      sot_for_avg: null,
     };
   }
   return {
@@ -377,7 +383,11 @@ export function derivePlayerRankings(
  */
 function classifyMarket(name: string): OddsCategory {
   const n = name.toLowerCase();
-  if (n.startsWith("player ") || n.startsWith("to assist") || n.startsWith("to score")) {
+  if (
+    n.startsWith("player ") ||
+    n.startsWith("to assist") ||
+    n.startsWith("to score")
+  ) {
     return "player-props";
   }
   if (n.includes("corner")) return "corners";
@@ -455,9 +465,7 @@ function boxFromSeries(series: number[]): BoxStats {
   };
 }
 
-export function deriveDistributions(
-  matches: NormalizedRecentMatch[],
-): Distributions {
+export function deriveDistributions(matches: NormalizedRecentMatch[]): Distributions {
   const out = {} as Distributions;
   if (!Array.isArray(matches) || matches.length === 0) {
     for (const k of DIST_KEYS) out[k] = zeroBox();
@@ -481,10 +489,7 @@ const RADAR_AXES: Array<{ key: RadarAxis["key"]; label: string }> = [
   { key: "fouls", label: "Faltas" },
 ];
 
-function radarValue(
-  matches: NormalizedRecentMatch[],
-  key: RadarAxis["key"],
-): number {
+function radarValue(matches: NormalizedRecentMatch[], key: RadarAxis["key"]): number {
   if (matches.length === 0) return 0;
   let values: number[];
   switch (key) {
@@ -567,15 +572,11 @@ export function deriveRecentSeries(
     const v = m[metric];
     return typeof v === "number" ? v : null;
   });
-  const finite = values.filter(
-    (v): v is number => v != null && Number.isFinite(v),
-  );
+  const finite = values.filter((v): v is number => v != null && Number.isFinite(v));
   const referenceValue = finite.length
     ? finite.reduce((a, b) => a + b, 0) / finite.length
     : 0;
-  const xLabels = matches.map((m) =>
-    (m.opponent ?? "?").slice(0, 3).toUpperCase(),
-  );
+  const xLabels = matches.map((m) => (m.opponent ?? "?").slice(0, 3).toUpperCase());
   return { values, xLabels, referenceValue };
 }
 

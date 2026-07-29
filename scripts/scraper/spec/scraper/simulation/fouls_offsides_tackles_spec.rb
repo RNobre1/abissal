@@ -5,8 +5,8 @@ module AdamStats
   module Scraper
     module Simulation
       RSpec.describe 'F12 — fouls/offsides/tackles' do
-        it 'MODEL_VERSION refletindo bump v7' do
-          expect(Runner::MODEL_VERSION).to eq('sim-v1-poisson-dc-nb-mc10k-v7')
+        it 'MODEL_VERSION refletindo bump v8' do
+          expect(Runner::MODEL_VERSION).to eq('sim-v1-poisson-dc-nb-mc10k-v8')
         end
 
         let(:detail) do

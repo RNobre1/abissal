@@ -64,10 +64,7 @@ export function computeOddCombined(legs: SlipLeg[]): number {
  * Returns stake * oddCombined rounded to 2 decimal places.
  * Returns 0 when either argument is 0.
  */
-export function computePotentialReturn(
-  stake: number,
-  oddCombined: number,
-): number {
+export function computePotentialReturn(stake: number, oddCombined: number): number {
   if (stake <= 0 || oddCombined <= 0) return 0;
   return Math.round(stake * oddCombined * 100) / 100;
 }
@@ -147,4 +144,63 @@ export function detectConflicts(legs: SlipLeg[]): Conflict[] {
   }
 
   return conflicts;
+}
+
+// ── formatOddCombined ────────────────────────────────────────────────────────
+
+const SUPERSCRITO: Record<string, string> = {
+  "0": "⁰",
+  "1": "¹",
+  "2": "²",
+  "3": "³",
+  "4": "⁴",
+  "5": "⁵",
+  "6": "⁶",
+  "7": "⁷",
+  "8": "⁸",
+  "9": "⁹",
+};
+
+/**
+ * Formata a odd combinada para caber na UI.
+ *
+ * O FAB do bilhete mostrava `×43317375962504075673.00` e o número transbordava
+ * a barra no celular. NÃO era erro de cálculo: o bilhete tinha 82 pernas
+ * acumuladas, e 82 odds multiplicadas dão 10^19 mesmo — `computeOddCombined`
+ * estava certo. O defeito era exibir 20 dígitos com 2 casas decimais.
+ *
+ * Faixas: até 999,99 as casas importam (é a odd que se aposta); nos milhares
+ * não importam mais; acima de 1 milhão nenhum dígito importa e o que comunica
+ * é a ordem de grandeza.
+ */
+export function formatOddCombined(odd: number): string {
+  if (!Number.isFinite(odd)) return "—";
+  const abs = Math.abs(odd);
+
+  if (abs < 1_000) return odd.toFixed(2).replace(".", ",");
+  if (abs < 1_000_000) {
+    return Math.round(odd).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+  }
+
+  const exp = Math.floor(Math.log10(abs));
+  const mantissa = (odd / 10 ** exp).toFixed(1).replace(".", ",");
+  const expStr = String(exp)
+    .split("")
+    .map((c) => SUPERSCRITO[c] ?? c)
+    .join("");
+  return `${mantissa}×10${expStr}`;
+}
+
+// ── isSlipImplausible ────────────────────────────────────────────────────────
+
+/** Acima disso nenhuma casa aceita a múltipla, e a probabilidade combinada é ~0. */
+export const MAX_PLAUSIBLE_LEGS = 20;
+
+/**
+ * O bilhete tinha 82 pernas acumuladas sem nenhum aviso. Não bloqueamos (o
+ * usuário é dono do bilhete dele), mas a UI passa a dizer que aquilo não é
+ * apostável — silêncio aqui foi o que deixou o estado absurdo passar.
+ */
+export function isSlipImplausible(legCount: number): boolean {
+  return legCount > MAX_PLAUSIBLE_LEGS;
 }

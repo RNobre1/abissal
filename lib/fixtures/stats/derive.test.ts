@@ -59,9 +59,7 @@ describe("deriveTeamRecord", () => {
         position: 14,
       }),
     );
-    expect(derived!.overall).toEqual(
-      expect.objectContaining({ type: "All" }),
-    );
+    expect(derived!.overall).toEqual(expect.objectContaining({ type: "All" }));
   });
 
   it("parses EPL away side (Tottenham away + overall)", () => {
@@ -74,8 +72,7 @@ describe("deriveTeamRecord", () => {
   it("reverts form array oldest→newest into newest-first", () => {
     // EPL Chelsea home split form raw = ["D","L","L","L","L"] (oldest first)
     const derived = deriveTeamRecord(epl.team_record.home)!;
-    const rawForm = (epl.team_record.home as { home: { form: string[] } }).home
-      .form;
+    const rawForm = (epl.team_record.home as { home: { form: string[] } }).home.form;
     expect(derived.split.form).toEqual([...rawForm].reverse());
   });
 
@@ -300,15 +297,16 @@ describe("deriveRecentMatchStats", () => {
 // ─── deriveSplits1h2h ───────────────────────────────────────────────────
 
 describe("deriveSplits1h2h", () => {
-  it("returns zero-filled averages for empty input", () => {
+  it("devolve null (não zero) para entrada vazia", () => {
+    // Era `toBe(0)`: sem jogos não há média, e "0.00" na tela lia como medição.
     const out = deriveSplits1h2h([]);
-    expect(out.goals_1h_avg).toBe(0);
-    expect(out.goals_2h_avg).toBe(0);
-    expect(out.corners_1h_avg).toBe(0);
-    expect(out.corners_2h_avg).toBe(0);
-    expect(out.cards_1h_avg).toBe(0);
-    expect(out.cards_2h_avg).toBe(0);
-    expect(out.sot_for_avg).toBe(0);
+    expect(out.goals_1h_avg).toBeNull();
+    expect(out.goals_2h_avg).toBeNull();
+    expect(out.corners_1h_avg).toBeNull();
+    expect(out.corners_2h_avg).toBeNull();
+    expect(out.cards_1h_avg).toBeNull();
+    expect(out.cards_2h_avg).toBeNull();
+    expect(out.sot_for_avg).toBeNull();
   });
 
   it("computes 1H vs 2H goals averages correctly", () => {
@@ -394,7 +392,10 @@ describe("deriveSplits1h2h", () => {
     expect(out.sot_for_avg).toBeCloseTo(4.0, 5);
   });
 
-  it("treats nulls as zero when averaging", () => {
+  it("jogo inteiramente sem dado devolve null, não zero", () => {
+    // Este teste chamava-se "treats nulls as zero when averaging" e assertava
+    // `toBe(0)` — o defeito estava codificado como comportamento esperado, e
+    // por isso o painel "1T vs 2T" exibiu "cantos 0.00" por meses sem alarme.
     const normalized: NormalizedRecentMatch[] = [
       {
         id: 1,
@@ -433,8 +434,8 @@ describe("deriveSplits1h2h", () => {
       },
     ];
     const out = deriveSplits1h2h(normalized);
-    expect(out.goals_1h_avg).toBe(0);
-    expect(out.corners_1h_avg).toBe(0);
+    expect(out.goals_1h_avg).toBeNull();
+    expect(out.corners_1h_avg).toBeNull();
   });
 });
 
@@ -459,9 +460,7 @@ describe("deriveStreakIndex", () => {
       { group: "Goals", stat_type: "Over 0.5", overall_perc: 95, desc: "z" },
     ];
     const out = deriveStreakIndex(streaks);
-    expect(out.by_group.Goals?.map((s) => s.overall_perc)).toEqual([
-      95, 80, 50,
-    ]);
+    expect(out.by_group.Goals?.map((s) => s.overall_perc)).toEqual([95, 80, 50]);
   });
 
   it("groups all 10 known streak.group values from EPL fixture", () => {
@@ -588,7 +587,14 @@ describe("deriveOddsCategories", () => {
     const cats = Object.keys(out);
     // expect at least match, halves, teams, corners, cards, player-props
     expect(cats).toEqual(
-      expect.arrayContaining(["match", "halves", "teams", "corners", "cards", "player-props"]),
+      expect.arrayContaining([
+        "match",
+        "halves",
+        "teams",
+        "corners",
+        "cards",
+        "player-props",
+      ]),
     );
   });
 
@@ -646,9 +652,7 @@ describe("deriveOddsCategories", () => {
         Foo: { decimal_odds: 5, bookmaker: "X" },
       },
     });
-    expect(out.other?.map((m) => m.market)).toContain(
-      "Some Random Future Market",
-    );
+    expect(out.other?.map((m) => m.market)).toContain("Some Random Future Market");
   });
 
   it("preserves outcomes within each market entry", () => {
@@ -879,10 +883,7 @@ describe("deriveRecentSeries", () => {
   });
 
   it("xLabels are the first 3 chars of opponent, uppercased", () => {
-    const matches = makeNormalizedMatches(
-      [1, 2],
-      ["Newcastle", "ab"],
-    );
+    const matches = makeNormalizedMatches([1, 2], ["Newcastle", "ab"]);
     const s = deriveRecentSeries(matches, "goals_ft_for");
     expect(s.xLabels).toEqual(["NEW", "AB"]);
   });
@@ -910,5 +911,64 @@ describe("deriveRecentSeries", () => {
     expect(s.values).toEqual([]);
     expect(s.xLabels).toEqual([]);
     expect(s.referenceValue).toBe(0);
+  });
+});
+
+// ── Regressão: dado ausente virava 0.00 nos splits (auditoria 2026-07-29) ────
+describe("deriveSplits1h2h — ausência ≠ zero", () => {
+  /**
+   * O painel "1T vs 2T" mostrava "cantos 1T 0.00 / cantos 2T 0.00" para quase
+   * todo jogo. Não era o time não fazer escanteios: o choistats manda
+   * `homeCorners1h: null` na maioria das partidas, e o `avg` somava
+   * `(v ?? 0)` dividindo pelo total — 10 nulls davam 0/10 = 0.
+   *
+   * Mesma classe do bug do `avgs` zerado (B50): valor ausente do produtor
+   * externo atravessando como se fosse medição.
+   */
+  function match(over: Record<string, number | null> = {}) {
+    return {
+      goals_1h_for: 1,
+      goals_2h_for: 1,
+      corners_1h_for: null,
+      corners_2h_for: null,
+      cards_1h_for: null,
+      cards_2h_for: null,
+      sot_for: 4,
+      ...over,
+    } as never;
+  }
+
+  it("devolve null quando NENHUM jogo tem o dado", () => {
+    const s = deriveSplits1h2h([match(), match(), match()]);
+    expect(s.corners_1h_avg).toBeNull();
+    expect(s.cards_1h_avg).toBeNull();
+    // gols e sot existem em todos ⇒ seguem numéricos
+    expect(s.goals_1h_avg).toBe(1);
+    expect(s.sot_for_avg).toBe(4);
+  });
+
+  it("ignora os nulls no denominador em vez de contá-los como zero", () => {
+    // 2 jogos com 3 escanteios no 1T, 2 sem dado ⇒ média é 3, não 1.5
+    const s = deriveSplits1h2h([
+      match({ corners_1h_for: 3 }),
+      match({ corners_1h_for: 3 }),
+      match(),
+      match(),
+    ]);
+    expect(s.corners_1h_avg).toBe(3);
+  });
+
+  it("zero REAL continua sendo zero", () => {
+    const s = deriveSplits1h2h([
+      match({ corners_1h_for: 0 }),
+      match({ corners_1h_for: 0 }),
+    ]);
+    expect(s.corners_1h_avg).toBe(0);
+  });
+
+  it("lista vazia devolve null em tudo, não zeros", () => {
+    const s = deriveSplits1h2h([]);
+    expect(s.corners_1h_avg).toBeNull();
+    expect(s.goals_1h_avg).toBeNull();
   });
 });

@@ -39,19 +39,29 @@ export interface DistKFit {
  * `k = Σ actual / Σ pred` (razão das médias — o estimador de momento mais
  * robusto a small-sample; um único parâmetro, sem fatiar por linha).
  *
+ * PREVISÃO ZERO NÃO É PREVISÃO — é ausência de previsão, e fica de fora do fit.
+ * Times sem jogos na temporada nova vêm do choistats com `avgs` inteiro zerado
+ * (`num_matches: 0` ⇒ 100% deles com `cornersFor: 0`), e a sim propagava isso
+ * como projeção 0. Em julho/2026 isso chegou a 38% dos jogos com a virada da
+ * temporada europeia, e o fit — que contava esses pares — fez o k perseguir o
+ * lixo: 1.05 em junho → 1.5672 em 26/07, inflando em ~57% justamente os jogos
+ * que TINHAM dados bons.
+ *
+ * O `actual` zero continua valendo: 0 a 0 é resultado legítimo.
+ *
+ * Ver docs/pesquisas/auditoria-shape-produtor-consumidor.md.
+ *
  * @param pairs  pares [predTotal, actualTotal] dos jogos resolvidos.
  * @param minN   mínimo de pares válidos (default 30, gate B24). Abaixo disso → null.
  * @returns DistKFit ou null (poucos dados / média prevista não-positiva).
  */
-export function fitDistK(
-  pairs: Array<[number, number]>,
-  minN = 30,
-): DistKFit | null {
+export function fitDistK(pairs: Array<[number, number]>, minN = 30): DistKFit | null {
   let sumPred = 0;
   let sumActual = 0;
   let n = 0;
   for (const [pred, actual] of pairs) {
     if (!Number.isFinite(pred) || !Number.isFinite(actual)) continue;
+    if (pred <= 0) continue;
     sumPred += pred;
     sumActual += actual;
     n += 1;

@@ -71,7 +71,7 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 **Hospedagem:**
 - Cloudflare Worker `abissal` (custom domain `abissal.rnobre.dev`) built from Next.js via OpenNext (`@opennextjs/cloudflare`).
 - **GitHub Actions crons** (repo público ⇒ minutos gratuitos):
-  - `scrape-daily.yml` — 10:00 UTC (07:00 BRT). Scrape + simulação + reconcilers + recompute de baseline. `timeout-minutes: 20` (a IA-2 saiu daqui — ver B20-bis). Popula Supabase via pooler. `workflow_dispatch` disponível.
+  - `scrape-daily.yml` — 10:00 UTC (07:00 BRT). Scrape + simulação + reconcilers. `timeout-minutes: 20` (a IA-2 saiu daqui — ver B20-bis). Popula Supabase via pooler. `workflow_dispatch` disponível.
   - `ai-reco.yml` — 10:45 UTC (07:45 BRT), ~45min após o scrape. Recomendador IA-2 **desacoplado** (B20-bis): `bin/run_ai_recommender` → `AiRecommenderJob`. Chamadas R1 paralelizadas (`AI_RECO_CONCURRENCY`, default 6). `timeout-minutes: 45`, cron+manual only (sem push — workflow caro de LLM). `workflow_dispatch` disponível.
   - `closing-odds-capture.yml` — 15/17/19/21 UTC. Captura closing odds (CLV) na janela ao redor do KO.
   - `telegram-closure.yml` — 02:00 UTC. Resumo diário no Telegram.
@@ -159,7 +159,7 @@ abissal/
 ├── supabase/migrations/                 # 0001-0042 (ver "Data model")
 ├── scripts/
 │   ├── scraper/                         # sub-projeto Ruby 4.0.3 (Gemfile, mise.toml)
-│   │   ├── bin/{scrape, run_ai_recommender, capture_closing_odds, document_choistats_api, reresolve_secondary_markets}
+│   │   ├── bin/{scrape, resimulate, run_ai_recommender, capture_closing_odds, document_choistats_api, reresolve_secondary_markets}
 │   │   ├── lib/scraper/                 # módulos Ruby (orchestrator, reconcilers, ft_actuals, sim engine…)
 │   │   └── spec/                        # ~565 RSpec examples
 │   ├── calibracao/                      # fit-league-parameters.ts, fit-isotonic.ts (cron semanal/domingo)
@@ -214,6 +214,9 @@ bundle exec bin/scrape           # one-off scrape (env DATABASE_URL required)
 bundle exec bin/capture_closing_odds        # captura closing odds (CLV)
 bundle exec bin/run_ai_recommender          # recomendador IA-2 desacoplado (cron ai-reco; ver B20-bis)
 bundle exec bin/reresolve_secondary_markets # re-resolve corners/cards/sot (ver B19)
+bundle exec bin/resimulate [--dry-run]      # re-simula o detail_json JÁ armazenado (sem tocar a API);
+                                            #   use após bump de model_version (ver B50). --dry-run
+                                            #   imprime o diagnóstico sem escrever.
 bundle exec bin/document_choistats_api      # regenera docs/external-apis/choistats/
 
 # Cloudflare deploy
@@ -255,8 +258,8 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 |---|---|---|
 | `fixtures` | Uma linha por jogo. Retenção ~3-4 dias. Único em `(match_date, home_team, away_team)`. Escalares + `detail_json jsonb` (blob pesado — **nunca cruzar inteiro pro Worker**, ver B12/B14) + `kickoff_utc timestamptz` (instante UTC absoluto, corrige o bug cross-midnight BRT — A8). GIN `pg_trgm` em home/away pra fuzzy match de OCR (0037). | authenticated SELECT |
 | `analysis_cache` | Memoiza respostas LLM. Chave `content_hash` (sha256 de model+fixture+question+detail). FK `fixtures(id) ON DELETE CASCADE`. | authenticated |
-| `league_baselines` | Baselines estatísticos por liga (avg over/btts/etc.). PK `(league, stat_label)`. | authenticated SELECT |
-| `fixture_simulations` | **Motor estatístico**: Poisson + Dixon-Coles + Monte Carlo 10k → escalares `p_*` + `sim_stats jsonb` (gols/BTTS/corners/cards/SOT por time/tempo). Colunas `actual_*` populadas pelo reconciler **via choistats** (B19), `actual_data_source`, `model_version`. | service_role |
+| `league_baselines` | **ÓRFÃ** — aposentada 2026-07-29. Cadeia rompida de ponta a ponta: o produtor (`extract_trends`) só roda no caminho HTML/Playwright deprecated (A6), então `detail_json.trends` vinha `[]` em 12/12 fixtures, a tabela tinha **0 linhas** em prod e `fetch_for_league` nunca era chamado. O `recompute!` diário ainda fazia TRUNCATE + full scan de `detail_json` (~100 MB/dia) pra produzir zero linhas — removido do orchestrator. A pergunta que ela responderia ("taxa-base desta liga") tem resposta melhor em `lib/calibracao/market-accuracy.ts`, dos resultados REAIS reconciliados; o proxy via `streaks` errava até 14pp. Schema mantido (migrations são append-only). | — |
+| `fixture_simulations` | **Motor estatístico**: Poisson + Dixon-Coles + Monte Carlo 10k → escalares `p_*` + `sim_stats jsonb` (gols/BTTS/corners/cards/SOT por time/tempo — chave **`sot`**, nunca `shots_on_target`). Colunas `actual_*` populadas pelo reconciler **via choistats** (B19), `actual_data_source`, `model_version` (**v8** desde 29/07 — `SeasonAvgs`, ver B50). `model_version` entra na chave de dedup, então versões coexistem e o histórico sobrevive a bumps. | service_role |
 | `ai_predictions` | Predição estruturada pré-jogo (winner+over) reconciliada (legado copilot, alimenta Brier). | service_role |
 | `ai_recommendations` | **Recomendador IA-2**: market/side/units/edge/kelly/reasoning/prob_estimated. Múltiplos mercados (1x2, over, btts, corners, cards, sot). | authenticated SELECT |
 | `ai_reco_feedback` | Feedback humano por reco (agree/disagree/apostei). | authenticated |

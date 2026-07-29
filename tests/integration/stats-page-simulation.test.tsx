@@ -563,7 +563,7 @@ describe("StatsPage — pre-game simulation panel", () => {
     const { container } = await renderPage("42");
     const panel = container.querySelector('[data-panel="SIM"]') as HTMLElement;
 
-    const toggle = panel.querySelector('button[data-sim-toggle]');
+    const toggle = panel.querySelector("button[data-sim-toggle]");
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
     // Wave C: região sempre no DOM — verificar aria-hidden + classe @container.
     const region = panel.querySelector("[data-sim-region]") as HTMLElement | null;
@@ -614,9 +614,7 @@ describe("StatsPage — pre-game simulation panel", () => {
     // No native <meter> element at all (the hidden-meter a11y smell is gone).
     expect(panel?.querySelectorAll("meter").length).toBe(0);
     // p_home meter exposes the REAL value (0.4839 → aria-valuenow="48").
-    expect(
-      meters.some((m) => m.getAttribute("aria-valuenow") === "48"),
-    ).toBe(true);
+    expect(meters.some((m) => m.getAttribute("aria-valuenow") === "48")).toBe(true);
   });
 
   it("renders through the shared PanelShell card+header structure", async () => {
@@ -682,7 +680,7 @@ describe("StatsPage — pre-game simulation panel", () => {
     const cellsFor = (key: string) =>
       Array.from(
         panel.querySelectorAll<HTMLElement>(
-          `tr[data-sim-stat="${key}"] td.num`,
+          `tr[data-sim-stat="${key}"] td.num:not([data-sim-signal])`,
         ),
       ).map((c) => c.textContent?.trim());
 
@@ -715,7 +713,7 @@ describe("StatsPage — pre-game simulation panel", () => {
     const cellsFor = (key: string) =>
       Array.from(
         panel.querySelectorAll<HTMLElement>(
-          `tr[data-sim-stat="${key}"] td.num`,
+          `tr[data-sim-stat="${key}"] td.num:not([data-sim-signal])`,
         ),
       ).map((c) => c.textContent?.trim());
     expect(cellsFor("fouls")).toEqual(["11", "11"]);
@@ -737,13 +735,15 @@ describe("StatsPage — pre-game simulation panel", () => {
     expandSim(panel);
 
     const goalsCells = Array.from(
-      panel.querySelectorAll<HTMLElement>('tr[data-sim-stat="goals"] td.num'),
+      panel.querySelectorAll<HTMLElement>(
+        'tr[data-sim-stat="goals"] td.num:not([data-sim-signal])',
+      ),
     ).map((c) => c.textContent?.trim());
     expect(goalsCells).toEqual(["2", "—"]); // home present, away degraded
     // Other metrics unaffected.
     const cornerCells = Array.from(
       panel.querySelectorAll<HTMLElement>(
-        'tr[data-sim-stat="corners"] td.num',
+        'tr[data-sim-stat="corners"] td.num:not([data-sim-signal])',
       ),
     ).map((c) => c.textContent?.trim());
     expect(cornerCells).toEqual(["5", "3"]);
@@ -822,9 +822,7 @@ describe("StatsPage — pre-game simulation panel", () => {
     expandSim(panel);
 
     // Reuses the existing InfoPopover primitive (a Radix popover trigger).
-    expect(panel.querySelectorAll("button[aria-label]").length).toBeGreaterThan(
-      0,
-    );
+    expect(panel.querySelectorAll("button[aria-label]").length).toBeGreaterThan(0);
   });
 
   it("labels a stat with no HT split as 'total do jogo' and never renders possession", async () => {
@@ -849,9 +847,7 @@ describe("StatsPage — pre-game simulation panel", () => {
     const { container } = await renderPage("42");
     const panel = container.querySelector('[data-panel="SIM"]') as HTMLElement;
     expect(panel).not.toBeNull();
-    expect((panel.textContent ?? "").toLowerCase()).toContain(
-      "simulação indisponível",
-    );
+    expect((panel.textContent ?? "").toLowerCase()).toContain("simulação indisponível");
     // No probability bars for an unsimulable fixture.
     expect(within(panel).queryByText("52%")).toBeNull();
   });
@@ -945,7 +941,11 @@ describe("SimulationPanel — chrome prop", () => {
   it("unsimulable em chrome='bare' renderiza apenas a mensagem (sem casca)", () => {
     const { container } = render(
       <SimulationPanel
-        sim={simRow({ status: "unsimulable" }) as unknown as Parameters<typeof SimulationPanel>[0]["sim"]}
+        sim={
+          simRow({ status: "unsimulable" }) as unknown as Parameters<
+            typeof SimulationPanel
+          >[0]["sim"]
+        }
         homeTeam="Chelsea"
         awayTeam="Tottenham"
         sampleSize={{ home: 22, away: 21 }}
@@ -978,7 +978,7 @@ describe("SimulationDisclosure", () => {
     );
 
     const toggle = container.querySelector(
-      'button[data-sim-toggle]',
+      "button[data-sim-toggle]",
     ) as HTMLButtonElement | null;
     expect(toggle, "toggle button deve existir").not.toBeNull();
     expect(toggle?.getAttribute("aria-expanded")).toBe("false");
@@ -993,16 +993,13 @@ describe("SimulationDisclosure", () => {
 
     // Garantia adicional: visualmente "Monte Carlo" vem ANTES do toggle no header.
     const header = container.querySelector("header") as HTMLElement;
-    const mcSpan = Array.from(header.querySelectorAll("span")).find(
-      (s) => s.textContent?.includes("Monte Carlo"),
+    const mcSpan = Array.from(header.querySelectorAll("span")).find((s) =>
+      s.textContent?.includes("Monte Carlo"),
     );
     expect(mcSpan, "span Monte Carlo deve existir").not.toBeUndefined();
-    const toggleEl = header.querySelector(
-      "button[data-sim-toggle]",
-    ) as HTMLElement;
+    const toggleEl = header.querySelector("button[data-sim-toggle]") as HTMLElement;
     expect(
-      mcSpan!.compareDocumentPosition(toggleEl) &
-        Node.DOCUMENT_POSITION_FOLLOWING,
+      mcSpan!.compareDocumentPosition(toggleEl) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy(); // toggle vem DEPOIS de "Monte Carlo"
   });
 
@@ -1014,7 +1011,7 @@ describe("SimulationDisclosure", () => {
     );
 
     const toggle = container.querySelector(
-      'button[data-sim-toggle]',
+      "button[data-sim-toggle]",
     ) as HTMLButtonElement;
     fireEvent.click(toggle);
 
@@ -1035,7 +1032,7 @@ describe("SimulationDisclosure", () => {
       </SimulationDisclosure>,
     );
     const toggle = container.querySelector(
-      'button[data-sim-toggle]',
+      "button[data-sim-toggle]",
     ) as HTMLButtonElement;
     const id = toggle.getAttribute("aria-controls")!;
     expect(id.length).toBeGreaterThan(0);

@@ -316,14 +316,19 @@ export interface NormalizedRecentMatch {
   offsides_against: number | null;
 }
 
+/**
+ * `null` = o choistats não forneceu o dado (o caso mais comum em
+ * `corners1h`/`corners2h`), NÃO que o valor observado foi zero. A UI mostra
+ * "—" nesses casos em vez de "0.00", que lia como medição.
+ */
 export interface Splits1h2h {
-  goals_1h_avg: number;
-  goals_2h_avg: number;
-  corners_1h_avg: number;
-  corners_2h_avg: number;
-  cards_1h_avg: number;
-  cards_2h_avg: number;
-  sot_for_avg: number;
+  goals_1h_avg: number | null;
+  goals_2h_avg: number | null;
+  corners_1h_avg: number | null;
+  corners_2h_avg: number | null;
+  cards_1h_avg: number | null;
+  cards_2h_avg: number | null;
+  sot_for_avg: number | null;
 }
 
 export interface StreakIndex {

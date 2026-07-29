@@ -41,12 +41,12 @@ function makeRow(overrides: Partial<ResolvedSimRowSecondary> = {}): ResolvedSimR
       home: {
         corners: { p10: 3, p50: 5, p90: 8 },
         cards: { p10: 0, p50: 2, p90: 4 },
-        shots_on_target: { p10: 2, p50: 4, p90: 7 },
+        sot: { p10: 2, p50: 4, p90: 7 },
       },
       away: {
         corners: { p10: 2, p50: 4, p90: 7 },
         cards: { p10: 0, p50: 1, p90: 3 },
-        shots_on_target: { p10: 1, p50: 3, p90: 6 },
+        sot: { p10: 1, p50: 3, p90: 6 },
       },
     },
     ...overrides,
@@ -227,16 +227,16 @@ describe("sotCrps", () => {
   it("scores better when distribution centers on actual SOT", () => {
     const goodRow = makeRow({
       sim_stats: {
-        home: { shots_on_target: { p10: 3, p50: 5, p90: 8 } },
-        away: { shots_on_target: { p10: 2, p50: 3, p90: 5 } },
+        home: { sot: { p10: 3, p50: 5, p90: 8 } },
+        away: { sot: { p10: 2, p50: 3, p90: 5 } },
       },
       actual_sot_home: 5,
       actual_sot_away: 3,
     });
     const badRow = makeRow({
       sim_stats: {
-        home: { shots_on_target: { p10: 10, p50: 15, p90: 20 } },
-        away: { shots_on_target: { p10: 10, p50: 15, p90: 20 } },
+        home: { sot: { p10: 10, p50: 15, p90: 20 } },
+        away: { sot: { p10: 10, p50: 15, p90: 20 } },
       },
       actual_sot_home: 5,
       actual_sot_away: 3,

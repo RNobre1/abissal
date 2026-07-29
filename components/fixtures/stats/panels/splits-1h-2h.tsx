@@ -17,7 +17,8 @@ interface SplitsProps {
 interface Row {
   label: string;
   half: "1T" | "2T";
-  value: number;
+  /** `null` = o choistats não forneceu o dado. Renderiza "—", nunca "0.00". */
+  value: number | null;
 }
 
 function buildRows(d: SplitsData): Row[] {
@@ -33,7 +34,7 @@ function buildRows(d: SplitsData): Row[] {
 
 export function Splits1h2h({ data }: SplitsProps) {
   const rows = buildRows(data);
-  const max = rows.reduce((m, r) => (r.value > m ? r.value : m), 0);
+  const max = rows.reduce((m, r) => (r.value !== null && r.value > m ? r.value : m), 0);
 
   return (
     <PanelShell title="1T vs 2T" eyebrow="médias">
@@ -42,10 +43,13 @@ export function Splits1h2h({ data }: SplitsProps) {
           // Compact percent: 0 → "0%", 100 → "100%", 14.545 → "14.5%".
           // Stripping the trailing ".0" keeps tests honest and the DOM
           // smaller without changing visual result.
-          const raw = max > 0 ? (r.value / max) * 100 : 0;
+          // Sem dado ⇒ barra vazia. Antes o null virava 0 e a barra some do
+          // mesmo jeito, mas o número ao lado mentia "0.00".
+          const raw = max > 0 && r.value !== null ? (r.value / max) * 100 : 0;
           const rounded = Math.round(raw * 10) / 10;
-          const widthStr =
-            Number.isInteger(rounded) ? `${rounded}%` : `${rounded.toFixed(1)}%`;
+          const widthStr = Number.isInteger(rounded)
+            ? `${rounded}%`
+            : `${rounded.toFixed(1)}%`;
           return (
             <li
               key={idx}
@@ -65,8 +69,15 @@ export function Splits1h2h({ data }: SplitsProps) {
                   }}
                 />
               </span>
-              <span className="num text-right text-[var(--color-ink-display)]">
-                {r.value.toFixed(2)}
+              <span
+                className={`num text-right ${
+                  r.value === null
+                    ? "text-[var(--color-ink-faint)]"
+                    : "text-[var(--color-ink-display)]"
+                }`}
+                title={r.value === null ? "dado não fornecido pela fonte" : undefined}
+              >
+                {r.value === null ? "—" : r.value.toFixed(2)}
               </span>
             </li>
           );
