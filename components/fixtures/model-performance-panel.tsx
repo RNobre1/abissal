@@ -72,13 +72,29 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
   return (
     <details
       data-testid="model-performance"
-      className="rounded-lg border border-[var(--color-line)] p-4"
+      className="group rounded-lg border border-[var(--color-line)] p-4"
     >
-      <summary className="cursor-pointer list-none">
-        <span className="label text-[var(--color-ink-muted)]">
-          desempenho do modelo nesta liga ({escopo})
+      {/*
+        A seta não é decoração: sem affordance de expansão o card lê como
+        rótulo de seção e o usuário rola direto por ele — foi o que aconteceu
+        no mobile, onde ele fica 1,2 tela abaixo, entre o momentum e o divisor.
+      */}
+      <summary className="flex cursor-pointer list-none items-start gap-2">
+        <span
+          aria-hidden
+          className="mt-0.5 shrink-0 text-[var(--color-ink-faint)] transition-transform group-open:rotate-90"
+        >
+          ▸
         </span>
-        <p className="mt-1 text-sm">{headline(perf.markets)}</p>
+        <span className="min-w-0 flex-1">
+          <span className="label text-[var(--color-ink-muted)]">
+            desempenho do modelo nesta liga ({escopo})
+          </span>
+          <span className="mt-1 block text-sm">{headline(perf.markets)}</span>
+          <span className="label mt-1 block text-[var(--color-ink-faint)] group-open:hidden">
+            toque para ver o acerto por mercado
+          </span>
+        </span>
       </summary>
 
       {perf.tier === "global" ? (

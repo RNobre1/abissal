@@ -91,13 +91,23 @@ describe("ModelPerformancePanel", () => {
       <ModelPerformancePanel
         perf={perf({
           markets: [
-            market({ market: "corners", label: "escanteios", shortLabel: "escanteios", lift: 0.12 }),
-            market({ market: "cards", label: "cartões", shortLabel: "cartões", lift: -0.15 }),
+            market({
+              market: "corners",
+              label: "escanteios",
+              shortLabel: "escanteios",
+              lift: 0.12,
+            }),
+            market({
+              market: "cards",
+              label: "cartões",
+              shortLabel: "cartões",
+              lift: -0.15,
+            }),
           ],
         })}
       />,
     );
-    const manchete = container.querySelector("summary p")!.textContent!;
+    const manchete = container.querySelector("summary")!.textContent!;
     expect(manchete).toMatch(/vai bem em escanteios/i);
     expect(manchete).toMatch(/fraco em cartões/i);
   });
@@ -106,5 +116,19 @@ describe("ModelPerformancePanel", () => {
     const { container } = render(<ModelPerformancePanel perf={perf()} />);
     const linha = container.querySelector("tbody tr");
     expect(linha?.getAttribute("title")).toMatch(/50%.*75%/);
+  });
+});
+
+describe("affordance de expansão", () => {
+  /**
+   * Sem indicação de que abre, o card lê como rótulo de seção e o usuário rola
+   * direto por ele — foi o que aconteceu no mobile, onde ele fica 1,2 tela
+   * abaixo entre o momentum e o divisor técnico.
+   */
+  it("mostra seta e convite explícito quando recolhido", () => {
+    const { container } = render(<ModelPerformancePanel perf={perf()} />);
+    const summary = container.querySelector("summary")!;
+    expect(summary.textContent).toMatch(/▸/);
+    expect(summary.textContent).toMatch(/toque para ver/i);
   });
 });

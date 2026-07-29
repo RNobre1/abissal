@@ -48,7 +48,7 @@ test.describe("desempenho do modelo por liga", () => {
     const painel = page.getByTestId("model-performance");
     if ((await painel.count()) === 0) return;
 
-    const manchete = await painel.locator("summary p").textContent();
+    const manchete = await painel.locator("summary").textContent();
     expect(manchete).toBeTruthy();
     // "fraco em escanteios · menos de 8.5" era o bug — a frase usa shortLabel.
     expect(manchete).not.toMatch(/(vai bem|fraco) em [^·]+· (mais|menos) de/);
