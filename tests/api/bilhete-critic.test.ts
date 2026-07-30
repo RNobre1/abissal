@@ -318,6 +318,15 @@ describe("POST /api/bilhete/critic — validação e gates", () => {
     expect((await callRoute(body)).status).toBe(400);
   });
 
+  it("400 quando um campo de texto estoura o teto — custo LLM não pode ser drenável", async () => {
+    const body = {
+      legs: [
+        { home: "x".repeat(201), away: "B", market: "1x2", side: "home", odd: 2.0 },
+      ],
+    };
+    expect((await callRoute(body)).status).toBe(400);
+  });
+
   it("401 sem sessão", async () => {
     mockState.authedUserId = null;
     expect((await callRoute(TWO_LEGS_BODY)).status).toBe(401);

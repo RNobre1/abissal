@@ -62,12 +62,15 @@ const MODEL_ROUTE = "bilhete-critic" as const;
 const NEUTRAL_BANKROLL = 1000;
 const MAX_LEGS = 20;
 
+// Teto por campo: sem ele, 20 legs com strings arbitrárias viram um prompt
+// de centenas de milhares de tokens cobrados — custo LLM drenável por
+// qualquer usuário autenticado.
 const legSchema = z.object({
   fixtureId: z.number().int().positive().nullish(),
-  home: z.string().min(1),
-  away: z.string().min(1),
-  market: z.string().min(1),
-  side: z.string().min(1),
+  home: z.string().min(1).max(200),
+  away: z.string().min(1).max(200),
+  market: z.string().min(1).max(100),
+  side: z.string().min(1).max(100),
   odd: z.number().finite().gt(1),
 });
 

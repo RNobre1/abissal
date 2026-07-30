@@ -139,6 +139,11 @@ export function FixtureCopilotDrawer({
         if (event === "hop") {
           const h = data as HopView;
           draft.hops = [...(draft.hops ?? []), h];
+          // Texto que chegou ANTES deste hop era "pensamento" pré-tool-call
+          // do mesmo turno (o upstream pode emitir content antes dos
+          // tool_calls) — descarta pra bolha conter só a resposta final,
+          // que por definição vem depois do último hop.
+          draft.content = "";
           syncDraft();
         } else if (event === "delta") {
           const d = data as { text?: string };

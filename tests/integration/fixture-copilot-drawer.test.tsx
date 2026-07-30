@@ -121,6 +121,43 @@ describe("FixtureCopilotDrawer", () => {
     );
   });
 
+  it("descarta 'pensamento' pré-tool: delta que chega ANTES de um hop não fica na bolha final", async () => {
+    // Em turnos mistos o upstream emite content antes dos tool_calls
+    // ("vou consultar os splits...") — a bolha final deve conter só a
+    // resposta pós-último-hop, senão o transcript sai embaralhado.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      sseResponse(
+        sse([
+          { event: "delta", data: { text: "Deixa eu consultar as odds... " } },
+          {
+            event: "hop",
+            data: { tool: "get_odds", ok: true, result_summary: "get_odds: ok", took_ms: 2 },
+          },
+          { event: "delta", data: { text: "A odd do mandante é 1.87." } },
+          {
+            event: "done",
+            data: {
+              meta: {
+                model: "x",
+                latency_ms: 10,
+                hops: [],
+                usage_total: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+              },
+            },
+          },
+        ]),
+      ),
+    );
+    setup();
+    openDrawer();
+    sendQuestion("qual a odd?");
+
+    await waitFor(() =>
+      expect(screen.getByText(/A odd do mandante é 1\.87\./)).toBeInTheDocument(),
+    );
+    expect(screen.queryByText(/Deixa eu consultar/)).not.toBeInTheDocument();
+  });
+
   it("mostra chip ✗ quando a tool degrada com erro", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       sseResponse(

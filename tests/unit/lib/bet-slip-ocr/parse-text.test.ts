@@ -118,6 +118,17 @@ describe("parseBetSlipFromText — request", () => {
     // não inventar: regra central preservada
     expect(system).toMatch(/NUNCA invente/);
   });
+
+  it("system prompt informa a data ATUAL (senão o LLM chuta 'amanhã' e contamina o fuzzy-match)", async () => {
+    const mockFetch = vi.fn().mockResolvedValueOnce(orResponse(GOOD_JSON));
+    vi.stubGlobal("fetch", mockFetch);
+
+    await parseBetSlipFromText(USER_TEXT);
+
+    const system = systemOf(bodyOf(mockFetch.mock.calls[0]));
+    const todayIso = new Date().toISOString().slice(0, 10);
+    expect(system).toContain(`AGORA é ${todayIso}`);
+  });
 });
 
 describe("parseBetSlipFromText — parse e retry", () => {

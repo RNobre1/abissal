@@ -128,7 +128,10 @@ async function main(): Promise<void> {
     )
     .eq("verdict", "bet")
     .gte("created_at", startIso)
-    .order("edge_pct", { ascending: false });
+    .order("edge_pct", { ascending: false })
+    // Teto defensivo: num dia anômalo (ex.: dedup quebrado, B53 — razão
+    // 2,12 recos/fixture) o prompt inflaria silenciosamente.
+    .limit(30);
   if (betErr) {
     console.error("[briefing] query de bets falhou:", betErr.message);
     process.exit(1);
