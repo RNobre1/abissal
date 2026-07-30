@@ -98,10 +98,14 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     if (!result.ok) {
       setState("error");
       setError(result.error ?? "Erro desconhecido ao processar imagem.");
-      // N4: bilhete_foto_failed — parse stage
+      // N4: bilhete_foto_failed — parse stage. `error_kind` agora é a
+      // categoria ESTRUTURADA (item 4c: invalid-mime, gemini-error,
+      // invalid-json, no-legs-found, unreadable, …), com fallback pra
+      // mensagem legada quando ausente.
       track("bilhete_foto_failed", {
         stage: "parse",
-        error_kind: result.error ?? "unknown",
+        error_kind: result.error_kind ?? result.error ?? "unknown",
+        error_message: result.error ?? undefined,
       });
       return;
     }

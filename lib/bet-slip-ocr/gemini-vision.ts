@@ -25,12 +25,29 @@ const FALLBACK_MODEL = "google/gemini-2.5-flash-lite:free";
 const DEFAULT_REFERER = "https://abissal.rnobre.dev";
 const DEFAULT_TITLE = "Abissal";
 
+/**
+ * Taxonomia estruturada de falha do OCR (Pacote B, item 4c) — torna o funil
+ * diagnosticável (21 fotos → 14 falhas eram indistinguíveis):
+ *  - "gemini-error":   upstream falhou (HTTP non-2xx / config) — culpa do serviço;
+ *  - "invalid-json":   o modelo devolveu prosa/JSON quebrado;
+ *  - "no-legs-found":  JSON válido mas sem nenhuma seleção detectada;
+ *  - "unreadable":     JSON com legs mas fora do schema (leitura parcial ruim).
+ */
+export type OcrErrorKind =
+  | "gemini-error"
+  | "invalid-json"
+  | "no-legs-found"
+  | "unreadable";
+
 export class OcrParseError extends Error {
   cause: unknown;
-  constructor(message: string, cause?: unknown) {
+  /** Categoria estruturada da falha; default "unreadable" (pior caso de foto). */
+  kind: OcrErrorKind;
+  constructor(message: string, cause?: unknown, kind: OcrErrorKind = "unreadable") {
     super(message);
     this.name = "OcrParseError";
     this.cause = cause;
+    this.kind = kind;
   }
 }
 
@@ -81,6 +98,18 @@ export interface GeminiAttemptLog {
   /** null = tentativa OK; senão categoria/descrição curta da falha. */
   error: string | null;
 }
+
+/**
+ * Variante TOLERANTE do prompt (Pacote B, item 4b) — usada só no retry, após
+ * a 1ª tentativa falhar o parse. Instrui a extrair o que conseguir e marcar
+ * campos incertos como null em vez de desistir com legs vazias.
+ */
+const TOLERANT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+MODO TOLERANTE (retry — a primeira leitura falhou). Extraia o que conseguir:
+- Prefira devolver legs PARCIAIS a devolver legs vazias: inclua a leg mesmo que só home/away/market/side estejam legíveis.
+- Qualquer campo ilegível, cortado ou incerto: use null (NUNCA invente valores).
+- Só retorne legs: [] se nem os nomes dos times forem legíveis.`;
 
 export interface ParseBetSlipOptions {
   model?: string;
@@ -147,8 +176,8 @@ interface OpenRouterUsage {
 }
 
 interface AttemptFailure {
-  /** Categoria curta da falha de parse ("invalid-json" | "no-legs-found" | "unreadable"). */
-  reason: string;
+  /** Categoria da falha de parse desta tentativa. */
+  reason: Extract<OcrErrorKind, "invalid-json" | "no-legs-found" | "unreadable">;
   cause: unknown;
 }
 
@@ -225,7 +254,7 @@ async function attemptOnce(args: {
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     emitAttempt(onAttempt, model, started, null, `OpenRouter error ${res.status}`);
-    throw new OcrParseError(`OpenRouter error ${res.status}: ${body}`);
+    throw new OcrParseError(`OpenRouter error ${res.status}: ${body}`, undefined, "gemini-error");
   }
 
   const json = (await res.json()) as {
@@ -270,7 +299,7 @@ export async function parseBetSlipImage(
 ): Promise<ParsedSlip> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new OcrParseError("OPENROUTER_API_KEY not set");
+    throw new OcrParseError("OPENROUTER_API_KEY not set", undefined, "gemini-error");
   }
 
   const dataUrl = Buffer.isBuffer(image) ? bufferToDataUrl(image) : image;
@@ -290,18 +319,27 @@ export async function parseBetSlipImage(
   // ── Fallback attempt (only when primary returned bad/non-schema JSON) ─────
   // Only retry with fallback if no custom model was specified
   if (opts?.model) {
-    throw new OcrParseError("OCR parse failed with custom model", first.failure.cause);
+    throw new OcrParseError(
+      "OCR parse failed with custom model",
+      first.failure.cause,
+      first.failure.reason,
+    );
   }
 
+  // Retry único (item 4b): modelo fallback + variante de prompt tolerante.
   const second = await attemptOnce({
     model: FALLBACK_MODEL,
     dataUrl,
     apiKey,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt: TOLERANT_SYSTEM_PROMPT,
     signal: opts?.signal,
     onAttempt: opts?.onAttempt,
   });
   if ("slip" in second) return second.slip;
 
-  throw new OcrParseError("OCR parse failed on fallback model too", second.failure.cause);
+  throw new OcrParseError(
+    "OCR parse failed on fallback model too",
+    second.failure.cause,
+    second.failure.reason,
+  );
 }

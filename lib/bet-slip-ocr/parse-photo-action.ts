@@ -33,9 +33,29 @@ export interface ParsedLegWithMatch {
   match: MatchResult;
 }
 
+/**
+ * Taxonomia estruturada de falha (item 4c) — vai no telemetry payload
+ * (`bilhete_foto_failed.error_kind`) pra tornar o funil diagnosticável.
+ * As 5 centrais vêm do OcrErrorKind + validações locais; o resto cobre os
+ * gates da action.
+ */
+export type ParsePhotoErrorKind =
+  | "no-session"
+  | "ai-disabled"
+  | "no-image"
+  | "invalid-mime"
+  | "too-large"
+  | "gemini-error"
+  | "invalid-json"
+  | "no-legs-found"
+  | "unreadable"
+  | "unexpected";
+
 export interface ParsePhotoResult {
   ok: boolean;
   error?: string;
+  /** Categoria estruturada quando ok=false (item 4c). */
+  error_kind?: ParsePhotoErrorKind;
   slip?: {
     legs: ParsedLegWithMatch[];
     stake_total: number | null;
@@ -49,6 +69,24 @@ export interface ParsePhotoResult {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
+
+/**
+ * Mensagens acionáveis por categoria (item 4d): "foto ruim — muda a foto"
+ * é um conserto diferente de "serviço fora — só tenta de novo".
+ */
+const OCR_ERROR_MESSAGES: Record<
+  Extract<ParsePhotoErrorKind, "gemini-error" | "invalid-json" | "no-legs-found" | "unreadable">,
+  string
+> = {
+  "gemini-error":
+    "Erro no serviço de leitura — não é culpa da foto. Tenta de novo em instantes.",
+  "invalid-json":
+    "O serviço de leitura retornou dados inválidos — tenta de novo; se persistir, adiciona as pernas manualmente.",
+  "no-legs-found":
+    "Não encontrei seleções no cupom — enquadra só o bilhete, mais de perto, com as seleções visíveis.",
+  unreadable:
+    "Não consegui ler o cupom — tenta uma foto mais de perto, sem reflexo e com o bilhete inteiro no quadro.",
+};
 
 // ── OCR observability (item 4a) ───────────────────────────────────────────────
 
@@ -106,7 +144,11 @@ export async function parseBetSlipPhoto(
     // server-side forte (B22).
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
-      return { ok: false, error: "Sessão expirada. Entre novamente para enviar a foto." };
+      return {
+        ok: false,
+        error_kind: "no-session",
+        error: "Sessão expirada. Entre novamente para enviar a foto.",
+      };
     }
 
     // 0b. Kill switch global de IA: o OCR usa Gemini via OpenRouter. Quando
@@ -115,6 +157,7 @@ export async function parseBetSlipPhoto(
     if (!(await isAiEnabled(supabase as never))) {
       return {
         ok: false,
+        error_kind: "ai-disabled",
         error: "IA desativada no sistema. Adicione as pernas do bilhete manualmente.",
       };
     }
@@ -122,15 +165,23 @@ export async function parseBetSlipPhoto(
     // 1. Extrair e validar arquivo
     const file = formData.get("image");
     if (!(file instanceof File)) {
-      return { ok: false, error: "Nenhuma imagem enviada." };
+      return { ok: false, error_kind: "no-image", error: "Nenhuma imagem enviada." };
     }
 
     if (!file.type.startsWith("image/")) {
-      return { ok: false, error: "Formato inválido. Envie uma imagem (JPEG, PNG, WEBP, etc)." };
+      return {
+        ok: false,
+        error_kind: "invalid-mime",
+        error: "Formato inválido. Envie uma imagem (JPEG, PNG, WEBP, etc).",
+      };
     }
 
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      return { ok: false, error: "Imagem muito grande. Tamanho máximo: 8 MB." };
+      return {
+        ok: false,
+        error_kind: "too-large",
+        error: "Imagem muito grande. Tamanho máximo: 8 MB.",
+      };
     }
 
     // 2. Converter File → Buffer
@@ -211,12 +262,15 @@ export async function parseBetSlipPhoto(
     };
   } catch (err) {
     if (err instanceof OcrParseError) {
-      return {
-        ok: false,
-        error: "Não consegui ler o cupom. Tenta com uma foto mais clara.",
-      };
+      // Item 4c/4d: categoria estruturada + mensagem acionável por categoria.
+      // Instância legada sem `kind` (ou kind desconhecido) cai em "unreadable".
+      const kind =
+        err.kind && err.kind in OCR_ERROR_MESSAGES
+          ? (err.kind as keyof typeof OCR_ERROR_MESSAGES)
+          : "unreadable";
+      return { ok: false, error_kind: kind, error: OCR_ERROR_MESSAGES[kind] };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Erro inesperado: ${msg}` };
+    return { ok: false, error_kind: "unexpected", error: `Erro inesperado: ${msg}` };
   }
 }
