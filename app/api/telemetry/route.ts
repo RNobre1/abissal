@@ -17,7 +17,8 @@ import { createAdminClient } from "@/lib/supabase/admin";
  *   - events: max 50 per batch.
  *   - payload per event: JSON size < 2048 bytes.
  *
- * Auth: none required. RLS policy allows anonymous inserts.
+ * Auth: não exigida (evento anônimo é válido). Mas quando HÁ sessão, o
+ * `user_id` é carimbado a partir do cookie — nunca do corpo da requisição.
  */
 
 const eventSchema = z.object({
@@ -117,10 +118,35 @@ export async function POST(request: Request): Promise<Response> {
     // Rate-limit check failed -- allow insert (fail open, not closed)
   }
 
-  // 3. Batch insert
+  // 3. Dono da sessão.
+  //
+  // O campo `user_id` da tabela ficou NULO em 100% dos eventos desde sempre —
+  // não por perda de dado, mas porque esta rota nunca resolvia a sessão. Com
+  // mais de um usuário no sistema, sem o carimbo é impossível saber quem usa o
+  // quê: toda leitura de uso mistura as pessoas.
+  //
+  // Vem do cookie, NUNCA do corpo: `user_id` enviado pelo cliente seria
+  // trivialmente forjável, e esta rota grava com `service_role` (sem RLS pra
+  // segurar). Por isso o schema de evento não o aceita.
+  //
+  // `getClaims()` verifica o JWT localmente (ES256 + JWKS cacheado), sem
+  // round-trip à Auth — B22. Sessão ausente ou ilegível ⇒ `null`: evento
+  // anônimo continua válido (telemetria de tela de login existe antes de haver
+  // sessão) e a telemetria nunca deixa de gravar por causa disto.
+  let userId: string | null = null;
+  try {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { authedUserId } = await import("@/lib/supabase/auth");
+    userId = await authedUserId(await createClient());
+  } catch {
+    userId = null;
+  }
+
+  // 4. Batch insert
   const rows = events.map((e) => ({
     event_type: e.event_type,
     session_id: e.session_id,
+    user_id: userId,
     fixture_id: e.fixture_id ?? null,
     ai_recommendation_id: e.ai_recommendation_id ?? null,
     panel_id: e.panel_id ?? null,

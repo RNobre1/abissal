@@ -2,6 +2,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { authedUserId } from "@/lib/supabase/auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import {
+  agrupaPorUsuario,
+  type EventoBruto,
+  type UsoPorUsuario,
+} from "@/lib/telemetry/por-usuario";
 
 /**
  * /admin/telemetry — Dashboard de telemetria de UX.
@@ -75,6 +80,43 @@ async function fetchTopPanels(
   }
 }
 
+/**
+ * Uso por pessoa. Existe desde que `ui_telemetry.user_id` passou a ser
+ * carimbado (30/07): antes o campo era nulo em 100% dos eventos e todo número
+ * desta tela somava as contas num monte só.
+ *
+ * Traz os nomes de `user_profile` quando houver, pra tabela não virar uma lista
+ * de uuid. Degrada pra lista vazia — a página não cai por causa deste bloco.
+ */
+async function fetchUsoPorUsuario(
+  supabase: AnySupabase,
+  since: string,
+): Promise<UsoPorUsuario[]> {
+  try {
+    const { data, error } = await supabase
+      .from("ui_telemetry")
+      .select("user_id, event_type, created_at")
+      .gte("created_at", since)
+      .limit(5000);
+    if (error || !Array.isArray(data)) return [];
+
+    const nomes = new Map<string, string | null>();
+    try {
+      const { data: perfis } = await supabase
+        .from("user_profile")
+        .select("user_id, display_name");
+      for (const p of (perfis ?? []) as Array<{ user_id: string; display_name: string | null }>) {
+        nomes.set(p.user_id, p.display_name);
+      }
+    } catch {
+      /* sem nomes, o uuid curto serve de rótulo */
+    }
+    return agrupaPorUsuario(data as EventoBruto[], nomes);
+  } catch {
+    return [];
+  }
+}
+
 function pct(numerator: number, denominator: number): string {
   if (denominator === 0) return "—";
   return `${Math.round((numerator / denominator) * 100)}%`;
@@ -92,7 +134,7 @@ export default async function TelemetryDashboardPage() {
   // eslint-disable-next-line react-hooks/purity
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
 
-  const [eventCounts, topPanels] = await Promise.all([
+  const [eventCounts, topPanels, usoPorUsuario] = await Promise.all([
     fetchEventCounts(
       admin,
       [
@@ -107,6 +149,7 @@ export default async function TelemetryDashboardPage() {
       since,
     ),
     fetchTopPanels(admin, since),
+    fetchUsoPorUsuario(admin, since),
   ]);
 
   const opens = eventCounts.get("apostei_modal_open") ?? 0;
@@ -241,6 +284,58 @@ export default async function TelemetryDashboardPage() {
           </div>
         </section>
       </div>
+
+      {/*
+        Uso por pessoa. Só faz sentido desde 30/07, quando `user_id` passou a
+        ser carimbado — antes era nulo em 100% dos eventos e todo número acima
+        somava as contas juntas.
+
+        Mobile primeiro: em 412px a tabela vira lista, porque 4 colunas de dado
+        + rótulo não cabem sem quebrar cada linha em duas.
+      */}
+      <section
+        className="card mt-6 flex flex-col gap-3 p-5"
+        aria-label="uso por pessoa"
+        data-testid="uso-por-usuario"
+      >
+        <h3 className="label font-semibold text-[var(--color-ink)]">uso por pessoa</h3>
+
+        {usoPorUsuario.length === 0 ? (
+          <p className="label text-[var(--color-ink-muted)]">
+            nenhum evento na janela.
+          </p>
+        ) : (
+          <ul className="flex flex-col divide-y divide-[var(--color-line)]">
+            {usoPorUsuario.map((u) => (
+              <li
+                key={u.userId ?? "anon"}
+                className="flex flex-col gap-1 py-2 first:pt-0 last:pb-0"
+                data-uso-usuario={u.userId ?? "anon"}
+              >
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="text-[var(--color-ink)]">{u.rotulo}</span>
+                  <span className="num font-mono tabular-nums font-semibold">
+                    {u.total}
+                  </span>
+                </div>
+                <span className="label text-[var(--color-ink-muted)]">
+                  {u.topEventos.map((e) => `${e.event_type} ${e.n}`).join(" · ")}
+                </span>
+                {u.ultimoEm ? (
+                  <span className="label text-[var(--color-ink-faint)]">
+                    último em {u.ultimoEm.slice(0, 10)}
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <p className="label text-[var(--color-ink-faint)]">
+          eventos anônimos (sem sessão) aparecem separados — telemetria de tela de
+          login acontece antes de haver usuário.
+        </p>
+      </section>
     </main>
   );
 }
