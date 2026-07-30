@@ -3,13 +3,16 @@
 /**
  * OportunidadeIaCard — card individual de oportunidade IA no dashboard.
  *
- * U.5 spec: botão "+ bilhete" por card. DISABLED enquanto Wave M
- * (addLegToSlip server action) não estiver mergeada.
+ * U.5 spec: botão "+ bilhete" por card. A Wave M (addLegToSlip +
+ * AddToSlipButton) está mergeada — o botão adiciona a seleção da reco ao
+ * draft slip via a infra real. Quando a reco não tem odd/mercado capturados,
+ * o botão fica desabilitado com o motivo verdadeiro.
  *
- * Quando Wave M for mergeada:
- * 1. Remover `disabled` e `title` do botão
- * 2. Importar e invocar `addLegToSlip` com `{ recoId: reco.id }`
+ * Card enriquecido: além do summary_line, mostra edge %, odd capturada e
+ * units sugeridas (campos já retornados por fetchTopOpportunities).
  */
+
+import { AddToSlipButton } from "@/components/bet-slip/add-to-slip-button";
 
 interface RecoItem {
   id: number;
@@ -17,6 +20,13 @@ interface RecoItem {
   home_team: string;
   away_team: string;
   summary_line: string | null;
+  market?: string | null;
+  side?: string | null;
+  odd_captured?: number | null;
+  edge_pct?: number | null;
+  units_final?: number | null;
+  league?: string | null;
+  kickoff_utc?: string | null;
 }
 
 interface OportunidadeIaCardProps {
@@ -24,6 +34,26 @@ interface OportunidadeIaCardProps {
 }
 
 export function OportunidadeIaCard({ reco }: OportunidadeIaCardProps) {
+  const { market, side, odd_captured } = reco;
+  const canAddToSlip =
+    typeof market === "string" &&
+    market.length > 0 &&
+    typeof side === "string" &&
+    side.length > 0 &&
+    typeof odd_captured === "number" &&
+    odd_captured > 1;
+
+  const enriched: string[] = [];
+  if (typeof reco.edge_pct === "number") {
+    enriched.push(`+${reco.edge_pct.toFixed(1)}%`);
+  }
+  if (typeof odd_captured === "number") {
+    enriched.push(`@${odd_captured.toFixed(2)}`);
+  }
+  if (typeof reco.units_final === "number") {
+    enriched.push(`${reco.units_final}u`);
+  }
+
   return (
     <li className="flex items-center gap-2">
       <a
@@ -33,20 +63,44 @@ export function OportunidadeIaCard({ reco }: OportunidadeIaCardProps) {
         <span className="min-w-0 truncate text-sm text-[var(--color-ink)]">
           {reco.home_team} vs {reco.away_team}
         </span>
-        <span className="num min-w-0 truncate text-xs tabular-nums text-[var(--color-ink-muted)] sm:shrink-0 sm:text-sm">
-          {reco.summary_line ?? "—"}
+        <span className="flex min-w-0 flex-col gap-0.5 sm:shrink-0 sm:flex-row sm:items-baseline sm:gap-2">
+          <span className="num min-w-0 truncate text-xs tabular-nums text-[var(--color-ink-muted)] sm:text-sm">
+            {reco.summary_line ?? "—"}
+          </span>
+          {enriched.length > 0 && (
+            <span className="num shrink-0 text-xs tabular-nums text-[var(--color-ink-faint)]">
+              {enriched.join(" · ")}
+            </span>
+          )}
         </span>
       </a>
-      {/* U.5: "+ bilhete" — DISABLED até Wave M (addLegToSlip) ser mergeada */}
-      <button
-        type="button"
-        disabled
-        title="disponível quando bilhete (Wave M) for mergeado"
-        className="label min-h-[44px] shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-1 text-[var(--color-ink-faint)] opacity-40 cursor-not-allowed"
-        aria-label="+ bilhete (indisponível — aguardando Wave M)"
-      >
-        + bilhete
-      </button>
+      {canAddToSlip ? (
+        <AddToSlipButton
+          input={{
+            ai_recommendation_id: reco.id,
+            fixture_id: reco.fixture_id,
+            home_team: reco.home_team,
+            away_team: reco.away_team,
+            market: market,
+            side: side,
+            odd_taken: odd_captured,
+            league: reco.league ?? null,
+            kickoff_utc: reco.kickoff_utc ?? null,
+          }}
+          ariaLabel={`${reco.home_team} vs ${reco.away_team} — ${market}/${side}`}
+          className="label min-h-[44px] shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-1 text-[var(--color-ink-muted)] transition-colors hover:border-[var(--color-line-strong)] hover:text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-60"
+        />
+      ) : (
+        <button
+          type="button"
+          disabled
+          title="sem odd/mercado capturados nesta recomendação"
+          className="label min-h-[44px] shrink-0 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-3 py-1 text-[var(--color-ink-faint)] opacity-40 cursor-not-allowed"
+          aria-label="+ bilhete (indisponível — sem odd capturada)"
+        >
+          + bilhete
+        </button>
+      )}
     </li>
   );
 }

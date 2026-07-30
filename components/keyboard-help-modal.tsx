@@ -18,9 +18,18 @@ const SHORTCUTS: ShortcutRow[] = [
   { keys: ["[", "]"], description: "fixture anterior / próxima (aliases)" },
   { keys: ["Enter"], description: "abrir fixture em foco" },
   { keys: ["s"], description: "voltar para lista de fixtures" },
-  // TODO(Wave M): "b" — focar botão "+ bilhete" no AiRecoPanel (depende Wave M)
+  { keys: ["b"], description: "focar botão “+ bilhete” da página" },
   { keys: ["?"], description: "este menu de ajuda" },
 ];
+
+/**
+ * Foca o primeiro botão "+ bilhete" real da página (AddToSlipButton expõe
+ * `data-add-to-slip` — Wave M mergeada). No-op quando não há botão.
+ */
+function focusAddToSlipButton() {
+  const btn = document.querySelector<HTMLElement>("[data-add-to-slip]");
+  btn?.focus();
+}
 
 // ---------------------------------------------------------------------------
 // Component
@@ -37,6 +46,7 @@ export function KeyboardHelpModal() {
     shortcuts: [
       { key: "?", handler: () => setOpen((v) => !v) },
       { key: "Escape", handler: () => setOpen(false) },
+      { key: "b", handler: () => focusAddToSlipButton() },
     ],
     disabled: false,
   });
