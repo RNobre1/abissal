@@ -28,8 +28,11 @@ RSpec.describe 'generate_balance_snapshots', :db do
   let(:conn) { DBHelper.connect }
 
   before(:all) do
+    # `ensure_schema!` já aplica TODAS as migrations quando o schema não existe,
+    # e não faz nada quando já existe. Chamar `apply_all_migrations!` além dele
+    # reaplica tudo e explode em `create type transaction_kind` (as migrations
+    # não são idempotentes — é o comportamento correto para migration).
     ScraperDBHelper.ensure_schema!
-    DBHelper.apply_all_migrations!
   end
 
   after(:each) do
