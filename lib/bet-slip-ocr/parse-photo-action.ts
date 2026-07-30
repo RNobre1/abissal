@@ -54,10 +54,23 @@ export async function parseBetSlipPhoto(
   formData: FormData,
 ): Promise<ParsePhotoResult> {
   try {
-    // 0. Kill switch global de IA: o OCR usa Gemini via OpenRouter. Quando
+    const supabase = await createClient();
+
+    // 0a. Sessão obrigatória. Esta action gasta crédito de LLM (Gemini Vision),
+    // e Server Actions são invocáveis por POST com o header `next-action` —
+    // sem este gate, qualquer um drena o orçamento que o kill switch de IA
+    // existe justamente pra proteger. As rotas irmãs (`/api/ai-reco/compute`,
+    // `/feedback`) já checavam; esta não. `getUser()` (round-trip completo) e
+    // não `getClaims()`: o caminho gasta dinheiro, então vale a validação
+    // server-side forte (B22).
+    const { data: auth } = await supabase.auth.getUser();
+    if (!auth?.user) {
+      return { ok: false, error: "Sessão expirada. Entre novamente para enviar a foto." };
+    }
+
+    // 0b. Kill switch global de IA: o OCR usa Gemini via OpenRouter. Quando
     // desligado (créditos zerados / economia), não tenta — instrui o usuário a
     // adicionar as pernas manualmente, em vez de estourar erro de upstream.
-    const supabase = await createClient();
     if (!(await isAiEnabled(supabase as never))) {
       return {
         ok: false,

@@ -125,7 +125,7 @@ function ClvTargetIndicator({
     summary.n >= CLV_TARGET_N;
   const hasVolume = summary.n >= CLV_TARGET_N;
   const tone = meetsTarget
-    ? "var(--color-verde, #16a34a)"
+    ? "var(--color-success)"
     : hasVolume
       ? "var(--color-vermelho)"
       : "var(--color-ink-muted)";

@@ -29,6 +29,7 @@ function perf(over: Partial<LeaguePerformance> = {}): LeaguePerformance {
     leagueCalls: 104,
     markets: [market()],
     window: { from: "2026-05-18T00:00:00Z", to: "2026-07-29T00:00:00Z" },
+    modelVersion: "sim-v1-poisson-dc-nb-mc10k-v8",
     ...over,
   };
 }
@@ -202,5 +203,28 @@ describe("ModelPerformancePanel · chamada do jogo aberto", () => {
   it("segue funcionando sem gameCalls (prop opcional)", () => {
     const { container } = render(<ModelPerformancePanel perf={perf()} />);
     expect(container.querySelectorAll("tbody tr").length).toBe(1);
+  });
+});
+
+/**
+ * A medição é de UM motor. Depois que o filtro por `model_version` entrou, o
+ * painel pode legitimamente cair pro agregado global por semanas (nenhuma liga
+ * tinha 30 jogos resolvidos na v8 quando isso foi escrito). O usuário precisa
+ * ver de qual motor é o número — senão "todas as ligas · 207" vira um número
+ * sem procedência, que é o problema que o filtro veio resolver.
+ */
+describe("ModelPerformancePanel · procedência da medição", () => {
+  it("mostra a versão do motor medido", () => {
+    const { container } = render(
+      <ModelPerformancePanel perf={perf({ modelVersion: "sim-v1-poisson-dc-nb-mc10k-v8" })} />,
+    );
+    expect(container.textContent).toMatch(/v8/);
+  });
+
+  it("encurta o nome longo do motor (não joga o slug inteiro na tela)", () => {
+    const { container } = render(
+      <ModelPerformancePanel perf={perf({ modelVersion: "sim-v1-poisson-dc-nb-mc10k-v8" })} />,
+    );
+    expect(container.textContent).not.toMatch(/poisson-dc-nb-mc10k/);
   });
 });

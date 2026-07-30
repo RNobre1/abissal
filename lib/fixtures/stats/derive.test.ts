@@ -700,11 +700,38 @@ describe("deriveDistributions", () => {
     expect(out.goals_ft_for.q3).toBe(2);
   });
 
-  it("treats nulls as zeros when populating series", () => {
-    const matches = makeMatches([1, null as unknown as number, 3]);
+  /**
+   * B52 (2ª parte, 2026-07-30): o teste anterior chamava-se "treats nulls as
+   * zeros when populating series" e assertava `min === 0` — o defeito descrito
+   * como se fosse requisito, de novo. Pior: ele nem exercitava a função, porque
+   * o helper `makeMatches` já fazia `goals[i] ?? 0` e o null virava zero ANTES
+   * de entrar em `deriveDistributions`.
+   *
+   * O comportamento correto: ausência sai da amostra. Um jogo sem o dado não é
+   * um jogo com zero escanteios — e a diferença aparece direto nos quartis, que
+   * é o painel que o Pilot mais usa.
+   *
+   * Medido em 30/07: 0% dos campos de `DIST_KEYS` vêm nulos do choistats hoje
+   * (489 partidas FT inspecionadas), então isto é blindagem contra a classe de
+   * bug, não conserto de sintoma ativo.
+   */
+  it("ignora ausências em vez de contá-las como zero", () => {
+    const matches = makeMatches([1, 3]);
+    // injeta a ausência DEPOIS do helper, senão ele mascara com `?? 0`
+    (matches[0] as { goals_ft_for: number | null }).goals_ft_for = null;
     const out = deriveDistributions(matches);
-    expect(out.goals_ft_for.min).toBe(0); // null treated as 0
+    expect(out.goals_ft_for.min).toBe(3);
     expect(out.goals_ft_for.max).toBe(3);
+    expect(out.goals_ft_for.median).toBe(3);
+  });
+
+  it("série inteiramente ausente não vira uma distribuição de zeros falsa", () => {
+    const matches = makeMatches([1, 2]);
+    for (const m of matches) (m as { corners_for: number | null }).corners_for = null;
+    const out = deriveDistributions(matches);
+    // sem nenhum valor real, o box é vazio — não um box "tudo zero", que leria
+    // como "este time faz zero escanteios".
+    expect(out.corners_for.count).toBe(0);
   });
 });
 

@@ -23,6 +23,16 @@ function pp(x: number): string {
   return `${v > 0 ? "+" : "−"}${Math.abs(v)}pp`;
 }
 
+/**
+ * `sim-v1-poisson-dc-nb-mc10k-v8` → `v8`. O slug completo é ruído na tela; o
+ * sufixo é o que muda quando o motor muda.
+ */
+function shortVersion(v: string | null | undefined): string | null {
+  if (!v) return null;
+  const m = /-(v\d+)$/.exec(v.trim());
+  return m ? m[1] : null;
+}
+
 function shortDate(iso: string | null): string | null {
   if (!iso) return null;
   const d = new Date(iso);
@@ -210,7 +220,16 @@ export function ModelPerformancePanel({
       <p className="label mt-2 text-[var(--color-ink-faint)]">
         &ldquo;vs chutar&rdquo; compara com apostar sempre no lado mais comum da liga.
         Perto de zero significa que o modelo não sabe nada ali.
-        {from && to ? ` Medido de ${from} a ${to}.` : ""}
+        {from && to ? ` Medido de ${from} a ${to}` : ""}
+        {/*
+          A procedência fecha a frase: a medição é de UMA versão do motor, e
+          versões coexistem no banco. Sem isso, "todas as ligas · 207 jogos"
+          seria um número sem dono — exatamente o problema que o filtro por
+          model_version veio resolver. Só o sufixo (v8), não o slug inteiro.
+        */}
+        {shortVersion(perf.modelVersion)
+          ? `, no motor ${shortVersion(perf.modelVersion)}.`
+          : "."}
       </p>
     </details>
   );

@@ -79,10 +79,10 @@ export function DistCalibrationCard({ rows }: Props) {
                     className="num rounded px-1.5 py-0.5 text-xs font-bold tabular-nums"
                     style={{
                       color: underestimates
-                        ? "var(--color-green,#22c55e)"
+                        ? "var(--color-success)"
                         : "var(--color-ink)",
                       background: underestimates
-                        ? "color-mix(in srgb, var(--color-green,#22c55e) 14%, transparent)"
+                        ? "color-mix(in srgb, var(--color-success) 14%, transparent)"
                         : "var(--color-surface-2, transparent)",
                     }}
                     title="fator de calibração da média (k)"
@@ -120,7 +120,7 @@ export function DistCalibrationCard({ rows }: Props) {
                       className="absolute inset-y-0 left-0 rounded-sm"
                       style={{
                         width: `${actualPct}%`,
-                        background: "var(--color-green,#22c55e)",
+                        background: "var(--color-success)",
                       }}
                     />
                   </div>

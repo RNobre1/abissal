@@ -1,4 +1,6 @@
 import { createAdminClient } from "@/lib/supabase/admin";
+import { createClient as createServerClient } from "@/lib/supabase/server";
+import { authedUserId } from "@/lib/supabase/auth";
 import {
   hitRate,
   calibrationBuckets,
@@ -448,15 +450,25 @@ export default async function CalibracaoPage() {
   // JOIN PostgREST com `ai_recommendations(league, confidence)` pra
   // herdar metadados da reco no agrupamento. Bets sem reco (ledger
   // legado) ficam fora — métricas só fazem sentido pra recos.
+  //
+  // ESCOPO POR USUÁRIO (2026-07-30): a aposta é pessoal, a recomendação é
+  // compartilhada. Como esta leitura usa o client admin (service_role, sem
+  // RLS), sem `.eq("user_id", ...)` o ROI realizado somava as apostas de TODAS
+  // as contas — com dois usuários no sistema, cada um via o desempenho do
+  // outro embutido no próprio número. Sem sessão identificada, não há ROI
+  // pessoal a mostrar: lista vazia é a resposta honesta.
+  const viewerId = await authedUserId(await createServerClient());
   let realizedBetRows: RealizedBetRow[] = [];
   let realizedQueryError: string | null = null;
   try {
+    if (!viewerId) throw new Error("sessão não identificada");
     const { data, error } = await admin
       .from("bets")
       .select(
         "id, ai_recommendation_id, house_id, total_stake, total_odds, status, actual_return, placed_at, ai_recommendations(league, confidence)",
       )
       .not("ai_recommendation_id", "is", null)
+      .eq("user_id", viewerId)
       .order("placed_at", { ascending: false })
       .limit(2000);
     if (error)

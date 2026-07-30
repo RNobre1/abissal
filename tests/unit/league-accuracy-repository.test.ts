@@ -174,3 +174,113 @@ describe("getLeaguePerformance · distK injetado", () => {
     expect(linha(comK)?.dominantSide).toBe("under");
   });
 });
+
+/**
+ * REGRESSÃO 2026-07-30 (revisão por personas) — a medição precisa ser de UM
+ * motor só.
+ *
+ * `fetchRows` recebia `modelVersion` mas só o usava pra buscar o `distK`; a
+ * query principal nunca filtrava por versão. Como `fixture_simulations` guarda
+ * versões coexistindo de propósito, o painel media v7 e v8 SOMADOS — inclusive
+ * as linhas do motor quebrado (projetava zero em 38% dos jogos) que o bump de
+ * ontem existia justamente pra deixar pra trás.
+ *
+ * É o mesmo erro que a lição B37 registrou: comparar populações diferentes e
+ * apresentar como se fossem uma. Todo o resto da calibração (`fit-isotonic`,
+ * `fit-temperature`, `fit-dist`) agrupa por `model_version` — esta era a
+ * exceção acidental.
+ *
+ * Custo aceito: nenhuma liga tem 30 resolvidas em v8 hoje (a maior tem 15),
+ * então o painel cai pro agregado global até a amostra crescer. Número certo
+ * com amostra menor é melhor que número errado com amostra grande.
+ */
+describe("getLeaguePerformance · filtro por model_version", () => {
+  beforeEach(() => __resetGlobalCache());
+
+  function stubVersionado(porVersao: Record<string, unknown[]>) {
+    const calls: { table: string; league?: string; modelVersion?: string }[] = [];
+    return {
+      calls,
+      from(table: string) {
+        let league: string | undefined;
+        let modelVersion: string | undefined;
+        const chain = {
+          select: () => chain,
+          eq: (col: string, val: string) => {
+            if (col === "league") league = val;
+            if (col === "model_version") modelVersion = val;
+            return chain;
+          },
+          is: () => chain,
+          not: () => chain,
+          limit: () => chain,
+          then: (res: (v: unknown) => void) => {
+            calls.push({ table, league, modelVersion });
+            const daVersao = modelVersion ? (porVersao[modelVersion] ?? []) : [];
+            // O stub precisa respeitar o filtro de liga também, senão a "liga
+            // pequena" recebe o universo inteiro e nunca cai no fallback global
+            // — que é justamente o caminho sob teste aqui.
+            const data = league
+              ? daVersao.filter((r) => (r as { league?: string }).league === league)
+              : daVersao;
+            return Promise.resolve({ data, error: null }).then(res);
+          },
+        };
+        return chain;
+      },
+    };
+  }
+
+  it("filtra a query principal por model_version", async () => {
+    const sb = stubVersionado({ "sim-v8": rows(60, "Serie B") });
+    await getLeaguePerformance("Serie B", "sim-v8", sb, {});
+    const q = sb.calls.find((c) => c.table === "fixture_simulations");
+    expect(q?.modelVersion).toBe("sim-v8");
+  });
+
+  it("NÃO mistura linhas de outra versão", async () => {
+    // v7 tem amostra de sobra, v8 quase nada: o resultado deve refletir só v8.
+    const sb = stubVersionado({
+      "sim-v7": rows(500, "Serie B"),
+      "sim-v8": rows(60, "Serie B"),
+    });
+    const out = await getLeaguePerformance("Serie B", "sim-v8", sb, {});
+    expect(out!.tier).toBe("liga");
+    // 60 linhas × mercados: muito abaixo do que 560 linhas produziriam.
+    expect(out!.leagueCalls).toBeLessThan(500);
+  });
+
+  it("o fallback global também é da MESMA versão", async () => {
+    const sb = stubVersionado({
+      "sim-v7": rows(500, "X"),
+      "sim-v8": rows(80, "X"),
+    });
+    await getLeaguePerformance("Liga Pequena", "sim-v8", sb, {});
+    const globais = sb.calls.filter(
+      (c) => c.table === "fixture_simulations" && c.league === undefined,
+    );
+    expect(globais.length).toBeGreaterThan(0);
+    expect(globais.every((c) => c.modelVersion === "sim-v8")).toBe(true);
+  });
+
+  it("sem model_version não há medição honesta possível → null", async () => {
+    const sb = stubVersionado({ "sim-v8": rows(60, "Serie B") });
+    expect(await getLeaguePerformance("Serie B", null, sb, {})).toBeNull();
+    expect(await getLeaguePerformance("Serie B", "", sb, {})).toBeNull();
+  });
+
+  it("expõe a versão medida (a UI precisa dizer de qual motor é o número)", async () => {
+    const sb = stubVersionado({ "sim-v8": rows(60, "Serie B") });
+    const out = await getLeaguePerformance("Serie B", "sim-v8", sb, {});
+    expect(out!.modelVersion).toBe("sim-v8");
+  });
+
+  it("o cache global é por VERSÃO — não vaza medição de uma versão pra outra", async () => {
+    const sb = stubVersionado({ "sim-v7": rows(500, "X"), "sim-v8": rows(80, "X") });
+    const a = await getLeaguePerformance("Liga Pequena", "sim-v7", sb, {});
+    const b = await getLeaguePerformance("Liga Pequena", "sim-v8", sb, {});
+    expect(a!.modelVersion).toBe("sim-v7");
+    expect(b!.modelVersion).toBe("sim-v8");
+    expect(a!.markets[0].calls).not.toBe(b!.markets[0].calls);
+  });
+});

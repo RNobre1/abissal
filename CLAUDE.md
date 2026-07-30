@@ -18,6 +18,36 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 > **Note on AGENTS.md:** se o repo passar a ter `AGENTS.md`, mantenha como symlink pro `CLAUDE.md`. Não editar o symlink.
 
+## Multi-usuário (desde 2026-07-30)
+
+O sistema deixou de ser single-user: há **mais de uma conta real** em uso
+(o Pilot e o irmão dele). Isso muda o que antes era teoria em risco concreto.
+
+**O que já está certo** (auditado no Postgres de produção em 30/07):
+- Toda tabela com `user_id` tem política RLS referenciando `auth.uid()`.
+- Todas as views são `security_invoker` (não rodam como dona, logo respeitam RLS).
+
+**A armadilha real:** RLS não protege nada quando o código usa
+`createAdminClient()` — que é `service_role` e **ignora RLS por completo**. Boa
+parte das rotas usa. Dois vazamentos foram encontrados e corrigidos assim:
+`fetchLinkedBet` mostrava a aposta do OUTRO usuário no mesmo jogo, e
+`/calibracao` somava o ROI das duas contas.
+
+**Regra:** toda leitura de tabela user-scoped feita com o client admin precisa
+de `.eq("user_id", ...)` explícito. Há um guard estático em
+`tests/unit/multiuser-isolation-guard.test.ts` que quebra o CI se isso for
+esquecido. Tabelas user-scoped: `bets`, `bet_selections`, `bet_slips`,
+`bet_slip_legs`, `transactions`, `houses`, `balance_snapshots`,
+`disciplina_settings`, `audit_log`, `bet_events`.
+
+**Pendências conhecidas do modelo multi-usuário:**
+- `disciplina_settings` existe só para uma conta; `checkDisciplinaLimits` falha
+  **aberto** quando não há config — ou seja, uma conta nova nasce sem nenhum
+  limite de disciplina.
+- `ui_telemetry` grava `user_id` nulo em tudo: não dá para separar o uso de cada
+  um.
+- `actuals_fixture_mapping` (tabela órfã) é a única sem RLS habilitada.
+
 ## Methodology: Pair Programming (Akita/XP)
 
 This project follows strict **Pair Programming**: the user is the **Architect/Pilot**, the AI is the **Executor Agent**.
@@ -135,7 +165,8 @@ abissal/
 │   ├── (dashboard)/                     # banca + fixtures + análise
 │   │   ├── banca/ bets/ transactions/ houses/ forecast/ explore/ audit/
 │   │   ├── bilhete/                     # bilhete múltipla / bet builder
-│   │   ├── fixtures/ [id]/ [id]/stats/  # listagem + análise + dashboard de stats
+│   │   ├── fixtures/ [id]/              # listagem + análise (o dashboard de stats
+│   │   │   └── [id]/stats/              #   virou a própria [id]; /stats é só redirect legado)
 │   │   ├── calibracao/                  # painel CLV/Brier/ROI + pipeline health
 │   │   ├── configuracoes/               # disciplina_settings
 │   │   ├── llm-observability/ logs/ admin/
@@ -151,7 +182,7 @@ abissal/
 ├── lib/
 │   ├── env.ts (Zod), format.ts, utils.ts
 │   ├── supabase/                        # client, server, middleware, admin (service_role), types
-│   ├── fixtures/ (+ fixtures/stats/)    # time, types, repository, choistats-api, analysis-cache, prompt-builder
+│   ├── fixtures/ (+ fixtures/stats/)    # time, types, repository, choistats-api, prompt-builder
 │   ├── ai/  ai-reco/                    # openrouter client + recomendador IA-2 (edge calc, blending)
 │   ├── banca/ bets/ bet-slip/ bet-slip-ocr/ disciplina/  # domínio banca + OCR de bilhete
 │   ├── calibracao/  alerts/  telemetry/  telegram/
@@ -257,7 +288,7 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 | Tabela / view | Propósito | RLS |
 |---|---|---|
 | `fixtures` | Uma linha por jogo. Retenção ~3-4 dias. Único em `(match_date, home_team, away_team)`. Escalares + `detail_json jsonb` (blob pesado — **nunca cruzar inteiro pro Worker**, ver B12/B14) + `kickoff_utc timestamptz` (instante UTC absoluto, corrige o bug cross-midnight BRT — A8). GIN `pg_trgm` em home/away pra fuzzy match de OCR (0037). | authenticated SELECT |
-| `analysis_cache` | Memoiza respostas LLM. Chave `content_hash` (sha256 de model+fixture+question+detail). FK `fixtures(id) ON DELETE CASCADE`. | authenticated |
+| `analysis_cache` | **ÓRFÃ** — nunca foi fiada. O schema existe (chave `content_hash`, FK `fixtures(id) ON DELETE CASCADE`) e o `CLAUDE.md` chegou a listar um `lib/fixtures/analysis-cache.ts` que **não existe**; nenhuma rota lê ou grava. Tabela com 0 linhas. Vale ressuscitar: com p95 do LLM em 153s, reabrir o mesmo jogo hoje paga a análise inteira de novo. Enquanto não for fiada, é dead schema (migrations são append-only). | authenticated |
 | `league_baselines` | **ÓRFÃ** — aposentada 2026-07-29. Cadeia rompida de ponta a ponta: o produtor (`extract_trends`) só roda no caminho HTML/Playwright deprecated (A6), então `detail_json.trends` vinha `[]` em 12/12 fixtures, a tabela tinha **0 linhas** em prod e `fetch_for_league` nunca era chamado. O `recompute!` diário ainda fazia TRUNCATE + full scan de `detail_json` (~100 MB/dia) pra produzir zero linhas — removido do orchestrator. A pergunta que ela responderia ("taxa-base desta liga") tem resposta melhor em `lib/calibracao/market-accuracy.ts`, dos resultados REAIS reconciliados; o proxy via `streaks` errava até 14pp. Schema mantido (migrations são append-only). | — |
 | `fixture_simulations` | **Motor estatístico**: Poisson + Dixon-Coles + Monte Carlo 10k → escalares `p_*` + `sim_stats jsonb` (gols/BTTS/corners/cards/SOT por time/tempo — chave **`sot`**, nunca `shots_on_target`). Colunas `actual_*` populadas pelo reconciler **via choistats** (B19), `actual_data_source`, `model_version` (**v8** desde 29/07 — `SeasonAvgs`, ver B50). `model_version` entra na chave de dedup, então versões coexistem e o histórico sobrevive a bumps. | service_role |
 | `ai_predictions` | Predição estruturada pré-jogo (winner+over) reconciliada (legado copilot, alimenta Brier). | service_role |
@@ -317,7 +348,7 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 
 4. **ADR-004 — Supabase Free tier with HTTPS-only access from local dev** — _2026-05-12_ — The local dev network blocks TCP 5432/6543 outbound (common BR ISP filter). Migrations are applied via Supabase Management API `/v1/projects/{ref}/database/query` (HTTPS:443) until the network is unblocked. GitHub Actions runners have no such filter, so the scraper connects via the pooler in production. Local Next.js dev works because `@supabase/ssr` uses HTTPS PostgREST, not raw TCP.
 
-5. **ADR-005 — Dashboard de stats por fixture: chart libs e visualização** — _2026-05-13_ — Para `/fixtures/[id]/stats` (11 painéis denso "Trading Terminal + Stadium Wall"), decisão de stack: **recharts** 2.15 (sparkline, radar 6-axis, scatter min×eff, line multi-series, ranking) + **lightweight-charts** 4.2.3 (séries temporais densas — PPG rolling, booking_points trend) + **CSS Grid puro** (heatmap de streaks de 109-194 entries × 10 grupos) + **Tailwind v4 container queries** (responsive layout sem media queries). Insights derivados server-side via `simple-statistics` + `regression` (correlações r ≥ 0.5, trends por regressão linear, padrões condicionais, outliers ≥ 2σ) — não vão pra bundle client. **Rejeitadas:** ECharts (60+ KB gzip; overkill), Nivo (D3 wrapper pesado), Chart.js (sem SSR-friendly radar), react-financial-charts (especializado em candlesticks), react-grid-layout + dnd-kit (drag-resize fora de escopo MVP), react-window (substituído por `@tanstack/react-virtual` que já estava no projeto). DuckDB-WASM permanece exclusivo de `/explore`. **Bundle delta:** +186.9 KB gzip num único chunk dedicado `/fixtures/[id]/stats` — **estourou o budget conservador de +150 KB gzip por ~37 KB**; aceito como não-blocking porque a rota é dedicada (lazy por route), não impacta entry points (login, fixtures list, dashboard, betting flow), e usuário só baixa o chunk com intenção explícita de ver stats. Follow-up condicional registrado: se Lighthouse Performance < 85 ou LCP > 2.5s em real-device test pós-deploy, splittar painéis via `next/dynamic` (ganho esperado -30 a -60 KB no first paint). Fundamentação completa em `docs/pesquisas/dashboard-stats-fixture-arquitetura.md` §10 e medições empíricas em `docs/tasks/dashboard-stats-fixture/bundle-report.md`.
+5. **ADR-005 — Dashboard de stats por fixture: chart libs e visualização** — _2026-05-13_ — **(nota 2026-07-30: a rota `/fixtures/[id]/stats` hoje é só um `redirect` legado — o dashboard virou a própria `/fixtures/[id]`. As libs e o bundle descritos aqui vivem lá.)** Para `/fixtures/[id]/stats` (11 painéis denso "Trading Terminal + Stadium Wall"), decisão de stack: **recharts** 2.15 (sparkline, radar 6-axis, scatter min×eff, line multi-series, ranking) + **lightweight-charts** 4.2.3 (séries temporais densas — PPG rolling, booking_points trend) + **CSS Grid puro** (heatmap de streaks de 109-194 entries × 10 grupos) + **Tailwind v4 container queries** (responsive layout sem media queries). Insights derivados server-side via `simple-statistics` + `regression` (correlações r ≥ 0.5, trends por regressão linear, padrões condicionais, outliers ≥ 2σ) — não vão pra bundle client. **Rejeitadas:** ECharts (60+ KB gzip; overkill), Nivo (D3 wrapper pesado), Chart.js (sem SSR-friendly radar), react-financial-charts (especializado em candlesticks), react-grid-layout + dnd-kit (drag-resize fora de escopo MVP), react-window (substituído por `@tanstack/react-virtual` que já estava no projeto). DuckDB-WASM permanece exclusivo de `/explore`. **Bundle delta:** +186.9 KB gzip num único chunk dedicado `/fixtures/[id]/stats` — **estourou o budget conservador de +150 KB gzip por ~37 KB**; aceito como não-blocking porque a rota é dedicada (lazy por route), não impacta entry points (login, fixtures list, dashboard, betting flow), e usuário só baixa o chunk com intenção explícita de ver stats. Follow-up condicional registrado: se Lighthouse Performance < 85 ou LCP > 2.5s em real-device test pós-deploy, splittar painéis via `next/dynamic` (ganho esperado -30 a -60 KB no first paint). Fundamentação completa em `docs/pesquisas/dashboard-stats-fixture-arquitetura.md` §10 e medições empíricas em `docs/tasks/dashboard-stats-fixture/bundle-report.md`.
 
 6. **ADR-006 — Simulação pré-jogo: força-de-temporada + Dixon-Coles + Monte Carlo, computada no scraper Ruby, schema próprio** — _2026-05-18_ — Simulação pré-jogo pré-computada por fixture (placar + todas as stats por time/tempo + camada por jogador com **provável escalação**). Decisão: modelo = força ataque/defesa de temporada (blocos `*Avgs` do choistats, `numMatches` 17-37 — já são as forças, **sem MLE global**) normalizada pela liga → Poisson + correção **Dixon-Coles τ** (ρ prior calibrável); **Negative Binomial** p/ stats overdispersas (escanteios/cartões); **Monte Carlo 10k → só escalares**; shrinkage **condicional** a `numMatches` baixo; alocação de eventos por jogador (provável XI por `started`/`minutes`, excl. `injured`). Computado **no scraper Ruby pós-persist** (Worker só lê escalares — protege contra a classe de outage 1101, ver B12/B14/B15); schema **`fixture_simulations` próprio** (migration `0018`, escalar + jsonb pequeno, RLS service-role-only, sem FK rígida — não estende `ai_predictions`/0016, ortogonal); odds devigadas (multiplicativo) + `outcomeOdds` por jogador como **âncora de validação não-circular, nunca input**. **Re-scrape tardio de escalação: NÃO no MVP** (Opção A — projeção do histórico, rotulada "provável escalação"; Opção B = follow-up condicional ao Brier dos `player_events`). Pré-requisito compartilhado: enriquecer `WidgetMerger` (6 itens descartados hoje) — beneficia simulação **e** o dashboard de stats (ADR-005). Fundamentação: `docs/pesquisas/simulacao-pre-jogo-fixtures.md` (L3 v0.3, research-critic real 2 rodadas: v0.1 REPROVADA, v0.2 APROVADA C/ RESSALVAS, v0.3 ressalvas aplicadas). Decomposição/execução: `docs/tasks/simulacao-pre-jogo-fixtures/00-plan.md`. **Status: IMPLEMENTADO e mergeado na `main` (2026-05-18) via subagent-driven paralelo em worktrees** — T0 POC (`093c43d`) ‖ T1 fundação-gate (`f70dac2`); T2 motor+`0018`+hook (`0181ec9`) ‖ T3 dashboard (`2c4ebab`); T4 calibração/`brierScore`/reconciler (`0635cc8`) ‖ T5 guard generalizado (`903ac41`). Cada task passou por TDD + review adversarial em 2 etapas (spec-compliance → code-quality) com loop de fix; gate combinado verde a cada merge (RSpec scraper 350/0/1 · Vitest 675 · lint 0 · typecheck). **Pendência operacional (gated ao Pilot):** aplicar a migration `0018_fixture_simulations.sql` no Postgres de produção — o hook do orchestrator é warning-safe (Lição A5), então prod permanece saudável sem ela (simulação degrada para "indisponível" até a migration ser aplicada); aplicação via Management API depende da rotação do PAT Supabase exposto (pendência de segurança pré-existente).
 

@@ -4,6 +4,7 @@ import {
   applyTemperatureVector,
   fitTemperature,
   TEMPERATURE_GRID,
+  temperatureHeldOutGate,
 } from "./temperature";
 
 describe("applyTemperature", () => {
@@ -167,5 +168,70 @@ describe("applyTemperatureVector — mercados multi-classe (1x2)", () => {
   it("normaliza vetor que não soma 1 na entrada", () => {
     const out = applyTemperatureVector([0.6, 0.6, 0.6], 1);
     out.forEach((v) => expect(v).toBeCloseTo(1 / 3, 9));
+  });
+});
+
+/**
+ * Gate out-of-sample para o T.
+ *
+ * POR QUE (revisão por personas, 2026-07-30): `fit-temperature.ts` fitava o T e
+ * media o ganho de log-loss na MESMA amostra do fit — e persistia se `n≥300`.
+ * Um parâmetro livre ajustado e avaliado no mesmo conjunto SEMPRE melhora o
+ * log-loss; isso não diz nada sobre generalizar. É a assinatura exata do
+ * episódio que gerou a regra B24 (backtest sem leakage deu ROI negativo em 10
+ * de 10 cenários que pareciam ótimos in-sample).
+ *
+ * O `fit-isotonic.ts` ganhou esse gate em 29/07, depois de descobrir curvas
+ * ativas PIORES que o dado cru. O irmão que roda no mesmo cron não tinha.
+ *
+ * Maioria sobre 5 cortes temporais, não um split só: as diferenças aqui são da
+ * ordem do ruído amostral, e um corte único inverte o veredito conforme a
+ * fatia — decisão instável com aparência de rigor.
+ */
+describe("temperatureHeldOutGate", () => {
+  /** Gera pontos onde a probabilidade é sistematicamente ESTICADA. */
+  function esticados(n: number): Array<[number, number]> {
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < n; i++) {
+      // real ~0.5, modelo diz 0.9 ou 0.1 alternando: superconfiança clássica
+      const pModelo = i % 2 === 0 ? 0.9 : 0.1;
+      const ocorreu = i % 4 === 0 || i % 4 === 1 ? 1 : 0;
+      pts.push([pModelo, ocorreu]);
+    }
+    return pts;
+  }
+
+  /** Modelo já calibrado: o T não tem o que consertar. */
+  function calibrados(n: number): Array<[number, number]> {
+    const pts: Array<[number, number]> = [];
+    for (let i = 0; i < n; i++) pts.push([0.5, i % 2]);
+    return pts;
+  }
+
+  it("aprova o T quando ele melhora em dado NÃO visto", () => {
+    const g = temperatureHeldOutGate(esticados(600));
+    expect(g.keep).toBe(true);
+    expect(g.tempered).toBeLessThan(g.raw);
+  });
+
+  it("reprova quando não há ganho fora da amostra", () => {
+    const g = temperatureHeldOutGate(calibrados(600));
+    expect(g.keep).toBe(false);
+  });
+
+  it("sem amostra pra dividir, reprova — sem evidência não calibra", () => {
+    const g = temperatureHeldOutGate(esticados(20));
+    expect(g.keep).toBe(false);
+    expect(g.nTest).toBe(0);
+  });
+
+  it("reporta a amostra de teste usada", () => {
+    const g = temperatureHeldOutGate(esticados(600));
+    expect(g.nTest).toBeGreaterThan(0);
+  });
+
+  it("é determinístico — mesma entrada, mesmo veredito", () => {
+    const pts = esticados(600);
+    expect(temperatureHeldOutGate(pts)).toEqual(temperatureHeldOutGate(pts));
   });
 });
