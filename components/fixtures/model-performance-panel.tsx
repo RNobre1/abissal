@@ -59,7 +59,45 @@ function headline(markets: MarketAccuracy[]): string {
   return partes.join(" · ") || "sem destaque claro nesta liga";
 }
 
-export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null }) {
+/**
+ * O que a simulação DESTE jogo chamou, por mercado. Vem de `anchoredCall`.
+ * `side: null` = em cima do muro — a linha existe, mas não há aposta.
+ */
+export interface GameCall {
+  market: string;
+  line: number;
+  side: "over" | "under" | null;
+}
+
+/**
+ * Liga o histórico (medido POR LINHA) ao jogo aberto.
+ *
+ * Três estados, e o terceiro é o que importa: quando o jogo ancorou numa linha
+ * DIFERENTE da medida, o número da tabela não se aplica — são medições de
+ * linhas distintas. Dizer isso em voz alta é mais honesto do que deixar o
+ * usuário assumir que "cartões 75%" vale pro jogo que chamou 5.5.
+ */
+function marcaDoJogo(
+  m: MarketAccuracy,
+  gameCalls: GameCall[] | undefined,
+): { texto: string; mesma: boolean } | null {
+  if (!gameCalls?.length || m.line === null) return null;
+  const c = gameCalls.find((g) => g.market === m.market);
+  if (!c || c.side === null) return null;
+  if (c.line === m.line) return { texto: "este jogo", mesma: true };
+  return {
+    texto: `este jogo: ${c.side === "under" ? "menos" : "mais"} de ${c.line}`,
+    mesma: false,
+  };
+}
+
+export function ModelPerformancePanel({
+  perf,
+  gameCalls,
+}: {
+  perf: LeaguePerformance | null;
+  gameCalls?: GameCall[];
+}) {
   if (!perf || perf.markets.length === 0) return null;
 
   const from = shortDate(perf.window.from);
@@ -122,7 +160,9 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
           </tr>
         </thead>
         <tbody>
-          {perf.markets.map((m) => (
+          {perf.markets.map((m) => {
+            const marca = marcaDoJogo(m, gameCalls);
+            return (
             <tr
               key={`${m.market}-${m.line ?? "x"}`}
               title={`IC95 ${pct(m.ci95.lo)}–${pct(m.ci95.hi)} · chutar sempre o lado mais comum acerta ${pct(m.baseRate)}`}
@@ -132,6 +172,20 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
                 {m.line !== null && m.dominantSide ? (
                   <span className="label block leading-tight text-[var(--color-ink-faint)]">
                     {m.dominantSide === "under" ? "menos de" : "mais de"} {m.line}
+                  </span>
+                ) : null}
+                {marca ? (
+                  <span
+                    data-game-call={m.market}
+                    data-same-line={marca.mesma ? "1" : "0"}
+                    className={`label mt-0.5 block leading-tight ${
+                      marca.mesma
+                        ? "text-[var(--color-ink-muted)]"
+                        : "text-[var(--color-ink-faint)]"
+                    }`}
+                  >
+                    {marca.mesma ? "◂ " : ""}
+                    {marca.texto}
                   </span>
                 ) : null}
               </td>
@@ -148,7 +202,8 @@ export function ModelPerformancePanel({ perf }: { perf: LeaguePerformance | null
                 {pp(m.lift)}
               </td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
 

@@ -111,14 +111,24 @@ export async function getLeaguePerformance(
   league: string | null,
   modelVersion: string | null,
   supabase: AnySupabase,
+  /**
+   * k já buscado pelo caller. A página do jogo precisa do MESMO k pra calcular
+   * as chamadas daquele jogo e pra tabela da simulação — injetar evita a
+   * segunda ida a `model_calibration` no mesmo request (o Worker deste projeto
+   * já caiu por peso: B12/B21/B23) e garante que as superfícies não divirjam.
+   * Ausente ⇒ busca normalmente.
+   */
+  injectedDistK?: DistKMap,
 ): Promise<LeaguePerformance | null> {
   if (!league) return null;
 
-  let distK: DistKMap = {};
-  try {
-    distK = await getDistK(modelVersion ?? "", supabase);
-  } catch {
-    distK = {};
+  let distK: DistKMap = injectedDistK ?? {};
+  if (!injectedDistK) {
+    try {
+      distK = await getDistK(modelVersion ?? "", supabase);
+    } catch {
+      distK = {};
+    }
   }
 
   const rows = await fetchRows(supabase, league, LEAGUE_LIMIT);

@@ -119,6 +119,38 @@ export function marketCall(
   return { side: null, prob };
 }
 
+/**
+ * A chamada de UM jogo: em qual linha canônica a projeção ancora, e que lado
+ * ela pede ali. Ancorar = escolher a linha que a casa de fato ofereceria, isto
+ * é, a mais próxima do total projetado.
+ *
+ * Extraída de `signalFor` (que devolve strings prontas de UI) porque o painel
+ * de desempenho por liga precisa do dado cru: ele mede acerto POR LINHA, então
+ * só pode dizer "este jogo" quando o jogo ancorou na MESMA linha medida.
+ * Cruzar "cartões mais de 3.5 · 75%" com um jogo que ancorou em 5.5 seria
+ * juntar duas medições distintas e apresentar como se fossem uma.
+ *
+ * `side: null` = em cima do muro; a linha continua sendo informada, porque
+ * "onde ancorou" é útil mesmo sem convicção.
+ */
+export function anchoredCall(
+  simStats: unknown,
+  metric: CountMarket,
+  distK?: DistKMap,
+): { line: number; side: "over" | "under" | null; prob: number } | null {
+  const lines = MARKET_LINES[metric];
+  if (!lines) return null;
+  const mean = countTotalMean(simStats, metric);
+  if (mean === null) return null;
+
+  const line = lines.reduce((best, l) =>
+    Math.abs(l - mean) < Math.abs(best - mean) ? l : best,
+  );
+  const { side, prob } = marketCall(simStats, metric, line, distK);
+  if (prob === null) return null;
+  return { line, side, prob };
+}
+
 /** O total real passou da linha? `null` quando o actual não está disponível. */
 export function countOutcome(
   row: AccuracyRow,

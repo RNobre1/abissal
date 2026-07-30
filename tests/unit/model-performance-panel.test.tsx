@@ -132,3 +132,75 @@ describe("affordance de expansão", () => {
     expect(summary.textContent).toMatch(/toque para ver/i);
   });
 });
+
+/**
+ * A ponte entre o painel (histórico da liga, medido POR LINHA) e o jogo aberto.
+ *
+ * Sem isso o número era um fato solto: o Pilot via "cartões · mais de 3.5 ·
+ * 75%" e não tinha como saber se o jogo na tela tinha chamado essa mesma linha
+ * ou outra. E quando ancora em outra, o 75% simplesmente NÃO se aplica — são
+ * medições de linhas diferentes, não do mesmo mercado.
+ */
+describe("ModelPerformancePanel · chamada do jogo aberto", () => {
+  it("marca a linha que ESTE jogo chamou quando bate com a medida", () => {
+    const { container } = render(
+      <ModelPerformancePanel
+        perf={perf()}
+        gameCalls={[{ market: "corners", line: 9.5, side: "under" }]}
+      />,
+    );
+    expect(container.textContent).toMatch(/este jogo/i);
+  });
+
+  it("avisa quando o jogo ancorou em OUTRA linha (o número não se aplica)", () => {
+    const { container } = render(
+      <ModelPerformancePanel
+        perf={perf()}
+        gameCalls={[{ market: "corners", line: 10.5, side: "over" }]}
+      />,
+    );
+    // precisa dizer a linha do jogo, não só "difere"
+    expect(container.textContent).toMatch(/10\.5/);
+    expect(container.textContent).not.toMatch(/este jogo chamou esta linha/i);
+  });
+
+  it("não marca nada quando o jogo não chamou aquele mercado", () => {
+    const { container } = render(
+      <ModelPerformancePanel perf={perf()} gameCalls={[]} />,
+    );
+    expect(container.textContent).not.toMatch(/este jogo/i);
+  });
+
+  it("não marca quando o jogo ficou em cima do muro (side null)", () => {
+    const { container } = render(
+      <ModelPerformancePanel
+        perf={perf()}
+        gameCalls={[{ market: "corners", line: 9.5, side: null }]}
+      />,
+    );
+    expect(container.textContent).not.toMatch(/este jogo/i);
+  });
+
+  it("marca a linha certa quando há vários mercados", () => {
+    const p = perf({
+      markets: [
+        market(),
+        market({ market: "cards", shortLabel: "cartões", line: 3.5, dominantSide: "over" }),
+      ],
+    });
+    const { container } = render(
+      <ModelPerformancePanel
+        perf={p}
+        gameCalls={[{ market: "cards", line: 3.5, side: "over" }]}
+      />,
+    );
+    const linhas = [...container.querySelectorAll("tbody tr")];
+    expect(linhas[0].textContent).not.toMatch(/este jogo/i);
+    expect(linhas[1].textContent).toMatch(/este jogo/i);
+  });
+
+  it("segue funcionando sem gameCalls (prop opcional)", () => {
+    const { container } = render(<ModelPerformancePanel perf={perf()} />);
+    expect(container.querySelectorAll("tbody tr").length).toBe(1);
+  });
+});
