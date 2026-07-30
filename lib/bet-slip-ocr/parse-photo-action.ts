@@ -13,11 +13,18 @@
  * Erros são normalizados em ParsePhotoResult.ok=false para exibição amigável.
  */
 
-import { parseBetSlipImage, OcrParseError } from "./gemini-vision";
+import {
+  parseBetSlipImage,
+  OcrParseError,
+  type GeminiAttemptLog,
+} from "./gemini-vision";
 import { matchFixture, type MatchResult } from "./match-fixture";
 import type { ParsedLeg } from "./schema";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isAiEnabled } from "@/lib/settings/ai-toggle";
+import { recordLlmRequest } from "@/lib/llm-logs";
+import { computeCostUsd } from "@/lib/ai-reco/pricing";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -42,6 +49,40 @@ export interface ParsePhotoResult {
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
+
+// ── OCR observability (item 4a) ───────────────────────────────────────────────
+
+/**
+ * Constrói o logger de tentativas do Gemini. O insert em `llm_request_logs`
+ * exige service_role (não há policy de INSERT pra authenticated); se o admin
+ * client não puder ser criado (env ausente em dev/test), retorna undefined e
+ * o OCR segue sem logging.
+ */
+function buildOcrAttemptLogger(): ((a: GeminiAttemptLog) => void) | undefined {
+  let sink: Parameters<typeof recordLlmRequest>[0] | null = null;
+  try {
+    sink = createAdminClient() as unknown as Parameters<typeof recordLlmRequest>[0];
+  } catch {
+    return undefined;
+  }
+  const admin = sink;
+  return (a: GeminiAttemptLog) => {
+    const hasTokens = a.promptTokens !== null || a.completionTokens !== null;
+    void recordLlmRequest(admin, {
+      route: "ocr",
+      fixture_id: null,
+      model: a.model,
+      latency_ms: a.latencyMs,
+      prompt_tokens: a.promptTokens,
+      completion_tokens: a.completionTokens,
+      total_tokens: a.totalTokens,
+      cost_usd: hasTokens
+        ? computeCostUsd(a.model, a.promptTokens ?? 0, a.completionTokens ?? 0)
+        : null,
+      error: a.error,
+    });
+  };
+}
 
 // ── Action ────────────────────────────────────────────────────────────────────
 
@@ -96,8 +137,13 @@ export async function parseBetSlipPhoto(
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // 3. Parsear via Gemini Vision
-    const parsed = await parseBetSlipImage(buffer);
+    // 3. Parsear via Gemini Vision, logando CADA tentativa em
+    // `llm_request_logs` (route='ocr' — item 4a): sem isso o custo/erro do
+    // OCR era invisível em /llm-observability. Best-effort: admin client
+    // indisponível ou insert falhando jamais quebram o OCR.
+    const parsed = await parseBetSlipImage(buffer, {
+      onAttempt: buildOcrAttemptLogger(),
+    });
 
     // 4a. Bet Builder: single-game multi-market — redirect ao /bilhete/builder
     if (parsed.is_bet_builder === true) {
