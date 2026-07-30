@@ -30,6 +30,13 @@ vi.mock("@/lib/bet-slip-ocr/parse-photo-action", () => ({
   parseBetSlipPhoto: (fd: FormData) => mockParseBetSlipPhoto(fd),
 }));
 
+// F6: o componente também importa a action de texto — mock pra não arrastar
+// a cadeia server-side (supabase/server) pro teste de componente.
+const mockParseBetSlipText = vi.fn<(input: { text: string }) => Promise<ParsePhotoResult>>();
+vi.mock("@/lib/bet-slip-ocr/parse-text-action", () => ({
+  parseBetSlipText: (input: { text: string }) => mockParseBetSlipText(input),
+}));
+
 const mockAddLegToSlip = vi.fn().mockResolvedValue({ slipId: 1, legId: 1 });
 vi.mock("@/lib/bet-slip/actions", () => ({
   addLegToSlip: (...args: unknown[]) => mockAddLegToSlip(...args),

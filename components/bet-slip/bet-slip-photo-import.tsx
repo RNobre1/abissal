@@ -14,12 +14,25 @@
  *  - bilhete_foto_legs_corrected — no click "Adicionar", conta legs editadas
  *  - bilhete_foto_committed  — após addLegToSlip com sucesso para todas as legs
  *  - bilhete_foto_failed     — em qualquer caminho de falha (stage + error_kind)
+ *
+ * F6 — fallback de TEXTO LIVRE quando o parse da foto falha por CONTEÚDO
+ * (unreadable, no-legs-found, invalid-json, gemini-error — não nos gates):
+ * o usuário descreve o bilhete, parseBetSlipText estrutura e o fluxo segue
+ * na MESMA tela de revisão. Também acessível pelo link "prefiro digitar".
+ * Telemetria: bilhete_texto_submitted / bilhete_texto_parsed_success (com
+ * recovered_from_photo — o KPI da feature) / bilhete_texto_failed.
  */
 
 import { useRef, useState } from "react";
 import { Camera } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { parseBetSlipPhoto, type ParsedLegWithMatch } from "@/lib/bet-slip-ocr/parse-photo-action";
+import {
+  parseBetSlipPhoto,
+  type ParsePhotoErrorKind,
+  type ParsePhotoResult,
+  type ParsedLegWithMatch,
+} from "@/lib/bet-slip-ocr/parse-photo-action";
+import { parseBetSlipText } from "@/lib/bet-slip-ocr/parse-text-action";
 import { addLegToSlip } from "@/lib/bet-slip/actions";
 import {
   CONFIDENCE_AUTO_LINK,
@@ -46,7 +59,20 @@ type ImportState =
   | "uploading"
   | "confirming"
   | "saving"
-  | "error";
+  | "error"
+  | "text-entry";
+
+/**
+ * F6: falhas de CONTEÚDO do parse de foto — o texto livre é um conserto
+ * plausível. Falhas de GATE (no-session, ai-disabled, invalid-mime,
+ * too-large) não ganham o fallback: o conserto é outro.
+ */
+const TEXT_FALLBACK_ERROR_KINDS: ReadonlySet<ParsePhotoErrorKind> = new Set([
+  "unreadable",
+  "no-legs-found",
+  "invalid-json",
+  "gemini-error",
+]);
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
@@ -60,6 +86,12 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     house_detected: string | null;
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // F6: categoria da falha de foto (decide se o fallback de texto aparece)
+  const [errorKind, setErrorKind] = useState<ParsePhotoErrorKind | null>(null);
+  // F6: entrada de texto livre (fallback + "prefiro digitar")
+  const [textValue, setTextValue] = useState("");
+  const [textError, setTextError] = useState<string | null>(null);
+  const [textSubmitting, setTextSubmitting] = useState(false);
   // Track which leg indices were edited during the confirmation step
   const editedLegsRef = useRef<Set<number>>(new Set());
 
@@ -70,6 +102,40 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
 
   function handleButtonClick() {
     inputRef.current?.click();
+  }
+
+  /**
+   * Entra na tela de revisão de legs a partir de um slip parseado — MESMO
+   * caminho pro fluxo de foto e pro de texto (F6). Retorna as legs
+   * auto-linkadas pra telemetria do caller.
+   */
+  function enterConfirming(slip: NonNullable<ParsePhotoResult["slip"]>): {
+    editableLegs: EditableLeg[];
+    legsAutoLinked: number;
+  } {
+    const editableLegs: EditableLeg[] = slip.legs.map((leg) => ({
+      parsed: leg.parsed,
+      match: leg.match,
+      odd_taken: String(leg.parsed.odd_taken),
+      fixtureOverride: null,
+    }));
+
+    const legsAutoLinked = editableLegs.filter(
+      (leg) => leg.match.best !== null && leg.match.best.confidence >= CONFIDENCE_AUTO_LINK,
+    ).length;
+
+    setLegs(editableLegs);
+    setSlipMeta({
+      stake_total: slip.stake_total,
+      odd_combined: slip.odd_combined,
+      house_detected: slip.house_detected,
+    });
+    setError(null);
+    setErrorKind(null);
+    setTextError(null);
+    setState("confirming");
+
+    return { editableLegs, legsAutoLinked };
   }
 
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -98,6 +164,8 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     if (!result.ok) {
       setState("error");
       setError(result.error ?? "Erro desconhecido ao processar imagem.");
+      // F6: falha de conteúdo → o painel de erro ganha o fallback de texto
+      setErrorKind(result.error_kind ?? null);
       // N4: bilhete_foto_failed — parse stage. `error_kind` agora é a
       // categoria ESTRUTURADA (item 4c: invalid-mime, gemini-error,
       // invalid-json, no-legs-found, unreadable, …), com fallback pra
@@ -122,6 +190,7 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     if (!result.slip) {
       setState("error");
       setError("Erro desconhecido ao processar imagem.");
+      setErrorKind(null);
       track("bilhete_foto_failed", {
         stage: "parse",
         error_kind: "no_slip",
@@ -129,27 +198,79 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
       return;
     }
 
-    const editableLegs: EditableLeg[] = result.slip.legs.map((leg) => ({
-      parsed: leg.parsed,
-      match: leg.match,
-      odd_taken: String(leg.parsed.odd_taken),
-      fixtureOverride: null,
-    }));
-
-    const legsAutoLinked = editableLegs.filter(
-      (leg) => leg.match.best !== null && leg.match.best.confidence >= CONFIDENCE_AUTO_LINK,
-    ).length;
-
-    setLegs(editableLegs);
-    setSlipMeta({
-      stake_total: result.slip.stake_total,
-      odd_combined: result.slip.odd_combined,
-      house_detected: result.slip.house_detected,
-    });
-    setState("confirming");
+    const { editableLegs, legsAutoLinked } = enterConfirming(result.slip);
 
     // N4: bilhete_foto_parsed_success
     track("bilhete_foto_parsed_success", {
+      legs_count: editableLegs.length,
+      house_detected: result.slip.house_detected ?? undefined,
+      legs_auto_linked: legsAutoLinked,
+      legs_manual_needed: editableLegs.length - legsAutoLinked,
+    });
+  }
+
+  /** F6: abre a entrada de texto direta (link "prefiro digitar"). */
+  function handleOpenTextEntry() {
+    setState("text-entry");
+    setTextError(null);
+  }
+
+  /**
+   * F6: submit da descrição livre. `recoveredFromPhoto` = o usuário veio de
+   * uma falha de parse de foto (KPI da feature).
+   */
+  async function handleTextSubmit(recoveredFromPhoto: boolean) {
+    const text = textValue.trim();
+    if (text.length === 0 || textSubmitting) return;
+
+    setTextSubmitting(true);
+    setTextError(null);
+
+    track("bilhete_texto_submitted", {
+      recovered_from_photo: recoveredFromPhoto,
+      text_length: text.length,
+    });
+
+    const result = await parseBetSlipText({ text });
+    setTextSubmitting(false);
+
+    if (!result.ok) {
+      // Mensagem acionável no próprio painel; o usuário edita e tenta de novo.
+      setTextError(result.error ?? "Erro desconhecido ao processar a descrição.");
+      track("bilhete_texto_failed", {
+        recovered_from_photo: recoveredFromPhoto,
+        error_kind: result.error_kind ?? "unknown",
+        error_message: result.error ?? undefined,
+      });
+      return;
+    }
+
+    // Bet Builder detectado no texto — mesmo redirect do fluxo de foto
+    if (result.redirect_to) {
+      track("bilhete_texto_parsed_success", {
+        recovered_from_photo: recoveredFromPhoto,
+        bet_builder: true,
+      });
+      router.push(result.redirect_to);
+      return;
+    }
+
+    if (!result.slip) {
+      setTextError("Erro desconhecido ao processar a descrição.");
+      track("bilhete_texto_failed", {
+        recovered_from_photo: recoveredFromPhoto,
+        error_kind: "no_slip",
+      });
+      return;
+    }
+
+    // Sucesso → MESMA tela de revisão de legs do fluxo de foto
+    editedLegsRef.current = new Set();
+    const { editableLegs, legsAutoLinked } = enterConfirming(result.slip);
+    setTextValue("");
+
+    track("bilhete_texto_parsed_success", {
+      recovered_from_photo: recoveredFromPhoto,
       legs_count: editableLegs.length,
       house_detected: result.slip.house_detected ?? undefined,
       legs_auto_linked: legsAutoLinked,
@@ -231,6 +352,9 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
     setLegs([]);
     setSlipMeta(null);
     setError(null);
+    setErrorKind(null);
+    setTextValue("");
+    setTextError(null);
     editedLegsRef.current = new Set();
   }
 
@@ -243,6 +367,48 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
+
+  /**
+   * F6: formulário de texto livre — o MESMO nos dois contextos (dentro do
+   * painel de erro da foto, com recovered_from_photo:true; e no painel
+   * "prefiro digitar", com false). Só o texto-guia muda.
+   */
+  function renderTextFallbackForm(recoveredFromPhoto: boolean, prompt: string) {
+    return (
+      <div className="flex flex-col gap-2">
+        <label
+          htmlFor="bet-slip-text-fallback"
+          className="label text-[var(--color-ink-muted)]"
+        >
+          {prompt}
+        </label>
+        <textarea
+          id="bet-slip-text-fallback"
+          aria-label="Descrição do bilhete"
+          rows={3}
+          maxLength={2000}
+          value={textValue}
+          onChange={(e) => setTextValue(e.target.value)}
+          disabled={textSubmitting}
+          placeholder="Ex.: Flamengo x Palmeiras, casa vence, odd 2.10, R$ 50 na Superbet"
+          className="label w-full resize-y rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-transparent px-2 py-1.5 text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)] focus:border-[var(--color-vermelho)] focus:outline-none disabled:opacity-60"
+        />
+        {textError ? (
+          <p role="alert" className="label text-[var(--color-warning)]">
+            {textError}
+          </p>
+        ) : null}
+        <button
+          type="button"
+          onClick={() => void handleTextSubmit(recoveredFromPhoto)}
+          disabled={textSubmitting || textValue.trim().length === 0}
+          className="label rounded-[var(--radius-sm)] border border-[var(--color-vermelho)] px-3 py-2 text-[var(--color-vermelho)] hover:bg-[var(--color-vermelho)] hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {textSubmitting ? "Montando..." : "Montar do texto"}
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>
@@ -271,6 +437,16 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
         <span>Importar foto</span>
       </button>
 
+      {/* F6: entrada direta por texto — link discreto, sempre acessível */}
+      <button
+        type="button"
+        onClick={handleOpenTextEntry}
+        disabled={state === "uploading" || state === "saving"}
+        className="label px-1 py-1 text-[var(--color-ink-faint)] underline decoration-dotted underline-offset-2 hover:text-[var(--color-ink)] disabled:opacity-50"
+      >
+        prefiro digitar
+      </button>
+
       {/* Error inline (state=error) — ancorado ACIMA da MobileBottomNav (z-50)
           via bottom-[calc(5rem+env(safe-area-inset-bottom))]. z-60 garante
           que cobre a nav, não fica atrás. */}
@@ -280,12 +456,42 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
           className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-[60] flex flex-col gap-2 rounded-t-[var(--radius)] bg-[var(--color-surface-2)] p-4 shadow-lg lg:bottom-auto lg:inset-auto lg:right-4 lg:top-16 lg:w-80 lg:rounded-[var(--radius)]"
         >
           <p className="label text-[var(--color-warning)]">{error}</p>
+          {/* F6: falha de CONTEÚDO → oferece o caminho do texto livre, em vez
+              de deixar o usuário num beco sem saída ("tenta outra foto"). */}
+          {errorKind !== null && TEXT_FALLBACK_ERROR_KINDS.has(errorKind)
+            ? renderTextFallbackForm(
+                true,
+                "Sem problema — descreve o bilhete aqui (times, mercado, odd, valor)",
+              )
+            : null}
           <button
             type="button"
             onClick={handleDiscard}
             className="label text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
           >
             Fechar
+          </button>
+        </div>
+      ) : null}
+
+      {/* F6: painel de entrada direta por texto ("prefiro digitar") */}
+      {state === "text-entry" ? (
+        <div
+          role="dialog"
+          aria-label="Descrever bilhete por texto"
+          className="fixed inset-x-0 bottom-[calc(5rem+env(safe-area-inset-bottom,0px))] z-[60] flex flex-col gap-2 rounded-t-[var(--radius)] bg-[var(--color-surface-2)] p-4 shadow-lg lg:bottom-auto lg:inset-auto lg:right-4 lg:top-16 lg:w-80 lg:rounded-[var(--radius)]"
+        >
+          {renderTextFallbackForm(
+            false,
+            "Descreve o bilhete (times, mercado, odd, valor)",
+          )}
+          <button
+            type="button"
+            onClick={handleDiscard}
+            disabled={textSubmitting}
+            className="label text-center text-[var(--color-ink-faint)] hover:text-[var(--color-ink-muted)] disabled:opacity-60"
+          >
+            Cancelar
           </button>
         </div>
       ) : null}
