@@ -7,6 +7,9 @@ export const MODEL_PRICING_USD_PER_1M_TOKENS = {
   "deepseek/deepseek-r1": { in: 0.55, out: 2.19 },
   "deepseek/deepseek-v3.2": { in: 0.27, out: 1.10 },
   "anthropic/claude-sonnet-4.5": { in: 3.00, out: 15.00 },
+  // OCR de bilhete (Gemini Vision via OpenRouter) — consultado 2026-07-30.
+  // O fallback `google/gemini-2.5-flash-lite:free` é gratuito (ausente ⇒ 0).
+  "google/gemini-2.5-flash": { in: 0.30, out: 2.50 },
 } as const;
 
 export function computeCostUsd(

@@ -60,10 +60,28 @@ import { isAiEnabled } from "@/lib/settings/ai-toggle";
  *       docs/superpowers/plans/2026-05-24-ai-recomendador-plan.md Wave 3
  */
 
-export const maxDuration = 100;
+/**
+ * Request honesto (Pacote B, item 2): o p95 real do R1 on-demand é 153s e o
+ * maxDuration=100 anterior matava o request ANTES do percentil ruim por
+ * construção. 300s cobre o p99 com folga. `maxDuration` é hint do
+ * Next/OpenNext — no Worker CF não há wall-clock timeout com o cliente
+ * conectado (ADR-002). Sem fila/background job: o request segue síncrono;
+ * a honestidade de UX vem do client (timer real + polling de recuperação).
+ */
+export const maxDuration = 300;
 
 const RECO_VERSION = "reco-v1";
 const ROUTE_LABEL = "ai-reco-on-demand";
+/**
+ * Janela de idempotência do on-demand (Pacote B, item 1). Telemetria real
+ * mostrou 49 cliques → 36 respostas: o client desconecta antes do p95 do R1
+ * (153s) e o usuário re-clica — cada clique pagava uma chamada LLM nova para
+ * o MESMO fixture. Reco não-forced com mesmo (fixture, prompt_version,
+ * llm_model) dentro desta janela é devolvida como {cached:true} sem LLM.
+ * 24h cobre o ciclo de vida útil de um fixture pré-jogo (retenção ~4 dias,
+ * análise só interessa até o KO).
+ */
+const CACHE_WINDOW_MS = 24 * 60 * 60 * 1000;
 /**
  * Threshold mínimo de edge_pct (após blending) pra virar bet candidate.
  * Histórico:
@@ -200,6 +218,47 @@ export async function POST(request: Request): Promise<Response> {
 
   // Derivar choistats id do source_url via shared utility.
   choistatsId = parseChoistatsId(fixture.source_url);
+
+  // ---------------------------------------------------------------------------
+  // 2b. Idempotency cache — ANTES de qualquer trabalho caro (sim, odds, LLM).
+  // Reco não-forced recente com o mesmo (fixture, prompt_version, llm_model)
+  // é devolvida direto: N cliques = 1 chamada LLM. `force: true` bypassa
+  // (o botão "forçar análise" existe justamente pra pedir uma rodada nova).
+  // Skips não entram no cache: llm_model deles é "(no-llm-call)".
+  // ---------------------------------------------------------------------------
+  const onDemandModel = env.AI_RECO_MODEL_ONDEMAND;
+  if (!force) {
+    const cached = await findCachedReco({
+      supabase,
+      fixtureId: choistatsId ?? fixture.id,
+      model: onDemandModel,
+    });
+    if (cached) {
+      return NextResponse.json(
+        {
+          cached: true,
+          decision: {
+            verdict: cached.verdict,
+            market: cached.market,
+            side: cached.side,
+            prob_estimated: cached.prob_estimated,
+            units_final: cached.units_final,
+            kelly_pre: cached.kelly_pre,
+            reduction_reason: cached.reduction_reason,
+            confidence: cached.confidence,
+            summary_line: cached.summary_line,
+            reasoning: cached.reasoning_full,
+            red_flags: cached.red_flags ?? [],
+          },
+          reco_id: cached.id,
+          logId: cached.llm_log_id,
+          costUsd: 0,
+          latencyMs: 0,
+        },
+        { status: 200 },
+      );
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // 3. Simulation + odds extraction
@@ -362,10 +421,10 @@ export async function POST(request: Request): Promise<Response> {
 
   // On-demand path uses AI_RECO_MODEL_ONDEMAND. 2026-05-25 (decisão de
   // produto): revertido pra `deepseek/deepseek-r1` (mesmo modelo do batch
-  // noturno) por consistência. Trade-off conhecido: latência síncrona ~40s
-  // p50 (R1 reasoning). UI mostra spinner "analisando — pode levar até 1
-  // min" pra setar expectativa.
-  const model = env.AI_RECO_MODEL_ONDEMAND;
+  // noturno) por consistência. Trade-off conhecido: latência síncrona lenta
+  // (p95 real 153s — R1 reasoning); a UI mostra timer decorrido + "pode
+  // levar de 1 a 3 minutos" e recupera via polling do GET se desconectar.
+  const model = onDemandModel;
 
   const promptCandidates: PromptCandidate[] = betCandidates.map((c) => ({
     market: c.market,
@@ -476,9 +535,137 @@ export async function POST(request: Request): Promise<Response> {
   );
 }
 
+/**
+ * GET /api/ai-reco/compute?fixtureId= — status barato da análise on-demand.
+ *
+ * Responde APENAS escalares: existe reco não-forced recente para
+ * (fixtureId → choistats id, PROMPT_VERSION atual, AI_RECO_MODEL_ONDEMAND)?
+ * Usado pelo polling de recuperação do client: se o fetch do POST morrer com
+ * o server ainda processando (Worker CF segue até o fim — ADR-002), o client
+ * consulta aqui a cada ~10s e, quando a reco aparecer, faz router.refresh().
+ */
+export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const fixtureIdRaw = url.searchParams.get("fixtureId");
+  const fixtureId = Number(fixtureIdRaw);
+  if (!fixtureIdRaw || !Number.isInteger(fixtureId) || fixtureId <= 0) {
+    return NextResponse.json(
+      { error: "fixtureId query param must be a positive integer" },
+      { status: 400 },
+    );
+  }
+
+  // Auth gate — mesmo padrão do POST (leitura barata, mas dado gated).
+  try {
+    const serverClient = (await createClient()) as AnySupabase;
+    const { data: { user } = { user: null } } = await serverClient.auth.getUser();
+    if (!user?.id) {
+      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  } catch {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+  }
+
+  const supabase = createAdminClient() as AnySupabase;
+
+  let fixture: { id: number; source_url: string | null } | null = null;
+  try {
+    const { data, error } = await supabase
+      .from("fixtures")
+      .select("id, source_url")
+      .eq("id", fixtureId)
+      .maybeSingle();
+    if (error) {
+      return NextResponse.json(
+        { error: "database error", details: error.message },
+        { status: 500 },
+      );
+    }
+    fixture = data as { id: number; source_url: string | null } | null;
+  } catch (err) {
+    return NextResponse.json(
+      { error: "fixture lookup failed", details: String(err) },
+      { status: 500 },
+    );
+  }
+
+  if (!fixture) {
+    return NextResponse.json({ error: "fixture not found" }, { status: 404 });
+  }
+
+  const choistatsId = parseChoistatsId(fixture.source_url);
+  const cached = await findCachedReco({
+    supabase,
+    fixtureId: choistatsId ?? fixture.id,
+    model: env.AI_RECO_MODEL_ONDEMAND,
+  });
+
+  return NextResponse.json(
+    {
+      exists: cached !== null,
+      reco_id: cached?.id ?? null,
+      verdict: cached?.verdict ?? null,
+      created_at: cached?.created_at ?? null,
+    },
+    { status: 200 },
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+interface CachedRecoRow {
+  id: number;
+  verdict: string;
+  market: string | null;
+  side: string | null;
+  prob_estimated: number | null;
+  units_final: number | null;
+  kelly_pre: number | null;
+  reduction_reason: string | null;
+  confidence: string | null;
+  summary_line: string | null;
+  reasoning_full: string | null;
+  red_flags: string[] | null;
+  llm_log_id: number | null;
+  created_at: string;
+}
+
+/**
+ * Busca a reco on-demand "cacheada": não-forced, mesmo fixture (id-space
+ * choistats), mesmo PROMPT_VERSION e mesmo llm_model, criada dentro de
+ * CACHE_WINDOW_MS. Skips não colidem (llm_model = "(no-llm-call)").
+ * Defensivo: qualquer erro/exceção degrada pra cache-miss (nunca bloqueia
+ * a análise por falha do lookup).
+ */
+async function findCachedReco(args: {
+  supabase: AnySupabase;
+  fixtureId: number;
+  model: string;
+}): Promise<CachedRecoRow | null> {
+  try {
+    const cutoff = new Date(Date.now() - CACHE_WINDOW_MS).toISOString();
+    const { data, error } = await args.supabase
+      .from("ai_recommendations")
+      .select(
+        "id, verdict, market, side, prob_estimated, units_final, kelly_pre, reduction_reason, confidence, summary_line, reasoning_full, red_flags, llm_log_id, created_at",
+      )
+      .eq("fixture_id", args.fixtureId)
+      .eq("prompt_version", PROMPT_VERSION)
+      .eq("llm_model", args.model)
+      .eq("forced", false)
+      .gte("created_at", cutoff)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data as CachedRecoRow;
+  } catch {
+    // Mock/tabela/coluna ausente ou transient — segue pro fluxo normal.
+    return null;
+  }
+}
 
 /**
  * Extracts the 7 markets do `detail_json.odds_summary`.

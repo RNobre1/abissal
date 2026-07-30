@@ -25,12 +25,29 @@ const FALLBACK_MODEL = "google/gemini-2.5-flash-lite:free";
 const DEFAULT_REFERER = "https://abissal.rnobre.dev";
 const DEFAULT_TITLE = "Abissal";
 
+/**
+ * Taxonomia estruturada de falha do OCR (Pacote B, item 4c) — torna o funil
+ * diagnosticável (21 fotos → 14 falhas eram indistinguíveis):
+ *  - "gemini-error":   upstream falhou (HTTP non-2xx / config) — culpa do serviço;
+ *  - "invalid-json":   o modelo devolveu prosa/JSON quebrado;
+ *  - "no-legs-found":  JSON válido mas sem nenhuma seleção detectada;
+ *  - "unreadable":     JSON com legs mas fora do schema (leitura parcial ruim).
+ */
+export type OcrErrorKind =
+  | "gemini-error"
+  | "invalid-json"
+  | "no-legs-found"
+  | "unreadable";
+
 export class OcrParseError extends Error {
   cause: unknown;
-  constructor(message: string, cause?: unknown) {
+  /** Categoria estruturada da falha; default "unreadable" (pior caso de foto). */
+  kind: OcrErrorKind;
+  constructor(message: string, cause?: unknown, kind: OcrErrorKind = "unreadable") {
     super(message);
     this.name = "OcrParseError";
     this.cause = cause;
+    this.kind = kind;
   }
 }
 
@@ -66,9 +83,42 @@ Bet Builder / Criar Aposta:
 - Indicadores típicos: header "Criar Aposta" ou "Bet Builder", vários mercados todos do mesmo jogo (mesmo home/away), 1 só odd visível no total do bilhete.
 - Nesses casos, deixe odd_taken: null em cada leg — a odd combinada vai em odd_combined (campo raiz do slip).`;
 
+/**
+ * Log de UMA tentativa de OCR (Pacote B, item 4a). Emitido via
+ * `ParseBetSlipOptions.onAttempt` para cada chamada real ao OpenRouter
+ * (primária e retry), com o que der pra medir: latência sempre; tokens
+ * quando o payload traz `usage`; `error` null no sucesso.
+ */
+export interface GeminiAttemptLog {
+  model: string;
+  latencyMs: number;
+  promptTokens: number | null;
+  completionTokens: number | null;
+  totalTokens: number | null;
+  /** null = tentativa OK; senão categoria/descrição curta da falha. */
+  error: string | null;
+}
+
+/**
+ * Variante TOLERANTE do prompt (Pacote B, item 4b) — usada só no retry, após
+ * a 1ª tentativa falhar o parse. Instrui a extrair o que conseguir e marcar
+ * campos incertos como null em vez de desistir com legs vazias.
+ */
+const TOLERANT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+MODO TOLERANTE (retry — a primeira leitura falhou). Extraia o que conseguir:
+- Prefira devolver legs PARCIAIS a devolver legs vazias: inclua a leg mesmo que só home/away/market/side estejam legíveis.
+- Qualquer campo ilegível, cortado ou incerto: use null (NUNCA invente valores).
+- Só retorne legs: [] se nem os nomes dos times forem legíveis.`;
+
 export interface ParseBetSlipOptions {
   model?: string;
   signal?: AbortSignal;
+  /**
+   * Observabilidade: chamado uma vez POR tentativa (best-effort — exceções
+   * do callback são engolidas; logging nunca quebra o parse).
+   */
+  onAttempt?: (log: GeminiAttemptLog) => void;
 }
 
 /**
@@ -88,7 +138,11 @@ function bufferToDataUrl(buf: Buffer): string {
 /**
  * Build the OpenRouter request body for a given model and image data-URL.
  */
-function buildRequestBody(model: string, dataUrl: string): Record<string, unknown> {
+function buildRequestBody(
+  model: string,
+  dataUrl: string,
+  systemPrompt: string = SYSTEM_PROMPT,
+): Record<string, unknown> {
   return {
     model,
     temperature: 0,
@@ -96,7 +150,7 @@ function buildRequestBody(model: string, dataUrl: string): Record<string, unknow
     messages: [
       {
         role: "system",
-        content: SYSTEM_PROMPT,
+        content: systemPrompt,
       },
       {
         role: "user",
@@ -115,48 +169,128 @@ function buildRequestBody(model: string, dataUrl: string): Record<string, unknow
   };
 }
 
-/**
- * Call OpenRouter with the given model and image, returning a raw parsed JSON object.
- * Throws on non-2xx responses (network/auth errors — no retry).
- */
-async function callOpenRouter(
+interface OpenRouterUsage {
+  prompt_tokens?: number;
+  completion_tokens?: number;
+  total_tokens?: number;
+}
+
+interface AttemptFailure {
+  /** Categoria da falha de parse desta tentativa. */
+  reason: Extract<OcrErrorKind, "invalid-json" | "no-legs-found" | "unreadable">;
+  cause: unknown;
+}
+
+type AttemptResult = { slip: ParsedSlip } | { failure: AttemptFailure };
+
+/** Best-effort emit do log da tentativa — exceções do callback são engolidas. */
+function emitAttempt(
+  onAttempt: ((log: GeminiAttemptLog) => void) | undefined,
   model: string,
-  dataUrl: string,
-  apiKey: string,
-  signal?: AbortSignal,
-): Promise<unknown> {
-  const res = await fetch(ENDPOINT, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-      "HTTP-Referer": DEFAULT_REFERER,
-      "X-Title": DEFAULT_TITLE,
-    },
-    body: JSON.stringify(buildRequestBody(model, dataUrl)),
-    signal,
-  });
+  startedMs: number,
+  usage: OpenRouterUsage | null,
+  error: string | null,
+): void {
+  if (!onAttempt) return;
+  try {
+    onAttempt({
+      model,
+      latencyMs: Date.now() - startedMs,
+      promptTokens: usage?.prompt_tokens ?? null,
+      completionTokens: usage?.completion_tokens ?? null,
+      totalTokens: usage?.total_tokens ?? null,
+      error,
+    });
+  } catch {
+    // logging nunca quebra o parse
+  }
+}
+
+/** JSON válido mas com `legs: []` — cupom sem seleções detectadas. */
+function hasEmptyLegs(raw: unknown): boolean {
+  return (
+    typeof raw === "object" &&
+    raw !== null &&
+    Array.isArray((raw as Record<string, unknown>).legs) &&
+    ((raw as Record<string, unknown>).legs as unknown[]).length === 0
+  );
+}
+
+/**
+ * Uma tentativa completa: chamada OpenRouter + parse + validação de schema.
+ * - Erros de rede/abort e HTTP non-2xx são LANÇADOS (sem retry — comportamento
+ *   histórico preservado), com a tentativa logada via onAttempt.
+ * - Falha de parse/validação retorna `{ failure }` pro caller decidir o retry.
+ */
+async function attemptOnce(args: {
+  model: string;
+  dataUrl: string;
+  apiKey: string;
+  systemPrompt: string;
+  signal?: AbortSignal;
+  onAttempt?: (log: GeminiAttemptLog) => void;
+}): Promise<AttemptResult> {
+  const { model, dataUrl, apiKey, systemPrompt, signal, onAttempt } = args;
+  const started = Date.now();
+
+  let res: Response;
+  try {
+    res = await fetch(ENDPOINT, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": DEFAULT_REFERER,
+        "X-Title": DEFAULT_TITLE,
+      },
+      body: JSON.stringify(buildRequestBody(model, dataUrl, systemPrompt)),
+      signal,
+    });
+  } catch (err) {
+    emitAttempt(onAttempt, model, started, null, err instanceof Error ? err.message : String(err));
+    throw err;
+  }
 
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    throw new OcrParseError(`OpenRouter error ${res.status}: ${body}`);
+    emitAttempt(onAttempt, model, started, null, `OpenRouter error ${res.status}`);
+    throw new OcrParseError(`OpenRouter error ${res.status}: ${body}`, undefined, "gemini-error");
   }
 
   const json = (await res.json()) as {
     choices?: Array<{ message?: { content?: string } }>;
+    usage?: OpenRouterUsage;
   };
+  const usage = json.usage ?? null;
 
   const content = json.choices?.[0]?.message?.content ?? "";
   // Strip markdown fences if model wraps in ```json ... ```
   const cleaned = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/, "").trim();
-  return JSON.parse(cleaned);
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(cleaned);
+  } catch (err) {
+    emitAttempt(onAttempt, model, started, usage, "invalid-json");
+    return { failure: { reason: "invalid-json", cause: err } };
+  }
+
+  const parsed = ParsedSlipSchema.safeParse(raw);
+  if (parsed.success) {
+    emitAttempt(onAttempt, model, started, usage, null);
+    return { slip: parsed.data };
+  }
+
+  const reason = hasEmptyLegs(raw) ? "no-legs-found" : "unreadable";
+  emitAttempt(onAttempt, model, started, usage, reason);
+  return { failure: { reason, cause: parsed.error } };
 }
 
 /**
  * Parse a bet slip image and return a structured ParsedSlip.
  *
  * @param image - Buffer (binary image) or data-URL string ("data:image/...;base64,...")
- * @param opts  - Optional model override and AbortSignal
+ * @param opts  - Optional model override, AbortSignal and onAttempt logger
  * @throws OcrParseError if both primary and fallback models fail to return valid data
  */
 export async function parseBetSlipImage(
@@ -165,47 +299,47 @@ export async function parseBetSlipImage(
 ): Promise<ParsedSlip> {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
-    throw new OcrParseError("OPENROUTER_API_KEY not set");
+    throw new OcrParseError("OPENROUTER_API_KEY not set", undefined, "gemini-error");
   }
 
   const dataUrl = Buffer.isBuffer(image) ? bufferToDataUrl(image) : image;
   const primaryModel = opts?.model ?? PRIMARY_MODEL;
 
   // ── Primary attempt ───────────────────────────────────────────────────────
-  let primaryError: unknown;
-  try {
-    const raw = await callOpenRouter(primaryModel, dataUrl, apiKey, opts?.signal);
-    const parsed = ParsedSlipSchema.safeParse(raw);
-    if (parsed.success) {
-      return parsed.data;
-    }
-    primaryError = parsed.error;
-  } catch (err) {
-    // Network / HTTP errors — do NOT retry, rethrow immediately
-    if (err instanceof OcrParseError && err.message.startsWith("OpenRouter error")) {
-      throw err;
-    }
-    // JSON.parse failure — treat as validation failure and try fallback
-    primaryError = err;
-  }
+  const first = await attemptOnce({
+    model: primaryModel,
+    dataUrl,
+    apiKey,
+    systemPrompt: SYSTEM_PROMPT,
+    signal: opts?.signal,
+    onAttempt: opts?.onAttempt,
+  });
+  if ("slip" in first) return first.slip;
 
   // ── Fallback attempt (only when primary returned bad/non-schema JSON) ─────
   // Only retry with fallback if no custom model was specified
   if (opts?.model) {
-    throw new OcrParseError("OCR parse failed with custom model", primaryError);
+    throw new OcrParseError(
+      "OCR parse failed with custom model",
+      first.failure.cause,
+      first.failure.reason,
+    );
   }
 
-  try {
-    const raw = await callOpenRouter(FALLBACK_MODEL, dataUrl, apiKey, opts?.signal);
-    const parsed = ParsedSlipSchema.safeParse(raw);
-    if (parsed.success) {
-      return parsed.data;
-    }
-    throw new OcrParseError("OCR parse failed on fallback model too", parsed.error);
-  } catch (err) {
-    if (err instanceof OcrParseError) {
-      throw err;
-    }
-    throw new OcrParseError("OCR parse failed on fallback model too", err);
-  }
+  // Retry único (item 4b): modelo fallback + variante de prompt tolerante.
+  const second = await attemptOnce({
+    model: FALLBACK_MODEL,
+    dataUrl,
+    apiKey,
+    systemPrompt: TOLERANT_SYSTEM_PROMPT,
+    signal: opts?.signal,
+    onAttempt: opts?.onAttempt,
+  });
+  if ("slip" in second) return second.slip;
+
+  throw new OcrParseError(
+    "OCR parse failed on fallback model too",
+    second.failure.cause,
+    second.failure.reason,
+  );
 }
