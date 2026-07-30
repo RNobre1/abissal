@@ -6,7 +6,8 @@ import { createClient } from "@/lib/supabase/server";
 /**
  * Persiste o dismiss de um destaque pelo usuário autenticado.
  * Idempotente: ON CONFLICT (user_id, fixture_id) DO NOTHING.
- * Revalida a raiz "/" para sumir o item da seção Destaques do dia.
+ * Revalida "/" e "/painel" (onde a seção Destaques do dia vive) para o
+ * item sumir imediatamente.
  */
 export async function dismissAlert(fixtureId: number): Promise<void> {
   const supabase = await createClient();
@@ -32,4 +33,5 @@ export async function dismissAlert(fixtureId: number): Promise<void> {
   );
 
   revalidatePath("/");
+  revalidatePath("/painel");
 }
