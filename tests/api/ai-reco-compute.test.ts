@@ -74,8 +74,10 @@ interface MockState {
   simRow: SimRow | null;
   calibrationRows: CalibrationRow[];
   calibratedLeagueRows: Array<{ league: string }>;
-  bankrollRow: { current_balance: number } | { balance: number } | null;
+  bankrollRow: { total_balance: number | string } | null;
   bankrollError: { message: string } | null;
+  /** Filtros .eq(...) aplicados na query de bankroll (daily_pl_view). */
+  bankrollEqCalls: Array<[string, unknown]>;
   llmLogInsertId: number | null;
   llmLogInsertError: { message: string } | null;
   recoInsertId: number | null;
@@ -95,6 +97,7 @@ const mockState: MockState = {
   calibratedLeagueRows: [],
   bankrollRow: null,
   bankrollError: null,
+  bankrollEqCalls: [],
   llmLogInsertId: 999,
   llmLogInsertError: null,
   recoInsertId: 888,
@@ -114,6 +117,7 @@ function resetMock() {
   mockState.calibratedLeagueRows = [];
   mockState.bankrollRow = null;
   mockState.bankrollError = null;
+  mockState.bankrollEqCalls = [];
   mockState.llmLogInsertId = 999;
   mockState.llmLogInsertError = null;
   mockState.recoInsertId = 888;
@@ -194,10 +198,17 @@ function buildAdminMock() {
         return chain;
       }
 
-      // --- bankroll source (banca_snapshots — degrades gracefully) ---
-      if (table === "banca_snapshots" || table === "balance_snapshots") {
+      // --- bankroll source (daily_pl_view sobre balance_snapshots — item 3
+      // do Pacote A: a tabela fantasma banca_snapshots NÃO existe; a leitura
+      // real é a view agregada, escopada por user_id porque o client é admin
+      // e ignora RLS) ---
+      if (table === "daily_pl_view") {
         const chain: Record<string, unknown> = {};
         chain.select = () => chain;
+        chain.eq = (col: string, val: unknown) => {
+          mockState.bankrollEqCalls.push([col, val]);
+          return chain;
+        };
         chain.order = () => chain;
         chain.limit = () => chain;
         chain.maybeSingle = () =>
@@ -536,6 +547,33 @@ describe("POST /api/ai-reco/compute — happy path", () => {
     expect(mockState.insertedLlmLog!.route).toBe("ai-reco-on-demand");
     expect(mockState.insertedReco).not.toBeNull();
     expect(mockState.insertedReco!.verdict).toBe("bet");
+  });
+
+  it("lê o bankroll de daily_pl_view ESCOPADO pelo user da sessão (client admin ignora RLS)", async () => {
+    mockState.fixtureRow = makeFixtureRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
+    mockState.bankrollRow = { total_balance: 2500 };
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    // Regressão (Pacote A item 3): antes lia a tabela FANTASMA banca_snapshots
+    // (não existe) e caía sempre no fallback R$ 1.000. Agora lê a view real e,
+    // por ser client admin (sem RLS), o filtro por user_id é obrigatório.
+    expect(mockState.bankrollEqCalls).toContainEqual([
+      "user_id",
+      "default-test-user",
+    ]);
   });
 
   it("returns skip path when no candidates have edge >= 20%", async () => {

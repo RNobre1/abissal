@@ -132,12 +132,16 @@ export async function POST(request: Request): Promise<Response> {
   // ---------------------------------------------------------------------------
   // 1b. Auth gate -- expensive LLM call; only the authenticated user can trigger
   // ---------------------------------------------------------------------------
+  // Guardado também pra escopar leituras user-scoped feitas com o client
+  // admin (service_role ignora RLS — ver guard multiuser-isolation).
+  let viewerId: string;
   try {
     const serverClient = (await createClient()) as AnySupabase;
     const { data: { user } = { user: null } } = await serverClient.auth.getUser();
     if (!user?.id) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
     }
+    viewerId = user.id;
   } catch {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -231,7 +235,7 @@ export async function POST(request: Request): Promise<Response> {
   // ---------------------------------------------------------------------------
   // 4. Bankroll (defensive query → env → fallback)
   // ---------------------------------------------------------------------------
-  const bankroll = await loadBankroll(supabase);
+  const bankroll = await loadBankroll(supabase, viewerId);
 
   // ---------------------------------------------------------------------------
   // 5. Isotonic lookup from active curves
@@ -619,31 +623,36 @@ function summarizeH2h(h2h: unknown): string {
 }
 
 /**
- * Tries to read the latest bankroll from a `banca_snapshots` view (if
- * exposed). If the table/view does not exist, the supabase mock errors out,
- * or the row is missing, falls back to ENV `AI_RECO_BANKROLL` and then to
- * `DEFAULT_BANKROLL` (1000). Never throws.
+ * Reads the caller's latest bankroll from `daily_pl_view` (sum of
+ * `balance_snapshots.balance` across houses per day — item 3 do Pacote A:
+ * antes lia a tabela FANTASMA `banca_snapshots`, que nunca existiu, e caía
+ * sempre no fallback R$ 1.000, deixando o Kelly sobre banca fictícia).
+ *
+ * MULTI-USUÁRIO: `supabase` aqui é o client admin (service_role, ignora
+ * RLS) e `balance_snapshots` é user-scoped — o `.eq("user_id", ...)` é
+ * OBRIGATÓRIO (guard em tests/unit/multiuser-isolation-guard.test.ts).
+ *
+ * Falls back to ENV `AI_RECO_BANKROLL` and then to `DEFAULT_BANKROLL`
+ * (1000) on missing view/row/error. Never throws.
  */
-async function loadBankroll(supabase: AnySupabase): Promise<number> {
+async function loadBankroll(
+  supabase: AnySupabase,
+  userId: string,
+): Promise<number> {
   try {
     const { data, error } = await supabase
-      .from("banca_snapshots")
-      .select("current_balance")
-      .order("created_at", { ascending: false })
+      .from("daily_pl_view")
+      .select("snapshot_date, total_balance")
+      .eq("user_id", userId)
+      .order("snapshot_date", { ascending: false })
       .limit(1)
       .maybeSingle();
     if (!error && data) {
-      const cb = (data as Record<string, unknown>).current_balance;
-      if (typeof cb === "number" && Number.isFinite(cb) && cb > 0) {
-        return cb;
-      }
-      const b = (data as Record<string, unknown>).balance;
-      if (typeof b === "number" && Number.isFinite(b) && b > 0) {
-        return b;
-      }
+      const tb = Number((data as Record<string, unknown>).total_balance);
+      if (Number.isFinite(tb) && tb > 0) return tb;
     }
   } catch {
-    // table missing or transient — degrade
+    // view missing or transient — degrade
   }
   const envBankroll = Number(process.env.AI_RECO_BANKROLL);
   if (Number.isFinite(envBankroll) && envBankroll > 0) return envBankroll;
