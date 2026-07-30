@@ -6,7 +6,7 @@ require_relative '../../lib/scraper/persister'
 require_relative '../../lib/scraper/fixture'
 require_relative '../../lib/scraper/uk_time_helper'
 
-RSpec.describe AdamStats::Scraper::Persister do
+RSpec.describe AdamStats::Scraper::Persister, :db do
   before(:all) do
     ENV['DATABASE_URL'] = DBHelper.test_url
     ScraperDBHelper.ensure_schema!

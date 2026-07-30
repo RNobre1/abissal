@@ -761,7 +761,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
     end
   end
 
-  describe "#{described_class}'s upsert idempotence (real test DB)" do
+  describe "#{described_class}'s upsert idempotence (real test DB)", :db do
     let(:described_hook) { AdamStats::Scraper::SimulationHook }
 
     before(:all) do

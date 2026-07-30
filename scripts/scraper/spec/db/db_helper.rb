@@ -25,6 +25,28 @@ module DBHelper
     PG.connect(test_url)
   end
 
+  # O Postgres de teste está de pé? Memoizado — uma tentativa por processo,
+  # não uma por exemplo.
+  #
+  # POR QUE (2026-07-30): sem o container, `PG.connect` levantava
+  # `PG::ConnectionBad` dentro do `before(:all)` e os 31 specs de integração
+  # FALHAVAM. A suíte local ficava permanentemente vermelha, e "31 falhas" virou
+  # ruído de fundo que se aprende a ignorar — o que é exatamente o mecanismo que
+  # deixa uma falha NOVA passar despercebida (foi preciso filtrar as falhas por
+  # arquivo pra saber se uma mudança tinha quebrado algo). Um teste que não pode
+  # rodar deve PULAR, nunca falhar: falha significa "o código está errado".
+  def available?
+    return @available unless @available.nil?
+
+    @available = begin
+      conn = PG.connect(test_url)
+      conn.close
+      true
+    rescue PG::Error, StandardError
+      false
+    end
+  end
+
   def reset_schema!
     conn = connect
     conn.query('DROP TABLE IF EXISTS league_baselines CASCADE')
