@@ -96,7 +96,9 @@ const OCR_ERROR_MESSAGES: Record<
  * client não puder ser criado (env ausente em dev/test), retorna undefined e
  * o OCR segue sem logging.
  */
-function buildOcrAttemptLogger(): ((a: GeminiAttemptLog) => void) | undefined {
+function buildOcrAttemptLogger():
+  | { onAttempt: (a: GeminiAttemptLog) => void; flush: () => Promise<void> }
+  | undefined {
   let sink: Parameters<typeof recordLlmRequest>[0] | null = null;
   try {
     sink = createAdminClient() as unknown as Parameters<typeof recordLlmRequest>[0];
@@ -104,21 +106,38 @@ function buildOcrAttemptLogger(): ((a: GeminiAttemptLog) => void) | undefined {
     return undefined;
   }
   const admin = sink;
-  return (a: GeminiAttemptLog) => {
+  // Inserts pendentes: a action AGUARDA todos via flush() antes de retornar.
+  // Fire-and-forget num Worker CF mata o insert quando o request encerra
+  // (lição já paga no /auto UX overhaul) — e era exatamente a observabilidade
+  // que este logging veio criar. Cada promise já engole o próprio erro
+  // (best-effort: logging jamais quebra o OCR).
+  const pending: Array<Promise<void>> = [];
+  const onAttempt = (a: GeminiAttemptLog) => {
     const hasTokens = a.promptTokens !== null || a.completionTokens !== null;
-    void recordLlmRequest(admin, {
-      route: "ocr",
-      fixture_id: null,
-      model: a.model,
-      latency_ms: a.latencyMs,
-      prompt_tokens: a.promptTokens,
-      completion_tokens: a.completionTokens,
-      total_tokens: a.totalTokens,
-      cost_usd: hasTokens
-        ? computeCostUsd(a.model, a.promptTokens ?? 0, a.completionTokens ?? 0)
-        : null,
-      error: a.error,
-    });
+    pending.push(
+      recordLlmRequest(admin, {
+        route: "ocr",
+        fixture_id: null,
+        model: a.model,
+        latency_ms: a.latencyMs,
+        prompt_tokens: a.promptTokens,
+        completion_tokens: a.completionTokens,
+        total_tokens: a.totalTokens,
+        cost_usd: hasTokens
+          ? computeCostUsd(a.model, a.promptTokens ?? 0, a.completionTokens ?? 0)
+          : null,
+        error: a.error,
+      }).then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+  };
+  return {
+    onAttempt,
+    flush: async () => {
+      await Promise.all(pending);
+    },
   };
 }
 
@@ -132,6 +151,7 @@ function buildOcrAttemptLogger(): ((a: GeminiAttemptLog) => void) | undefined {
 export async function parseBetSlipPhoto(
   formData: FormData,
 ): Promise<ParsePhotoResult> {
+  const ocrLogger = buildOcrAttemptLogger();
   try {
     const supabase = await createClient();
 
@@ -193,7 +213,7 @@ export async function parseBetSlipPhoto(
     // OCR era invisível em /llm-observability. Best-effort: admin client
     // indisponível ou insert falhando jamais quebram o OCR.
     const parsed = await parseBetSlipImage(buffer, {
-      onAttempt: buildOcrAttemptLogger(),
+      onAttempt: ocrLogger?.onAttempt,
     });
 
     // 4a. Bet Builder: single-game multi-market — redirect ao /bilhete/builder
@@ -272,5 +292,10 @@ export async function parseBetSlipPhoto(
     }
     const msg = err instanceof Error ? err.message : String(err);
     return { ok: false, error_kind: "unexpected", error: `Erro inesperado: ${msg}` };
+  } finally {
+    // Aguarda os inserts de log pendentes ANTES do request encerrar —
+    // inclusive nos caminhos de erro (as tentativas com erro são justamente
+    // as mais importantes de registrar).
+    await ocrLogger?.flush();
   }
 }

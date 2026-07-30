@@ -70,6 +70,12 @@ describe("<OportunidadeIaCard />", () => {
     expect(screen.getByText(/0\.5u/)).toBeInTheDocument();
   });
 
+  it("edge negativo (reco forced) não renderiza '+-'", () => {
+    render(<OportunidadeIaCard reco={{ ...SAMPLE_RECO, edge_pct: -3.2 }} />);
+    expect(screen.getByText(/-3\.2%/)).toBeInTheDocument();
+    expect(screen.queryByText(/\+-3\.2%/)).not.toBeInTheDocument();
+  });
+
   it("botão '+ bilhete' está HABILITADO (Wave M mergeada — sem bloqueio fantasma)", () => {
     render(<OportunidadeIaCard reco={SAMPLE_RECO} />);
     const btn = screen.getByRole("button", { name: /bilhete/i });

@@ -147,6 +147,9 @@ function buildAdminMock() {
         // .select().eq()...gte().order().limit().maybeSingle().
         const c: Record<string, unknown> = {};
         let inserted = false;
+        // Filtros .eq() deste chain: usados pra honrar o valor filtrado
+        // quando a linha mockada carrega o campo (ex.: llm_model do skip).
+        const chainEqs: Array<[string, unknown]> = [];
         c.insert = (payload: Record<string, unknown>) => {
           mockState.insertedRecos.push(payload);
           inserted = true;
@@ -155,6 +158,7 @@ function buildAdminMock() {
         c.select = () => c;
         c.eq = (col: string, val: unknown) => {
           mockState.cacheFilters.push([col, val]);
+          chainEqs.push([col, val]);
           return c;
         };
         c.gte = (col: string, val: unknown) => {
@@ -164,12 +168,16 @@ function buildAdminMock() {
         c.order = () => c;
         c.limit = () => c;
         c.single = () => Promise.resolve({ data: { id: 888 }, error: null });
-        c.maybeSingle = () =>
-          Promise.resolve(
-            inserted
-              ? { data: { id: 888 }, error: null }
-              : { data: mockState.cachedRecoRow, error: null },
-          );
+        c.maybeSingle = () => {
+          if (inserted) return Promise.resolve({ data: { id: 888 }, error: null });
+          const row = mockState.cachedRecoRow as
+            | (CachedRecoRow & Record<string, unknown>)
+            | null;
+          const matches =
+            row !== null &&
+            chainEqs.every(([col, val]) => !(col in row) || row[col] === val);
+          return Promise.resolve({ data: matches ? row : null, error: null });
+        };
         return c;
       }
       throw new Error(`unexpected table: ${table}`);
@@ -445,6 +453,24 @@ describe("GET /api/ai-reco/compute — status probe", () => {
     expect(body.reco_id).toBe(777);
     expect(body.verdict).toBe("bet");
     expect(typeof body.created_at).toBe("string");
+  });
+
+  it("enxerga um desfecho SKIP (llm_model '(no-llm-call)') — o polling de recuperação não pode mandar re-pagar uma análise que completou", async () => {
+    // Skips persistem com llm_model="(no-llm-call)", não com o modelo
+    // on-demand — o GET precisa consultar os dois, senão o client em polling
+    // conclui "não apareceu" para uma análise que JÁ terminou em skip.
+    mockState.fixtureRow = makeFixture();
+    mockState.cachedRecoRow = {
+      ...makeCachedReco(),
+      verdict: "skip",
+      llm_model: "(no-llm-call)",
+    } as never;
+
+    const res = await callGet("?fixtureId=42");
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { exists: boolean; verdict: string | null };
+    expect(body.exists).toBe(true);
+    expect(body.verdict).toBe("skip");
   });
 
   it("returns exists:false when there is no cached reco", async () => {

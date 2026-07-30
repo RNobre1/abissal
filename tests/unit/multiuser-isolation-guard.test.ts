@@ -35,6 +35,10 @@ const TABELAS_DE_USUARIO = [
   "transactions",
   "houses",
   "balance_snapshots",
+  // view security_invoker que agrega balance_snapshots e expõe user_id —
+  // lida via admin client no compute route e na página de fixture, onde o
+  // filtro explícito é a única barreira entre as contas.
+  "daily_pl_view",
   "disciplina_settings",
   "audit_log",
   "bet_events",

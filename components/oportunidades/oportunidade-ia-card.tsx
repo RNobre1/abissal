@@ -45,7 +45,9 @@ export function OportunidadeIaCard({ reco }: OportunidadeIaCardProps) {
 
   const enriched: string[] = [];
   if (typeof reco.edge_pct === "number") {
-    enriched.push(`+${reco.edge_pct.toFixed(1)}%`);
+    // Recos forced podem ter edge negativo — sem o sinal condicional sairia "+-3.2%".
+    const sinal = reco.edge_pct >= 0 ? "+" : "";
+    enriched.push(`${sinal}${reco.edge_pct.toFixed(1)}%`);
   }
   if (typeof odd_captured === "number") {
     enriched.push(`@${odd_captured.toFixed(2)}`);

@@ -82,6 +82,9 @@ const ROUTE_LABEL = "ai-reco-on-demand";
  * análise só interessa até o KO).
  */
 const CACHE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+/** llm_model persistido em skips sem chamada LLM (edge table vazia). */
+const NO_LLM_CALL_MODEL = "(no-llm-call)";
 /**
  * Threshold mínimo de edge_pct (após blending) pra virar bet candidate.
  * Histórico:
@@ -594,11 +597,21 @@ export async function GET(request: Request): Promise<Response> {
   }
 
   const choistatsId = parseChoistatsId(fixture.source_url);
-  const cached = await findCachedReco({
-    supabase,
-    fixtureId: choistatsId ?? fixture.id,
-    model: env.AI_RECO_MODEL_ONDEMAND,
-  });
+  const cached =
+    (await findCachedReco({
+      supabase,
+      fixtureId: choistatsId ?? fixture.id,
+      model: env.AI_RECO_MODEL_ONDEMAND,
+    })) ??
+    // Skips persistem com llm_model NO_LLM_CALL_MODEL, não com o modelo
+    // on-demand. Sem esta segunda consulta o polling de recuperação nunca
+    // enxerga um desfecho skip e manda o usuário re-pagar uma análise que
+    // JÁ completou.
+    (await findCachedReco({
+      supabase,
+      fixtureId: choistatsId ?? fixture.id,
+      model: NO_LLM_CALL_MODEL,
+    }));
 
   return NextResponse.json(
     {
@@ -991,7 +1004,7 @@ async function persistSkip(args: {
         kickoff_utc: args.fixture.kickoff_utc,
         reco_version: RECO_VERSION,
         prompt_version: PROMPT_VERSION,
-        llm_model: "(no-llm-call)",
+        llm_model: NO_LLM_CALL_MODEL,
         llm_log_id: null,
         edge_table_snapshot: args.allCandidates,
         league_calibrated: args.leagueCalibrated,

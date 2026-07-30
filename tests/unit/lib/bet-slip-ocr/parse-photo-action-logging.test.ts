@@ -73,6 +73,9 @@ vi.mock("@/lib/supabase/server", () => ({
 // admin client — captura inserts em llm_request_logs
 const insertedLogs: Array<Record<string, unknown>> = [];
 let adminThrows = false;
+// Quando setado, o insert só resolve quando o teste liberar — usado pra
+// provar que a action AGUARDA o insert (fire-and-forget morre no Worker).
+let insertGate: Promise<{ error: null }> | null = null;
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => {
     if (adminThrows) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
@@ -80,7 +83,7 @@ vi.mock("@/lib/supabase/admin", () => ({
       from: (table: string) => ({
         insert: (payload: Record<string, unknown>) => {
           if (table === "llm_request_logs") insertedLogs.push(payload);
-          return Promise.resolve({ error: null });
+          return insertGate ?? Promise.resolve({ error: null });
         },
       }),
     };
@@ -103,6 +106,7 @@ beforeEach(() => {
   insertedLogs.length = 0;
   attemptsToEmit.length = 0;
   adminThrows = false;
+  insertGate = null;
 });
 
 // ── tests ─────────────────────────────────────────────────────────────────────
@@ -153,6 +157,40 @@ describe("parseBetSlipPhoto — logging em llm_request_logs (route='ocr')", () =
       model: "google/gemini-2.5-flash-lite:free",
       error: null,
     });
+  });
+
+  it("aguarda o insert do log antes de retornar — fire-and-forget num Worker CF mata o insert", async () => {
+    attemptsToEmit.push({
+      model: "google/gemini-2.5-flash",
+      latencyMs: 500,
+      promptTokens: 1000,
+      completionTokens: 40,
+      totalTokens: 1040,
+      error: null,
+    });
+
+    let release!: () => void;
+    insertGate = new Promise((resolve) => {
+      release = () => resolve({ error: null });
+    });
+
+    const { parseBetSlipPhoto } = await import("@/lib/bet-slip-ocr/parse-photo-action");
+    let settled = false;
+    const pending = parseBetSlipPhoto(makeFormData()).then((r) => {
+      settled = true;
+      return r;
+    });
+    await flushMicrotasks();
+
+    // A action NÃO pode resolver com o insert do log ainda pendente: no
+    // Worker, o request encerra e a linha de llm_request_logs some.
+    expect(settled).toBe(false);
+
+    release();
+    const result = await pending;
+    expect(settled).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(insertedLogs).toHaveLength(1);
   });
 
   it("admin client indisponível → OCR segue funcionando sem logging", async () => {
