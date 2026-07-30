@@ -27,6 +27,17 @@ function pp(x: number): string {
  * `sim-v1-poisson-dc-nb-mc10k-v8` → `v8`. O slug completo é ruído na tela; o
  * sufixo é o que muda quando o motor muda.
  */
+/**
+ * Abaixo disto, o acerto do mercado é ruído com aparência de medição.
+ *
+ * O gate de liga (`MIN_LEAGUE_CALLS`) soma todos os mercados, então uma liga
+ * entra com ~5 jogos e cada mercado fica com ~10 chamadas. Ficou visível
+ * quando a medição passou a filtrar por `model_version`: "cartões 91%" com
+ * n=11. O `n` já estava na tabela — faltava dizer que aquele número não
+ * sustenta conclusão.
+ */
+const MIN_CALLS_CONFIAVEL = 20;
+
 function shortVersion(v: string | null | undefined): string | null {
   if (!v) return null;
   const m = /-(v\d+)$/.exec(v.trim());
@@ -175,6 +186,7 @@ export function ModelPerformancePanel({
             return (
             <tr
               key={`${m.market}-${m.line ?? "x"}`}
+              data-amostra={m.calls < MIN_CALLS_CONFIAVEL ? "fraca" : undefined}
               title={`IC95 ${pct(m.ci95.lo)}–${pct(m.ci95.hi)} · chutar sempre o lado mais comum acerta ${pct(m.baseRate)}`}
             >
               <td className="py-1 pr-2">
@@ -200,8 +212,13 @@ export function ModelPerformancePanel({
                 ) : null}
               </td>
               <td className="num py-1 text-right align-top">{m.calls}</td>
-              <td className="num py-1 text-right align-top whitespace-nowrap">
+              <td
+                className={`num py-1 text-right align-top whitespace-nowrap ${
+                  m.calls < MIN_CALLS_CONFIAVEL ? "text-[var(--color-ink-faint)]" : ""
+                }`}
+              >
                 {pct(m.rate)}
+                {m.calls < MIN_CALLS_CONFIAVEL ? <span aria-hidden>*</span> : null}
                 <Bar rate={m.rate} />
               </td>
               <td
@@ -216,6 +233,13 @@ export function ModelPerformancePanel({
           })}
         </tbody>
       </table>
+
+      {perf.markets.some((m) => m.calls < MIN_CALLS_CONFIAVEL) ? (
+        <p className="label mt-2 text-[var(--color-ink-faint)]">
+          * poucos jogos medidos nesse mercado — o número ainda oscila muito, não
+          decida por ele sozinho.
+        </p>
+      ) : null}
 
       <p className="label mt-2 text-[var(--color-ink-faint)]">
         &ldquo;vs chutar&rdquo; compara com apostar sempre no lado mais comum da liga.
