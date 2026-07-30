@@ -1,0 +1,48 @@
+name: balance-snapshots-daily
+
+# 03:00 UTC (00:00 BRT) todo dia — gera os balance_snapshots do dia para
+# TODAS as contas via generate_balance_snapshots() (service_role ⇒ auth.uid()
+# null ⇒ escopo global, ver migration 0053). Sem isso, snapshot só nasce
+# quando uma aposta é resolvida (resolve_bet, 0014) e a série do /forecast
+# fica esburacada — a página exige ≥14 dias de histórico.
+#
+# Idempotente (upsert por user/casa/data) e barato (~segundos): cron + manual.
+on:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch: {}
+
+concurrency:
+  group: balance-snapshots-daily
+  # Job de dado idempotente — nunca cancela um upsert no meio (mesmo padrão
+  # do calibracao-weekly).
+  cancel-in-progress: false
+
+jobs:
+  snapshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      # read-only (não dá git push) → persist-credentials:false (least-privilege,
+      # item 10 do optimizing-github-actions).
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: install
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate daily balance snapshots
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/banca/generate-snapshots.ts
