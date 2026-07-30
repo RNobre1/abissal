@@ -71,7 +71,7 @@ test.describe("desempenho do modelo por liga", () => {
     await expect(page.locator('[data-sim-signal="fouls"]')).toHaveText("");
   });
 
-  test("o sinal muda de lugar conforme a largura, sem sumir nem estourar", async ({
+  test("a linha chamada aparece por extenso em QUALQUER largura", async ({
     page,
     viewport,
   }) => {
@@ -84,8 +84,8 @@ test.describe("desempenho do modelo por liga", () => {
     // largura — `display` computado responde isso sem abrir nada.
     //
     // O elemento inline só existe quando HÁ chamada (métrica em cima do muro
-    // não gera linha no mobile), então o teste procura qualquer métrica que
-    // tenha os dois lados presentes em vez de fixar em `corners`.
+    // não gera linha), então o teste procura qualquer métrica que tenha os
+    // dois lados presentes em vez de fixar em `corners`.
     const comInline = await page.locator("[data-sim-signal-inline]").all();
     if (comInline.length === 0) return; // nenhuma métrica chamou lado neste jogo
 
@@ -100,14 +100,23 @@ test.describe("desempenho do modelo por liga", () => {
     const inline = await displayDe(`[data-sim-signal-inline="${chave}"]`);
     const coluna = await displayDe(`[data-sim-signal="${chave}"]`);
 
-    if (estreito) {
-      // 412px: uma 4ª coluna colidia com o nome do time e cortava o símbolo.
-      expect(inline).not.toBe("none");
-      expect(coluna).toBe("none");
-    } else {
-      expect(coluna).not.toBe("none");
-      expect(inline).toBe("none");
-    }
+    // A linha ("mais de 3.5 (57%)") aparece nas DUAS larguras. O símbolo
+    // sozinho na coluna "lado" responde "para que lado", nunca "de qual
+    // linha" — e sem a linha o número do painel de desempenho por liga, que
+    // é medido POR linha, não tem como ser cruzado com o jogo na tela.
+    expect(inline).not.toBe("none");
+
+    // A coluna do símbolo é que é exclusiva do desktop: a 412px uma 4ª coluna
+    // colidia com o nome do time e cortava o símbolo.
+    if (estreito) expect(coluna).toBe("none");
+    else expect(coluna).not.toBe("none");
+
+    // O texto tem que trazer a linha, não só o lado.
+    const texto = await page
+      .locator(`[data-sim-signal-inline="${chave}"]`)
+      .first()
+      .textContent();
+    expect(texto).toMatch(/(mais|menos) de \d+(\.\d+)?/);
 
     // Em qualquer largura, a página não rola na horizontal.
     const { scrollW, clientW } = await page.evaluate(() => ({

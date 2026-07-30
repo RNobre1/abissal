@@ -416,11 +416,15 @@ function SimulationBody({
                       linhas e os números da direita centralizavam no meio,
                       desalinhando a coluna inteira no mobile.
 
-                      E no mobile o sinal vai POR EXTENSO aqui, não como símbolo
-                      solto ao lado do nome: "Finalizações no alvo −" lia como um
-                      hífen perdido e "Cartões +" como erro de digitação. Símbolo
-                      críptico só funciona com o cabeçalho "lado" ao lado dele,
-                      que é o caso do desktop.
+                      A chamada vai POR EXTENSO aqui em TODA largura. Era
+                      `sm:hidden` — eu supus que no desktop o cabeçalho "lado"
+                      bastasse pro símbolo, mas "lado: +" responde "para que
+                      lado" e nunca "de qual linha". Como o painel de desempenho
+                      por liga mede POR LINHA ("cartões · mais de 3.5 · 75%"),
+                      sem a linha aqui não há como cruzar o histórico com o jogo
+                      na tela — foi exatamente essa a dúvida do Pilot. De quebra,
+                      o separador " · " ficava órfão no desktop, porque ele não
+                      tinha o `sm:hidden` que escondia o texto.
                     */}
                     <span className="label block leading-tight text-[var(--color-ink-faint)]">
                       {noSplit ? "total do jogo" : null}
@@ -428,7 +432,7 @@ function SimulationBody({
                       {signal?.call ? (
                         <span
                           data-sim-signal-inline={r.key}
-                          className="whitespace-nowrap sm:hidden"
+                          className="whitespace-nowrap"
                         >
                           {signal.call}
                         </span>
