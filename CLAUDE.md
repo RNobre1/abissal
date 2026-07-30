@@ -44,8 +44,11 @@ esquecido. Tabelas user-scoped: `bets`, `bet_selections`, `bet_slips`,
 - `disciplina_settings` existe só para uma conta; `checkDisciplinaLimits` falha
   **aberto** quando não há config — ou seja, uma conta nova nasce sem nenhum
   limite de disciplina.
-- `ui_telemetry` grava `user_id` nulo em tudo: não dá para separar o uso de cada
-  um.
+- ~~`ui_telemetry` grava `user_id` nulo~~ — RESOLVIDO 30/07: a rota nunca
+  resolvia a sessão. Agora carimba do cookie (nunca do corpo, que seria
+  forjável); evento sem sessão segue válido com `user_id` nulo. `/admin/telemetry`
+  ganhou a seção "uso por pessoa". Os 873 eventos ANTIGOS continuam nulos — não
+  há como atribuí-los retroativamente.
 - `actuals_fixture_mapping` (tabela órfã) é a única sem RLS habilitada.
 
 ## Methodology: Pair Programming (Akita/XP)

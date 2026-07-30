@@ -95,6 +95,24 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => buildAdminMock(),
 }));
 
+// A rota resolve o dono da sessão pra carimbar `user_id` no evento. O client
+// de servidor (cookie-based) é mockado aqui; `sessaoDe` controla quem está
+// logado em cada teste.
+let usuarioDaSessao: string | null = "user-1";
+function sessaoDe(id: string | null) {
+  usuarioDaSessao = id;
+}
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => ({
+    auth: {
+      getClaims: async () => ({
+        data: usuarioDaSessao ? { claims: { sub: usuarioDaSessao } } : null,
+        error: null,
+      }),
+    },
+  }),
+}));
+
 beforeEach(() => {
   resetMock();
   vi.resetModules();
@@ -297,6 +315,53 @@ describe("POST /api/telemetry -- IP rate limiting", () => {
       { events: [makeEvent()] },
       { "cf-connecting-ip": "10.0.0.99" },
     );
+    expect(res.status).toBe(204);
+  });
+});
+
+/**
+ * `user_id` nos eventos (2026-07-30).
+ *
+ * A tabela tinha `user_id` NULO em 100% dos 873 eventos — não por perda de
+ * dado, mas porque a rota **nunca resolvia a sessão**: o `rows.map()` não
+ * incluía o campo, e o schema (corretamente) não aceita `user_id` vindo do
+ * cliente, que seria forjável.
+ *
+ * Deixou de ser detalhe quando o sistema passou a ter mais de um usuário: sem
+ * o carimbo, é impossível saber quem usa o quê, e qualquer leitura de uso
+ * mistura as pessoas.
+ *
+ * Evento anônimo continua válido (`user_id` nulo) — telemetria de tela de
+ * login existe antes de haver sessão.
+ */
+describe("POST /api/telemetry · carimbo de usuário", () => {
+  beforeEach(() => sessaoDe("user-1"));
+
+  it("carimba o dono da sessão em cada evento", async () => {
+    await callRoute({ events: [makeEvent(), makeEvent({ fixture_id: 2 })] });
+    expect(mockState.insertedRows).toHaveLength(2);
+    for (const r of mockState.insertedRows as Array<Record<string, unknown>>) {
+      expect(r.user_id).toBe("user-1");
+    }
+  });
+
+  it("aceita evento anônimo com user_id nulo (pré-login)", async () => {
+    sessaoDe(null);
+    const res = await callRoute({ events: [makeEvent()] });
+    expect(res.status).toBe(204);
+    expect((mockState.insertedRows[0] as Record<string, unknown>).user_id).toBeNull();
+  });
+
+  it("IGNORA user_id vindo do cliente — seria forjável", async () => {
+    await callRoute({
+      events: [makeEvent({ user_id: "outro-usuario" })],
+    });
+    expect((mockState.insertedRows[0] as Record<string, unknown>).user_id).toBe("user-1");
+  });
+
+  it("falha ao resolver a sessão não derruba a telemetria", async () => {
+    sessaoDe(null);
+    const res = await callRoute({ events: [makeEvent()] });
     expect(res.status).toBe(204);
   });
 });
