@@ -80,7 +80,18 @@ module DBHelper
     conn = connect
     conn.query(<<~SQL)
       CREATE SCHEMA IF NOT EXISTS auth;
-      CREATE TABLE IF NOT EXISTS auth.users (id uuid PRIMARY KEY);
+      -- `email` e `raw_user_meta_data` não são decoração: o trigger
+      -- `tg_handle_new_user()` (migration de user_profile) lê os dois no INSERT.
+      -- Com o stub só de `id`, qualquer spec que crie um usuário quebrava em
+      -- `record "new" has no field "raw_user_meta_data"`. O stub precisa cobrir
+      -- o que as migrations de fato usam do Supabase, não o mínimo sintático.
+      CREATE TABLE IF NOT EXISTS auth.users (
+        id uuid PRIMARY KEY,
+        email text,
+        raw_user_meta_data jsonb
+      );
+      ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS email text;
+      ALTER TABLE auth.users ADD COLUMN IF NOT EXISTS raw_user_meta_data jsonb;
       CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid
         LANGUAGE sql STABLE
         AS $$ SELECT nullif(current_setting('request.jwt.claim.sub', true), '')::uuid $$;

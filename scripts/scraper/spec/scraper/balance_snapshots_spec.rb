@@ -46,7 +46,9 @@ RSpec.describe 'generate_balance_snapshots', :db do
 
   # Cria usuário + casa + um depósito, devolve [user_id, house_id].
   def seed_casa(nome = 'Casa Teste')
-    uid = conn.exec("insert into auth.users (id) values (gen_random_uuid()) returning id")[0]['id']
+    uid = conn.exec(
+      "insert into auth.users (id, email) values (gen_random_uuid(), 't' || floor(random()*1e9)::text || '@teste.local') returning id"
+    )[0]['id']
     hid = conn.exec_params(
       'insert into houses (user_id, name) values ($1, $2) returning id', [uid, nome]
     )[0]['id']
