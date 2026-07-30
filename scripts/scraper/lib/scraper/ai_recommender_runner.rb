@@ -1,6 +1,7 @@
 require 'json'
 require 'set'
 require 'thread'
+require 'time'
 require_relative 'db'
 require_relative 'ai_reco/edge_calculator'
 require_relative 'ai_reco/isotonic_lookup'
@@ -88,24 +89,46 @@ module AdamStats
       # COALESCE(r.forced, false) = false: exclui não-forçadas mas PRESERVA
       # on-demand/forced (forced=true), que podem existir para a mesma fixture.
       # O ON CONFLICT DO NOTHING no INSERT é a segunda camada defensiva.
+      #
+      # DISTINCT ON (2026-07-30): `fixture_simulations` tem UMA LINHA POR
+      # (fixture, model_version) — versões coexistem de propósito, pra o
+      # histórico sobreviver a bumps de modelo. Sem o DISTINCT, uma fixture com
+      # sim v7 E v8 pendentes virava DUAS linhas aqui: dois edge-calcs, duas
+      # chamadas R1 e duas recos da mesma partida. O `NOT EXISTS` acima não
+      # cobre — ele olha o que já está GRAVADO, e dentro de uma rodada as duas
+      # linhas saem no mesmo SELECT, antes de qualquer INSERT (ele resolveu a
+      # duplicação ENTRE rodadas; esta é DENTRO da rodada). Medido em prod após
+      # o bump v7→v8: razão recos/fixtures 1.01 → 2.12 em um dia.
+      #
+      # A dedup vem ANTES do LEFT JOIN com `fixtures` de propósito: `detail_json`
+      # é o blob pesado do projeto (B12/B14), e não faz sentido materializá-lo
+      # para uma linha que será descartada.
       FIXTURES_QUERY = <<~SQL.freeze
         SELECT s.id, s.fixture_id, s.home_team, s.away_team, s.league, s.kickoff_utc,
-               s.model_version,
+               s.model_version, s.created_at,
                s.p_home, s.p_draw, s.p_away, s.p_over_25, s.p_btts,
                s.top_scorelines, s.sim_stats,
                f.detail_json
-        FROM fixture_simulations s
+        FROM (
+          SELECT DISTINCT ON (s.fixture_id)
+                 s.id, s.fixture_id, s.home_team, s.away_team, s.league,
+                 s.kickoff_utc, s.model_version, s.created_at,
+                 s.p_home, s.p_draw, s.p_away, s.p_over_25, s.p_btts,
+                 s.top_scorelines, s.sim_stats
+          FROM fixture_simulations s
+          WHERE s.kickoff_utc > now()
+            AND s.kickoff_utc < now() + INTERVAL '48 hours'
+            AND s.status = 'pending'
+            AND s.fixture_id IS NOT NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM ai_recommendations r
+              WHERE r.fixture_id = s.fixture_id
+                AND COALESCE(r.forced, false) = false
+            )
+          ORDER BY s.fixture_id, s.created_at DESC NULLS LAST, s.id DESC
+        ) s
         LEFT JOIN fixtures f
           ON f.source_url = '/fixture/' || s.fixture_id::text
-        WHERE s.kickoff_utc > now()
-          AND s.kickoff_utc < now() + INTERVAL '48 hours'
-          AND s.status = 'pending'
-          AND s.fixture_id IS NOT NULL
-          AND NOT EXISTS (
-            SELECT 1 FROM ai_recommendations r
-            WHERE r.fixture_id = s.fixture_id
-              AND COALESCE(r.forced, false) = false
-          )
         ORDER BY
           EXISTS (
             SELECT 1 FROM league_parameters lp
@@ -202,7 +225,11 @@ module AdamStats
         @llm_calls_made = 0
 
         with_connection do |conn|
-          fixtures = conn.query(FIXTURES_QUERY).to_a
+          brutas = conn.query(FIXTURES_QUERY).to_a
+          fixtures = dedupe_by_fixture(brutas)
+          if brutas.length != fixtures.length
+            @logger.call("[ai-reco] dedup: #{brutas.length - fixtures.length} simulação(ões) duplicada(s) da mesma fixture descartada(s)")
+          end
           @logger.call("[ai-reco] processando #{fixtures.length} fixtures upcoming")
 
           calibrated_leagues = load_calibrated_leagues(conn)
@@ -263,6 +290,59 @@ module AdamStats
         else
           AdamStats::Scraper::DB.with_connection { |c| yield c }
         end
+      end
+
+      # Segunda camada da dedup por fixture (a primeira é o DISTINCT ON da
+      # FIXTURES_QUERY). Redundante hoje — de propósito: a query já foi editada
+      # várias vezes, e uma reco duplicada não falha ruidosamente, ela emite uma
+      # aposta a mais com probabilidade de outro model_version. Custa O(n) num
+      # array de ≤500 linhas.
+      #
+      # Critério: vence a simulação MAIS RECENTE (a do motor vigente). Sem
+      # `created_at` nas duas, vence a que veio primeiro — preserva o ORDER BY
+      # de prioridade da query. `fixture_id` nulo nunca colapsa: sem chave, não
+      # há como afirmar que são a mesma partida.
+      def dedupe_by_fixture(rows)
+        return rows unless rows.is_a?(Array)
+
+        posicao = {}
+        saida = []
+        rows.each do |row|
+          fid = row.is_a?(Hash) ? row['fixture_id'] : nil
+          if fid.nil? || fid.to_s.strip.empty?
+            saida << row
+            next
+          end
+
+          chave = fid.to_s
+          idx = posicao[chave]
+          if idx.nil?
+            posicao[chave] = saida.length
+            saida << row
+          elsif mais_recente?(row, saida[idx])
+            saida[idx] = row
+          end
+        end
+        saida
+      end
+
+      # `created_at` ausente/ilegível ⇒ não desbanca quem já está na lista.
+      def mais_recente?(candidato, atual)
+        novo = parse_ts(candidato['created_at'])
+        return false if novo.nil?
+
+        velho = parse_ts(atual['created_at'])
+        return true if velho.nil?
+
+        novo > velho
+      end
+
+      def parse_ts(value)
+        return nil if value.nil? || value.to_s.strip.empty?
+
+        Time.parse(value.to_s)
+      rescue ArgumentError, TypeError
+        nil
       end
 
       def load_calibrated_leagues(conn)
