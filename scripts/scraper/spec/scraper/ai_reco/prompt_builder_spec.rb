@@ -86,8 +86,18 @@ module AdamStats::Scraper::AiReco
 
     # ── Wave O+E: mercados secundários ──────────────────────────────────────────
 
-    it 'PROMPT_VERSION é prompt-v1.1 após Wave O+E' do
-      expect(PromptBuilder::PROMPT_VERSION).to eq('prompt-v1.1')
+    it 'PROMPT_VERSION é prompt-v1.2 (placares reais + threshold real)' do
+      expect(PromptBuilder::PROMPT_VERSION).to eq('prompt-v1.2')
+    end
+
+    it 'user prompt declara o threshold REAL de edge (10%), interpolado da constante' do
+      # O texto hardcodava "edge >= 20%" enquanto o runner filtra com
+      # EDGE_THRESHOLD = 10.0 — o R1 raciocinava sobre premissa numérica
+      # falsa. A constante compartilhada vive aqui e o runner a referencia.
+      out = PromptBuilder.build(**base_input)
+      expect(PromptBuilder::EDGE_THRESHOLD).to eq(10.0)
+      expect(out[:user]).to include('somente com edge >= 10% foram filtrados a montante')
+      expect(out[:user]).not_to include('20%')
     end
 
     it 'schema JSON inclui mercados secundários (corners-over, cards-over, sot-over)' do

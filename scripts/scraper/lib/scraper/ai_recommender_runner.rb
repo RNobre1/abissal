@@ -28,7 +28,11 @@ module AdamStats
       #     D10 ficou 1º no ranking WF (ROI -13.12%, melhor entre todos).
       #     D20 ficou 4º. Reverter pra D10 é a config menos ruim dos dados reais.
       #     Ref: docs/superpowers/specs/2026-05-25-backtest-walk-forward.md
-      EDGE_THRESHOLD = 10.0
+      #
+      # prompt-v1.2 (2026-07-30): o VALOR mora em PromptBuilder::EDGE_THRESHOLD
+      # (fonte única — o texto do prompt interpola de lá e não pode divergir
+      # do filtro real; o texto hardcodava "20%" enquanto filtrávamos a 10).
+      EDGE_THRESHOLD = AiReco::PromptBuilder::EDGE_THRESHOLD
       # Acima desse edge_pct, em liga NAO calibrada, recusamos a bet:
       # simulador sem league_parameters produz ruido amplificado
       # (ex: Kolding IF edge 114%, 2026-05-25). Espelha SANITY_EDGE_THRESHOLD

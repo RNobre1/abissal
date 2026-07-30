@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildPrompt, PROMPT_VERSION, type PromptInput } from "./prompts";
+import { buildPrompt, EDGE_THRESHOLD, PROMPT_VERSION, type PromptInput } from "./prompts";
 
 const baseInput: PromptInput = {
   league: "Premier League",
@@ -120,7 +120,17 @@ describe("buildPrompt", () => {
     expect(system.toLowerCase()).toMatch(/cart[aã]o|card/i);
   });
 
-  it("PROMPT_VERSION bumpeado para prompt-v1.1 após Wave O+E", () => {
-    expect(PROMPT_VERSION).toBe("prompt-v1.1");
+  it("PROMPT_VERSION bumpeado para prompt-v1.2 (placares reais + threshold real)", () => {
+    expect(PROMPT_VERSION).toBe("prompt-v1.2");
+  });
+
+  it("user prompt declara o threshold REAL de edge (10%), interpolado da constante", () => {
+    // O texto imprimia o placeholder literal "edge >= EDGE_THRESHOLD" (nunca
+    // interpolado) — e o Ruby dizia 20% — enquanto o filtro real é 10%.
+    const { user } = buildPrompt(baseInput);
+    expect(EDGE_THRESHOLD).toBe(10);
+    expect(user).toContain("somente com edge >= 10% foram filtrados a montante");
+    expect(user).not.toContain("EDGE_THRESHOLD");
+    expect(user).not.toContain("20%");
   });
 });
