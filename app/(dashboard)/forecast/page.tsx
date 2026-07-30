@@ -1,26 +1,35 @@
 import Link from "next/link";
-import regression from "regression";
-import { mean, standardDeviation } from "simple-statistics";
 import { createClient } from "@/lib/supabase/server";
 import { fmt } from "@/lib/format";
 import { Sparkline } from "@/components/sparkline";
+import { buildForecast } from "@/lib/banca/forecast";
 
 const HORIZON_DAYS = 30;
 
 export default async function ForecastPage() {
   const supabase = await createClient();
+  // desc + limit pega os 365 snapshots MAIS RECENTES (asc pegava os mais
+  // antigos e congelava a janela no passado); reverse restaura a ordem
+  // cronológica que a regressão e o gráfico esperam.
   const { data } = await supabase
     .from("daily_pl_view")
     .select("snapshot_date, cumulative_pl")
-    .order("snapshot_date", { ascending: true })
+    .order("snapshot_date", { ascending: false })
     .limit(365);
 
-  const series = (data ?? []).map((d) => ({
-    date: d.snapshot_date as string,
-    pl: Number(d.cumulative_pl ?? 0),
-  }));
+  const series = (data ?? [])
+    .map((d) => ({
+      date: d.snapshot_date as string,
+      pl: Number(d.cumulative_pl ?? 0),
+    }))
+    .reverse();
 
-  if (series.length < 14) {
+  // Núcleo puro (lib/banca/forecast): regressão com x = dias CORRIDOS desde
+  // o primeiro snapshot da janela — snapshots têm buracos de calendário e a
+  // regressão por índice inflava o slope exibido como "BRL/dia".
+  const forecast = series.length >= 14 ? buildForecast(series, HORIZON_DAYS) : null;
+
+  if (forecast === null) {
     return (
       <main id="main" tabIndex={-1} className="mx-auto w-full max-w-3xl flex-1 px-6 py-12 lg:px-12 lg:py-16">
         <header className="mb-10">
@@ -51,35 +60,9 @@ export default async function ForecastPage() {
     );
   }
 
-  // Daily increments — model the day-over-day P/L change rather than the
-  // cumulative value, then re-integrate. This is a robust handle on drift +
-  // volatility independent of the bankroll size.
-  const dailyDeltas: number[] = [];
-  for (let i = 1; i < series.length; i++) {
-    dailyDeltas.push(series[i].pl - series[i - 1].pl);
-  }
+  const { slopePerDay: slope, r2, dailyMean, dailyStd, projected } = forecast;
 
-  const dailyMean = mean(dailyDeltas);
-  const dailyStd = standardDeviation(dailyDeltas);
-
-  // Linear regression on cumulative P/L (x = day index)
-  const points: [number, number][] = series.map((s, i) => [i, s.pl]);
-  const result = regression.linear(points, { precision: 4 });
-  const slope = result.equation[0];
-  const intercept = result.equation[1];
-  const r2 = result.r2;
-
-  const lastIndex = series.length - 1;
-  const last = series[lastIndex].pl;
-
-  const projected: { day: number; pl: number; lo: number; hi: number }[] = [];
-  for (let d = 1; d <= HORIZON_DAYS; d++) {
-    const idx = lastIndex + d;
-    const trend = slope * idx + intercept;
-    // 95% CI band scales with sqrt(d) (random walk)
-    const band = 1.96 * dailyStd * Math.sqrt(d);
-    projected.push({ day: d, pl: trend, lo: trend - band, hi: trend + band });
-  }
+  const last = forecast.lastPl;
 
   const horizonEnd = projected[projected.length - 1];
   const fullSeries = [
