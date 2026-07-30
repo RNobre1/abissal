@@ -91,18 +91,22 @@ export function OnDemandButton({
   const busy = phase !== "idle" || pending;
 
   // (b) Re-mount com análise in-flight: retoma em modo polling.
+  // sessionStorage só existe no client — o SSR renderiza o CTA idle e este
+  // effect promove pra "polling" na hidratação (mesmo padrão de
+  // fixtures-browser.tsx).
   useEffect(() => {
     const ts = readInflightStart(fixtureId);
     if (ts !== null) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- hidratação client-only do estado in-flight (ver acima)
       setStartedAt(ts);
       setPhase("polling");
     }
   }, [fixtureId]);
 
-  // Timer decorrido (1s) enquanto processa.
+  // Timer decorrido (1s) enquanto processa. `now` já nasce atual no mount e
+  // é re-setado no clique; aqui só o tick periódico (sem setState síncrono).
   useEffect(() => {
     if (phase === "idle") return;
-    setNow(Date.now());
     const id = setInterval(() => setNow(Date.now()), 1_000);
     return () => clearInterval(id);
   }, [phase]);
