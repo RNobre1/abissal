@@ -51,6 +51,25 @@ jobs:
           NEXT_PUBLIC_SENTRY_DSN: ${{ secrets.NEXT_PUBLIC_SENTRY_DSN }}
         run: pnpm cf:build
 
+      - name: sync worker secrets
+        # Os GH secrets são a fonte única dos secrets de RUNTIME do Worker.
+        # Sem este passo, rotacionar uma chave no GitHub não muda nada em
+        # produção (incidente 30/07: OpenRouter 401 "User not found" no
+        # on-demand e no OCR — a chave nova só existia no Actions).
+        # jq lê de env (nunca ecoa valor em log).
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          ADAMCHOI_API_TOKEN: ${{ secrets.ADAMCHOI_API_TOKEN }}
+        run: |
+          jq -n '{
+            OPENROUTER_API_KEY: env.OPENROUTER_API_KEY,
+            SUPABASE_SERVICE_ROLE_KEY: env.SUPABASE_SERVICE_ROLE_KEY,
+            ADAMCHOI_API_TOKEN: env.ADAMCHOI_API_TOKEN
+          }' | pnpm exec wrangler secret bulk
+
       - name: deploy to cloudflare
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
