@@ -487,7 +487,7 @@ RSpec.describe AdamStats::Scraper::SimulationReconciler do
   # ── integração com test DB real (migration 0018) ─────────────────────────────
   # Espelha o bloco real-DB do orchestrator_spec: aplica 0018 (idempotente) e
   # confirma que SELECT só pega 'pending' < now e nunca 'unsimulable'.
-  describe 'integração com fixture_simulations real (test DB)' do
+  describe 'integração com fixture_simulations real (test DB)', :db do
     before(:all) do
       ENV['DATABASE_URL'] = DBHelper.test_url
       ScraperDBHelper.ensure_schema!

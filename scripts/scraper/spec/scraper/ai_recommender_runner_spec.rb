@@ -325,6 +325,120 @@ module AdamStats::Scraper
       end
     end
 
+    # REGRESSÃO 2026-07-30 — uma fixture, uma reco.
+    #
+    # `fixture_simulations` guarda UMA LINHA POR (fixture, model_version): o
+    # CLAUDE.md manda versões coexistirem pra o histórico sobreviver a bumps.
+    # A FIXTURES_QUERY seleciona `FROM fixture_simulations`, então uma fixture
+    # com sim v7 E v8 pendentes vira DUAS linhas → dois edge-calcs, duas
+    # chamadas R1 e duas recos da mesma partida.
+    #
+    # O guard `NOT EXISTS (ai_recommendations)` da query NÃO cobre isso: ele
+    # compara com o que já está GRAVADO, e dentro de uma mesma rodada as duas
+    # linhas foram selecionadas antes de qualquer INSERT. Ele resolveu a
+    # duplicação ENTRE rodadas (2026-06-09); esta é DENTRO da rodada.
+    #
+    # Medido em prod após o bump v7→v8 (29/07): razão recos/fixtures saltou de
+    # 1.01 (29/07) para 2.12 (30/07) — 104 recos para 49 fixtures. Pior que o
+    # desperdício: o ramo v8 não achava curva em `model_calibration` (o lookup
+    # filtra por model_version) e emitia probabilidade CRUA — 9 das 10 apostas
+    # do dia saíram por ele, com p=0.932/0.916/0.847.
+    #
+    # Defesa em profundidade: a SQL deduplica no Postgres (barato, não traz a
+    # linha extra) E o Ruby deduplica o resultado (segura mesmo se a query for
+    # editada no futuro sem o DISTINCT). Critério: a simulação MAIS RECENTE
+    # vence — é a do motor vigente.
+    describe 'deduplicação por fixture (uma fixture, uma reco)' do
+      def sim(fixture_id, model_version, created_at)
+        {
+          'id' => "#{fixture_id}-#{model_version}",
+          'fixture_id' => fixture_id, 'model_version' => model_version,
+          'created_at' => created_at, 'home_team' => 'A', 'away_team' => 'B',
+          'league' => 'L', 'kickoff_utc' => '2026-08-01T15:00:00Z',
+          'p_home' => '0.40', 'p_draw' => '0.30', 'p_away' => '0.30',
+          'p_over_25' => '0.50', 'p_btts' => '0.50',
+          'top_scorelines' => '[]', 'sim_stats' => '{}', 'detail_json' => '{}'
+        }
+      end
+
+      let(:runner) { described_class.new(conn: conn_double, logger: logger, client: client) }
+
+      it 'colapsa duas simulações da MESMA fixture em uma só' do
+        rows = [sim('900', 'sim-v7', '2026-07-25T10:00:00Z'),
+                sim('900', 'sim-v8', '2026-07-29T19:00:00Z')]
+        out = runner.send(:dedupe_by_fixture, rows)
+        expect(out.length).to eq(1)
+      end
+
+      it 'mantém a simulação MAIS RECENTE (o motor vigente)' do
+        rows = [sim('900', 'sim-v7', '2026-07-25T10:00:00Z'),
+                sim('900', 'sim-v8', '2026-07-29T19:00:00Z')]
+        expect(runner.send(:dedupe_by_fixture, rows).first['model_version']).to eq('sim-v8')
+      end
+
+      it 'não depende da ordem em que o Postgres devolveu as linhas' do
+        rows = [sim('900', 'sim-v8', '2026-07-29T19:00:00Z'),
+                sim('900', 'sim-v7', '2026-07-25T10:00:00Z')]
+        expect(runner.send(:dedupe_by_fixture, rows).first['model_version']).to eq('sim-v8')
+      end
+
+      it 'preserva fixtures distintas e a ordem de prioridade da query' do
+        rows = [sim('1', 'sim-v8', '2026-07-29T19:00:00Z'),
+                sim('2', 'sim-v7', '2026-07-25T10:00:00Z'),
+                sim('2', 'sim-v8', '2026-07-29T19:00:00Z'),
+                sim('3', 'sim-v8', '2026-07-29T19:00:00Z')]
+        out = runner.send(:dedupe_by_fixture, rows)
+        expect(out.map { |r| r['fixture_id'] }).to eq(%w[1 2 3])
+      end
+
+      it 'sem created_at, desempata pela ordem da query (primeira vence)' do
+        a = sim('900', 'sim-v8', nil)
+        b = sim('900', 'sim-v7', nil)
+        expect(runner.send(:dedupe_by_fixture, [a, b]).first['model_version']).to eq('sim-v8')
+      end
+
+      it 'tolera fixture_id nulo sem colapsar linhas não relacionadas' do
+        rows = [sim(nil, 'sim-v8', '2026-07-29T19:00:00Z'),
+                sim(nil, 'sim-v7', '2026-07-25T10:00:00Z')]
+        expect(runner.send(:dedupe_by_fixture, rows).length).to eq(2)
+      end
+
+      it 'trata fixture_id String e Integer como a MESMA fixture' do
+        rows = [sim(900, 'sim-v7', '2026-07-25T10:00:00Z'),
+                sim('900', 'sim-v8', '2026-07-29T19:00:00Z')]
+        expect(runner.send(:dedupe_by_fixture, rows).length).to eq(1)
+      end
+
+      it 'no #run, duas sims da mesma fixture geram UM edge-calc' do
+        conn = conn_double
+        rows = [sim('900', 'sim-v7', '2026-07-25T10:00:00Z'),
+                sim('900', 'sim-v8', '2026-07-29T19:00:00Z')]
+        allow(conn).to receive(:query).with(/SELECT s\.id.*FROM fixture_simulations/im).and_return(rows)
+        allow(conn).to receive(:query).with(/SELECT DISTINCT league\s+FROM league_parameters/im).and_return([])
+        r = described_class.new(conn: conn, logger: logger, client: client)
+        expect(r).to receive(:classify_fixture).once.and_return(nil)
+        r.run
+      end
+
+      it 'a SQL também deduplica no Postgres (não traz a linha extra)' do
+        sql = described_class::FIXTURES_QUERY
+        expect(sql).to match(/DISTINCT\s+ON\s*\(\s*s\.fixture_id\s*\)/i)
+      end
+
+      # SEGUNDA fonte de duplicação, achada validando a query contra prod: o
+      # DISTINCT ON garante uma linha por fixture em `fixture_simulations`, mas
+      # o LEFT JOIN com `fixtures` acontece DEPOIS — e `fixtures` não tem único
+      # em `source_url` (o único é (match_date, home_team, away_team)). Cinco
+      # jogos em prod têm duas linhas com o mesmo `/fixture/{id}`, e o join as
+      # multiplica de volta. Aqui as duas linhas são idênticas em versão e
+      # timestamp: nenhuma é "mais recente", então vence a primeira.
+      it 'colapsa linhas multiplicadas pelo LEFT JOIN (mesma sim, source_url repetido)' do
+        gemea = sim('900', 'sim-v8', '2026-07-29T19:00:00Z')
+        rows = [gemea, gemea.dup]
+        expect(runner.send(:dedupe_by_fixture, rows).length).to eq(1)
+      end
+    end
+
     describe '#run return contract (A4)' do
       it 'retorna { inserted_recos:, errors: } com zeros quando não há fixtures' do
         conn = conn_double

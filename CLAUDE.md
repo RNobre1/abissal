@@ -335,6 +335,7 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 > - **Worker CF é frágil:** payload pesado/JSON só escalar pro Worker; computar badges/insights em SQL ou `ssr:false`, nunca cruzar `detail_json` inteiro (B12/B14/B21/B23). **NUNCA `export const runtime="edge"`** (OpenNext roda em Node — quebra; B22).
 > - **IA/calibração:** refit isotônico é semanal/mecânico; **prompt/threshold/Kelly só mudam por EVIDÊNCIA, nunca por calendário** (B24, anti-[[walk-forward-bomb]]). Calibrar é o conserto, não hard-skip (B26).
 > - **Fiação:** ao "terminar" uma feature/reconciler/calibração, confirmar que está WIRED no caminho de produção principal — não só num secundário (B16/B25). Reconciler novo entra no pipeline no mesmo PR (B16).
+> - **Bump de `model_version`:** `fixture_simulations` é versionada por design (versões coexistem). Quem lê pra AGIR precisa de `DISTINCT ON (fixture_id)` — sem isso o bump duplica recos. E varrer os consumidores que filtram por versão: no vazio eles não falham, emitem **probabilidade crua** (B53).
 > - **Antes de concluir "indisponível" ou fechar método:** inspecionar o payload BRUTO inteiro da API (B15/B19). Validar payload real contra prod ANTES de deployar fix de outage (B12).
 
 ## Do not
