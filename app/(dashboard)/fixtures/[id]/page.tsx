@@ -15,6 +15,7 @@ import {
   type PanelSlot,
 } from "@/components/fixtures/stats/stats-layout";
 import { DecisionZone } from "@/components/fixtures/decision-zone";
+import { FixtureCopilotDrawer } from "@/components/fixtures/fixture-copilot-drawer";
 import { Hero, type HeroKpiBundle } from "@/components/fixtures/stats/hero";
 import {
   deriveTeamRecord,
@@ -388,27 +389,37 @@ export default async function StatsPage({ params }: StatsPageProps) {
   );
 
   return (
-    <StatsLayout
-      fixtureId={row.id}
-      hero={
-        <DecisionZone
-          hero={
-            <Hero
-              homeTeam={row.home_team}
-              awayTeam={row.away_team}
-              kickoffBrt={kickoffBrt}
-              league={row.league}
-              country={row.country}
-              kpis={kpis}
-            />
-          }
-          reco={aiRecoPanel?.node ?? null}
-          momentum={momentumPanel != null ? renderPanelSlot(momentumPanel) : null}
-          modelPerf={modelPerfPanel != null ? renderPanelSlot(modelPerfPanel) : null}
-        />
-      }
-      panels={technicalPanels}
-    />
+    <>
+      <StatsLayout
+        fixtureId={row.id}
+        hero={
+          <DecisionZone
+            hero={
+              <Hero
+                homeTeam={row.home_team}
+                awayTeam={row.away_team}
+                kickoffBrt={kickoffBrt}
+                league={row.league}
+                country={row.country}
+                kpis={kpis}
+              />
+            }
+            reco={aiRecoPanel?.node ?? null}
+            momentum={momentumPanel != null ? renderPanelSlot(momentumPanel) : null}
+            modelPerf={modelPerfPanel != null ? renderPanelSlot(modelPerfPanel) : null}
+          />
+        }
+        panels={technicalPanels}
+      />
+      {/* FAB "pergunte ao jogo" — chat copiloto escopado a este fixture.
+          Client Component isolado: zero chamada LLM no mount (guard em
+          tests/integration/fixture-copilot-drawer.test.tsx). */}
+      <FixtureCopilotDrawer
+        fixtureId={row.id}
+        homeTeam={row.home_team}
+        awayTeam={row.away_team}
+      />
+    </>
   );
 }
 

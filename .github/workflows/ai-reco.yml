@@ -110,3 +110,17 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/telegram/send-reco-alerts.ts
+
+      # F4 — briefing matinal ("Abissal Daily"): parágrafo do dia via LLM,
+      # persistido em app_settings.daily_briefing (o /painel lê de lá).
+      # `continue-on-error: true` de propósito: as chamadas R1 e o alerta
+      # Telegram já aconteceram — um briefing quebrado não pode falhar o job,
+      # mas o step vermelho fica visível na annotation (o script sai ≠ 0 em
+      # erro real; kill switch ai_enabled=false sai 0 sem gerar).
+      - name: generate daily briefing
+        continue-on-error: true
+        env:
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: pnpm exec tsx scripts/briefing/generate-daily.ts

@@ -10,6 +10,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { authedUserId } from "@/lib/supabase/auth";
 import { getDraftSlip } from "@/lib/bet-slip/actions";
+import { isAiEnabled } from "@/lib/settings/ai-toggle";
 import { BetSlipPageClient } from "./_components/bet-slip-page-client";
 
 export const dynamic = "force-dynamic";
@@ -36,6 +37,9 @@ export default async function BilhetePage() {
     name: h.name,
   }));
 
+  // Kill switch global de IA — esconde o "Criticar bilhete" quando desligado.
+  const aiEnabled = await isAiEnabled(supabase);
+
   return (
     <main className="mx-auto max-w-xl px-4 py-8">
       <header className="mb-6 flex items-baseline justify-between gap-4">
@@ -50,7 +54,11 @@ export default async function BilhetePage() {
         </Link>
       </header>
 
-      <BetSlipPageClient initialSlip={slip} houses={houseOptions} />
+      <BetSlipPageClient
+        initialSlip={slip}
+        houses={houseOptions}
+        aiEnabled={aiEnabled}
+      />
     </main>
   );
 }

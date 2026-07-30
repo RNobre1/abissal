@@ -36,9 +36,15 @@ interface HouseOption {
 interface BetSlipProviderProps {
   initialSlip: BetSlip | null;
   houses: HouseOption[];
+  /** Kill switch global de IA — false esconde o "Criticar bilhete" no drawer. */
+  aiEnabled?: boolean;
 }
 
-export function BetSlipProvider({ initialSlip, houses }: BetSlipProviderProps) {
+export function BetSlipProvider({
+  initialSlip,
+  houses,
+  aiEnabled = true,
+}: BetSlipProviderProps) {
   const router = useRouter();
   const track = useTelemetry();
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -142,6 +148,7 @@ export function BetSlipProvider({ initialSlip, houses }: BetSlipProviderProps) {
           onCommit={handleCommit}
           onCancel={handleCancel}
           onLegsAdded={handleLegsAdded}
+          aiEnabled={aiEnabled}
         />
       ) : null}
     </>

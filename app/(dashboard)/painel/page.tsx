@@ -11,7 +11,7 @@ import {
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
 import { DestaquesDoDia } from "../_components/destaques-do-dia";
-import { OportunidadesIa } from "../_components/oportunidades-ia";
+import { BriefingDoDia } from "@/components/painel/briefing-do-dia";
 import { QuietModeCard } from "@/components/disciplina/quiet-mode-card";
 import { isQuietModeActive } from "@/lib/disciplina/quiet-mode";
 
@@ -111,7 +111,12 @@ export default async function OverviewPage() {
               mas nunca fora fiado. Mesmo gating de quiet mode das
               oportunidades — fricção ética suprime sinal de aposta. */}
           <DestaquesDoDia />
-          <OportunidadesIa />
+          {/* F4: o BriefingDoDia SUBSTITUI a antiga lista de oportunidades IA
+              (decisão do Pilot). O card traz o parágrafo diário + as top 3
+              oportunidades compactas (a ação "+ bilhete" segue viva via
+              OportunidadeIaCard). Mesmo gating de quiet mode — o briefing
+              contém sugestão de aposta. */}
+          <BriefingDoDia />
         </>
       )}
 

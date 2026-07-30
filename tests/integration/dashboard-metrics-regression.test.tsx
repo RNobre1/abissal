@@ -173,11 +173,11 @@ vi.mock("@/app/(dashboard)/_components/destaques-do-dia", () => ({
   DestaquesDoDia: () => null,
 }));
 
-// OportunidadesIa (Wave 4) também é um Server Component async renderizado
-// pela OverviewPage; stubamos pelo mesmo motivo — escopo do teste é
-// métricas de banca, não recomendações IA.
-vi.mock("@/app/(dashboard)/_components/oportunidades-ia", () => ({
-  OportunidadesIa: () => null,
+// BriefingDoDia (F4 — substituiu a lista de oportunidades IA no painel)
+// também é um Server Component async renderizado pela OverviewPage;
+// stubamos pelo mesmo motivo — escopo do teste é métricas de banca.
+vi.mock("@/components/painel/briefing-do-dia", () => ({
+  BriefingDoDia: () => null,
 }));
 
 // ──────────────────────────────────────────────────────────────────────────────

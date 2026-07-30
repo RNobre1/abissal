@@ -178,7 +178,8 @@ abissal/
 │   └── api/
 │       ├── fixtures/route.ts            # GET ?date= → FixtureDTO[]
 │       ├── fixtures/[id]/refresh/route.ts
-│       ├── analyze/route.ts             # POST SSE → OpenRouter stream
+│       ├── fixture-copilot/route.ts     # POST SSE — chat "pergunte ao jogo" (tool-loop, 12 tools)
+│       ├── bilhete/critic/route.ts      # POST — advogado do diabo do bilhete (veredicto por perna)
 │       ├── ai-reco/{compute,feedback,apostei}/ # recomendador IA-2 on-demand + feedback
 │       ├── bets/export/  calibracao/secondary-metrics/  telemetry/
 ├── components/                          # banca, bets, bet-slip, calibracao, charts,
@@ -198,6 +199,8 @@ abissal/
 │   │   ├── lib/scraper/                 # módulos Ruby (orchestrator, reconcilers, ft_actuals, sim engine…)
 │   │   └── spec/                        # ~565 RSpec examples
 │   ├── calibracao/                      # fit-league-parameters.ts, fit-isotonic.ts (cron semanal/domingo)
+│   ├── briefing/generate-daily.ts       # briefing matinal (cron ai-reco) → app_settings.daily_briefing
+│   ├── banca/generate-snapshots.ts      # snapshot diário de saldo (cron balance-snapshots-daily)
 │   ├── telegram/send-closure.ts         # resumo diário
 │   └── poc/
 ├── tests/  (unit/ · api/ · integration/ · e2e/)  + co-located *.test.ts em lib/
