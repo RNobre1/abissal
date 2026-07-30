@@ -9,9 +9,23 @@
  * (corners, cards, SOT) no schema JSON e heurísticas contextuais.
  * Choistats fornece odds para esses mercados via widget `odds` —
  * confirmado por investigação empírica (ADR-008).
+ *
+ * prompt-v1.2 (2026-07-30): (Bug 1) forma recente/H2H mostram placares
+ * reais — o contexto lia chaves inexistentes e saía "W (?-?)" em 100%
+ * dos prompts. (Bug 2) o texto imprimia o placeholder literal
+ * "edge >= EDGE_THRESHOLD" (e o Ruby dizia 20%) enquanto o filtro real
+ * é 10% — agora interpolado de EDGE_THRESHOLD.
  */
 
-export const PROMPT_VERSION = "prompt-v1.1";
+export const PROMPT_VERSION = "prompt-v1.2";
+
+/**
+ * Threshold mínimo de edge_pct aplicado a montante (rota compute referencia
+ * esta constante — fonte única, o texto do prompt não pode divergir do
+ * filtro real). Espelha `PromptBuilder::EDGE_THRESHOLD` (Ruby); histórico
+ * completo do valor no comentário da rota.
+ */
+export const EDGE_THRESHOLD = 10;
 
 export interface PromptCandidate {
   market: string;
@@ -101,7 +115,7 @@ ${input.home_team} vs ${input.away_team}
 Kickoff (UTC): ${input.kickoff_utc ?? "—"}
 Árbitro: ${refereeLabel}
 
-# Candidatos (ordenados por edge desc; somente com edge >= EDGE_THRESHOLD foram filtrados a montante)
+# Candidatos (ordenados por edge desc; somente com edge >= ${EDGE_THRESHOLD}% foram filtrados a montante)
 ${formatCandidates(input.candidates)}
 
 # Contexto

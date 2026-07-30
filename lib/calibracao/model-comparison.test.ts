@@ -39,6 +39,32 @@ describe("pairedBootstrap", () => {
     const r = pairedBootstrap([0.05, NaN, 0.05, Infinity], { seed: 1 });
     expect(r.n).toBe(2);
   });
+
+  // Regressão (Pacote A item 6): a definição antiga
+  //   p = meanDelta > 0 ? le0/it : 1 - le0/it
+  // NÃO era monotônica — quando o champion vencia com folga, le0/it ≈ 1 e o
+  // ramo `1 - le0/it` devolvia p ≈ 0, exibido no painel como "significativo"
+  // com o sinal trocado. p unilateral pra H1 "challenger melhor" tem que ir
+  // pra 1 quando o champion domina.
+  it("champion vence com folga → p ALTO (nunca 'significativo' invertido)", () => {
+    // delta = champion − challenger; todos negativos ⇒ champion sempre melhor.
+    const deltas = Array.from({ length: 100 }, () => -0.05);
+    const r = pairedBootstrap(deltas, { seed: 3 });
+    expect(r.meanDelta).toBeLessThan(0);
+    // Toda reamostra tem média ≤ 0 ⇒ p = 1 (sem nenhuma evidência pró-challenger).
+    expect(r.pChallengerBetter).toBeGreaterThan(0.95);
+  });
+
+  it("p é monotônico no meanDelta (mais vantagem do challenger ⇒ p menor)", () => {
+    const noise = Array.from({ length: 80 }, (_, i) => Math.sin(i * 1.7) * 0.05);
+    const shifts = [-0.04, -0.01, 0, 0.01, 0.04];
+    const ps = shifts.map(
+      (s) => pairedBootstrap(noise.map((d) => d + s), { seed: 9 }).pChallengerBetter,
+    );
+    for (let i = 1; i < ps.length; i++) {
+      expect(ps[i]).toBeLessThanOrEqual(ps[i - 1]);
+    }
+  });
 });
 
 describe("deflatePValue", () => {

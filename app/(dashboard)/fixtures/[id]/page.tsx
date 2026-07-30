@@ -294,7 +294,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
   const linkedBet =
     aiReco !== null ? await fetchLinkedBet(aiReco.id, viewerId, untyped) : null;
 
-  const bankrollSettings = await fetchBankrollSettings(untyped);
+  const bankrollSettings = await fetchBankrollSettings(untyped, viewerId);
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
   // Toggle shadow (ADR-011): predições dos modelos da arena pros cartões deste
   // jogo. Fetch + compute aqui (corpo async, já awaited) → passado SÍNCRONO ao
@@ -566,34 +566,38 @@ async function fetchLinkedBet(
 }
 
 /**
- * Lê a banca atual de `banca_snapshots` para calcular `unitValue` real.
+ * Lê a banca atual do usuário da sessão em `daily_pl_view` (soma de
+ * `balance_snapshots.balance` das casas por dia) para calcular `unitValue`
+ * real. Item 3 do Pacote A: antes lia a tabela FANTASMA `banca_snapshots`
+ * (não existe) e caía sempre no fallback R$ 1.000.
+ *
+ * MULTI-USUÁRIO: o client aqui é admin (service_role, ignora RLS) e
+ * `balance_snapshots` é user-scoped — sem `userId` não lê nada (fallback).
+ *
  * Fallback: `{ bankroll: DEFAULT_BANKROLL, units_per_bankroll: 1 }` quando
- * a tabela não existe, está vazia ou há erro.
+ * a view não existe, está vazia ou há erro.
  *
  * Sem `bankroll_settings` table ainda (futuro ADR): usa 1% da banca por unit.
  */
 async function fetchBankrollSettings(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
+  userId: string | null,
 ): Promise<{ bankroll: number; units_per_bankroll: number }> {
   try {
-    const { data, error } = await supabase
-      .from("banca_snapshots")
-      .select("current_balance")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) {
-      const cb = (data as Record<string, unknown>).current_balance;
-      const balance =
-        typeof cb === "number" && Number.isFinite(cb) && cb > 0 ? cb : null;
-      const b = !balance
-        ? ((data as Record<string, unknown>).balance as number | undefined)
-        : null;
-      const bankroll =
-        balance ?? (typeof b === "number" && Number.isFinite(b) && b > 0 ? b : null);
-      if (bankroll) {
-        return { bankroll, units_per_bankroll: 1 };
+    if (userId) {
+      const { data, error } = await supabase
+        .from("daily_pl_view")
+        .select("snapshot_date, total_balance")
+        .eq("user_id", userId)
+        .order("snapshot_date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (!error && data) {
+        const tb = Number((data as Record<string, unknown>).total_balance);
+        if (Number.isFinite(tb) && tb > 0) {
+          return { bankroll: tb, units_per_bankroll: 1 };
+        }
       }
     }
   } catch {

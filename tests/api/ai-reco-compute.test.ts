@@ -74,8 +74,10 @@ interface MockState {
   simRow: SimRow | null;
   calibrationRows: CalibrationRow[];
   calibratedLeagueRows: Array<{ league: string }>;
-  bankrollRow: { current_balance: number } | { balance: number } | null;
+  bankrollRow: { total_balance: number | string } | null;
   bankrollError: { message: string } | null;
+  /** Filtros .eq(...) aplicados na query de bankroll (daily_pl_view). */
+  bankrollEqCalls: Array<[string, unknown]>;
   llmLogInsertId: number | null;
   llmLogInsertError: { message: string } | null;
   recoInsertId: number | null;
@@ -95,6 +97,7 @@ const mockState: MockState = {
   calibratedLeagueRows: [],
   bankrollRow: null,
   bankrollError: null,
+  bankrollEqCalls: [],
   llmLogInsertId: 999,
   llmLogInsertError: null,
   recoInsertId: 888,
@@ -114,6 +117,7 @@ function resetMock() {
   mockState.calibratedLeagueRows = [];
   mockState.bankrollRow = null;
   mockState.bankrollError = null;
+  mockState.bankrollEqCalls = [];
   mockState.llmLogInsertId = 999;
   mockState.llmLogInsertError = null;
   mockState.recoInsertId = 888;
@@ -194,10 +198,17 @@ function buildAdminMock() {
         return chain;
       }
 
-      // --- bankroll source (banca_snapshots — degrades gracefully) ---
-      if (table === "banca_snapshots" || table === "balance_snapshots") {
+      // --- bankroll source (daily_pl_view sobre balance_snapshots — item 3
+      // do Pacote A: a tabela fantasma banca_snapshots NÃO existe; a leitura
+      // real é a view agregada, escopada por user_id porque o client é admin
+      // e ignora RLS) ---
+      if (table === "daily_pl_view") {
         const chain: Record<string, unknown> = {};
         chain.select = () => chain;
+        chain.eq = (col: string, val: unknown) => {
+          mockState.bankrollEqCalls.push([col, val]);
+          return chain;
+        };
         chain.order = () => chain;
         chain.limit = () => chain;
         chain.maybeSingle = () =>
@@ -536,6 +547,106 @@ describe("POST /api/ai-reco/compute — happy path", () => {
     expect(mockState.insertedLlmLog!.route).toBe("ai-reco-on-demand");
     expect(mockState.insertedReco).not.toBeNull();
     expect(mockState.insertedReco!.verdict).toBe("bet");
+  });
+
+  it("lê o bankroll de daily_pl_view ESCOPADO pelo user da sessão (client admin ignora RLS)", async () => {
+    mockState.fixtureRow = makeFixtureRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
+    mockState.bankrollRow = { total_balance: 2500 };
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    // Regressão (Pacote A item 3): antes lia a tabela FANTASMA banca_snapshots
+    // (não existe) e caía sempre no fallback R$ 1.000. Agora lê a view real e,
+    // por ser client admin (sem RLS), o filtro por user_id é obrigatório.
+    expect(mockState.bankrollEqCalls).toContainEqual([
+      "user_id",
+      "default-test-user",
+    ]);
+  });
+
+  it("prompt mostra placares reais quando detail_json usa as chaves reais do merger (homeGoalsFt)", async () => {
+    // O WidgetMerger (Ruby) grava homeGoalsFt/awayGoalsFt — NUNCA
+    // home_goals/away_goals. Antes do prompt-v1.2 o builder TS lia as chaves
+    // erradas e 100% dos prompts saíam "W (?-?)" / "Time ?-? Time".
+    mockState.fixtureRow = makeFixtureRow({
+      detail_json: {
+        ...makeFixtureRow().detail_json!,
+        recent_matches: {
+          home: [
+            { result: "W", homeGoalsFt: 3, awayGoalsFt: 1 },
+            { result: "D", homeGoalsFt: 0, awayGoalsFt: 0 },
+          ],
+          away: [{ result: "L", homeGoalsFt: 0, awayGoalsFt: 2 }],
+        },
+        h2h: [
+          { home_team: "Liverpool", homeGoalsFt: 2, awayGoalsFt: 1, away_team: "Tottenham" },
+        ],
+      },
+    });
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
+    mockState.calibratedLeagueRows = [{ league: "Premier League" }];
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    const snapshot = mockState.insertedLlmLog!.prompt_snapshot as {
+      system: string;
+      user: string;
+    };
+    expect(snapshot.user).toContain("W (3-1), D (0-0)");
+    expect(snapshot.user).toContain("L (0-2)");
+    expect(snapshot.user).toContain("Liverpool 2-1 Tottenham");
+    expect(snapshot.user).not.toContain("?-?");
+  });
+
+  it("prompt mantém fallback pras chaves legadas home_goals/away_goals", async () => {
+    // makeFixtureRow usa as chaves snake_case legadas — o fallback de
+    // robustez deve continuar renderizando os placares.
+    mockState.fixtureRow = makeFixtureRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
+    mockState.calibratedLeagueRows = [{ league: "Premier League" }];
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    const snapshot = mockState.insertedLlmLog!.prompt_snapshot as {
+      user: string;
+    };
+    expect(snapshot.user).toContain("W (3-1), W (2-0)");
+    expect(snapshot.user).toContain("Liverpool 2-1 Tottenham");
+    expect(snapshot.user).not.toContain("?-?");
   });
 
   it("returns skip path when no candidates have edge >= 20%", async () => {

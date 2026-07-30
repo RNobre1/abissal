@@ -87,7 +87,16 @@ const BETS_BY_KIND = [
 type TableName =
   | "roi_by_house_view"
   | "roi_by_period_view"
+  | "daily_pl_view"
   | "bets";
+
+// Snapshots agregados por dia (daily_pl_view sobre balance_snapshots — item 3:
+// a tabela fantasma banca_snapshots nunca existiu e o gráfico ficava morto).
+const DAILY_PL_VIEW_DATA = [
+  { snapshot_date: "2026-05-01", total_balance: 500 },
+  { snapshot_date: "2026-05-02", total_balance: 530 },
+  { snapshot_date: "2026-05-04", total_balance: 510 },
+];
 
 function buildQueryBuilder(tableName: TableName) {
   let resolveData: unknown;
@@ -98,6 +107,9 @@ function buildQueryBuilder(tableName: TableName) {
       break;
     case "roi_by_period_view":
       resolveData = PERIOD_VIEW_DATA;
+      break;
+    case "daily_pl_view":
+      resolveData = DAILY_PL_VIEW_DATA;
       break;
     case "bets":
       resolveData = BETS_BY_KIND;
@@ -111,6 +123,7 @@ function buildQueryBuilder(tableName: TableName) {
   builder.order = () => builder;
   builder.eq = () => builder;
   builder.neq = () => builder;
+  builder.gte = () => builder;
   builder.limit = () => builder;
   builder.is = () => builder;
   builder.not = () => builder;
@@ -193,6 +206,13 @@ describe("BancaPage — relatórios consolidados (com dados)", () => {
     render(element);
 
     expect(screen.getByText(/2026-05/)).toBeDefined();
+  });
+
+  it("renderiza o gráfico de bankroll a partir de daily_pl_view (item 3 — antes lia a fantasma banca_snapshots)", async () => {
+    const element = await BancaPage();
+    render(element);
+
+    expect(screen.getByText(/bankroll ao longo do tempo/i)).toBeDefined();
   });
 });
 

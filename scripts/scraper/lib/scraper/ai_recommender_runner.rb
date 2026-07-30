@@ -28,7 +28,11 @@ module AdamStats
       #     D10 ficou 1º no ranking WF (ROI -13.12%, melhor entre todos).
       #     D20 ficou 4º. Reverter pra D10 é a config menos ruim dos dados reais.
       #     Ref: docs/superpowers/specs/2026-05-25-backtest-walk-forward.md
-      EDGE_THRESHOLD = 10.0
+      #
+      # prompt-v1.2 (2026-07-30): o VALOR mora em PromptBuilder::EDGE_THRESHOLD
+      # (fonte única — o texto do prompt interpola de lá e não pode divergir
+      # do filtro real; o texto hardcodava "20%" enquanto filtrávamos a 10).
+      EDGE_THRESHOLD = AiReco::PromptBuilder::EDGE_THRESHOLD
       # Acima desse edge_pct, em liga NAO calibrada, recusamos a bet:
       # simulador sem league_parameters produz ruido amplificado
       # (ex: Kolding IF edge 114%, 2026-05-25). Espelha SANITY_EDGE_THRESHOLD
@@ -705,9 +709,7 @@ module AdamStats
 
         arr.first(5).map do |m|
           result = m['result'] || m.dig('outcome', 'result') || '?'
-          hg = m['home_goals'] || '?'
-          ag = m['away_goals'] || '?'
-          "#{result} (#{hg}-#{ag})"
+          "#{result} (#{goals_ft(m, 'home')}-#{goals_ft(m, 'away')})"
         end.join(', ')
       end
 
@@ -715,8 +717,15 @@ module AdamStats
         return '-' unless h2h.is_a?(Array) && !h2h.empty?
 
         h2h.first(3).map do |m|
-          "#{m['home_team'] || '?'} #{m['home_goals'] || '?'}-#{m['away_goals'] || '?'} #{m['away_team'] || '?'}"
+          "#{m['home_team'] || '?'} #{goals_ft(m, 'home')}-#{goals_ft(m, 'away')} #{m['away_team'] || '?'}"
         end.join('; ')
+      end
+
+      # O WidgetMerger persiste os placares FT como homeGoalsFt/awayGoalsFt
+      # (RECENT_MATCH_FIELDS). As chaves snake_case nunca existiram no payload
+      # real — mantidas só como fallback de robustez (prompt-v1.2, Bug 1).
+      def goals_ft(m, side)
+        m["#{side}GoalsFt"] || m["#{side}_goals"] || '?'
       end
 
       def persist_skip(conn, row, candidates, league_calibrated,

@@ -64,8 +64,12 @@ export function pairedBootstrap(
 
   let le0 = 0;
   for (const m of means) if (m <= 0) le0++;
-  // p unilateral de "challenger é melhor" = massa de reamostras que NÃO mostram melhora.
-  const pChallengerBetter = meanDelta > 0 ? le0 / iterations : 1 - le0 / iterations;
+  // p unilateral pra H1 "challenger melhor" = fração de reamostras com média
+  // ≤ 0 (que NÃO mostram melhora). Definição monotônica: quanto maior a
+  // vantagem do challenger, menor o p; champion dominando ⇒ p → 1. A forma
+  // antiga (`meanDelta > 0 ? le0/it : 1 - le0/it`) invertia o sinal quando o
+  // champion vencia com folga e o painel exibia p "significativo" errado.
+  const pChallengerBetter = le0 / iterations;
 
   return { n, meanDelta, ciLo, ciHi, pChallengerBetter };
 }

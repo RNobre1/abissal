@@ -18,6 +18,20 @@ vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => ({}),
 }));
 
+// O card agora embute o AddToSlipButton real (Wave M) — client component com
+// useRouter/telemetry, mockados aqui pra render server-side em jsdom.
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh: vi.fn(), push: vi.fn(), replace: vi.fn() }),
+}));
+
+vi.mock("@/lib/telemetry/use-telemetry", () => ({
+  useTelemetry: () => vi.fn(),
+}));
+
+vi.mock("@/lib/bet-slip/actions", () => ({
+  addLegToSlip: vi.fn(async () => ({ slipId: 1, legId: 1 })),
+}));
+
 const mockFetchTops = vi.fn<
   (...args: unknown[]) => Promise<AiRecommendationDTO[]>
 >();

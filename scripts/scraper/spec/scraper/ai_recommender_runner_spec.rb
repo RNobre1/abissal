@@ -1194,5 +1194,68 @@ module AdamStats::Scraper
         expect(result[:llm_failures]).to eq(1)
       end
     end
+
+    describe 'contexto do prompt — placares reais (prompt-v1.2, Bug 1)' do
+      # O WidgetMerger grava os placares como homeGoalsFt/awayGoalsFt
+      # (RECENT_MATCH_FIELDS em widget_merger.rb), mas summarize_recent /
+      # summarize_h2h liam home_goals/away_goals — inexistentes no payload
+      # real. Resultado: 100% dos prompts em prod saíam "W (?-?)" e
+      # "Time ?-? Time". Estas specs usam a estrutura REAL do merger.
+      let(:runner) { described_class.new(logger: logger) }
+
+      # Estrutura idêntica à produzida por WidgetMerger#extract_matches.
+      def merged_match(result:, home_goals_ft:, away_goals_ft:, home: 'Liverpool', away: 'Tottenham')
+        {
+          'id' => 1, 'date' => nil, 'result' => result,
+          'htResult' => nil, 'status' => 'FT',
+          'homeGoalsFt' => home_goals_ft, 'awayGoalsFt' => away_goals_ft,
+          'home_team' => home, 'away_team' => away
+        }
+      end
+
+      describe '#summarize_recent' do
+        it 'mostra os placares reais do payload do merger (homeGoalsFt/awayGoalsFt)' do
+          arr = [
+            merged_match(result: 'W', home_goals_ft: 3, away_goals_ft: 1),
+            merged_match(result: 'L', home_goals_ft: 0, away_goals_ft: 2)
+          ]
+          out = runner.send(:summarize_recent, arr)
+          expect(out).to eq('W (3-1), L (0-2)')
+          expect(out).not_to include('?')
+        end
+
+        it 'preserva placar 0-0 (zero é valor, não ausência)' do
+          arr = [merged_match(result: 'D', home_goals_ft: 0, away_goals_ft: 0)]
+          expect(runner.send(:summarize_recent, arr)).to eq('D (0-0)')
+        end
+
+        it 'mantém fallback pras chaves legadas home_goals/away_goals' do
+          arr = [{ 'result' => 'W', 'home_goals' => 2, 'away_goals' => 1 }]
+          expect(runner.send(:summarize_recent, arr)).to eq('W (2-1)')
+        end
+
+        it 'degrada pra "?" quando nenhuma chave de placar existe' do
+          arr = [{ 'result' => 'W' }]
+          expect(runner.send(:summarize_recent, arr)).to eq('W (?-?)')
+        end
+      end
+
+      describe '#summarize_h2h' do
+        it 'mostra os placares reais do payload do merger' do
+          h2h = [
+            merged_match(result: 'W', home_goals_ft: 2, away_goals_ft: 1),
+            merged_match(result: 'D', home_goals_ft: 0, away_goals_ft: 0, home: 'Tottenham', away: 'Liverpool')
+          ]
+          out = runner.send(:summarize_h2h, h2h)
+          expect(out).to eq('Liverpool 2-1 Tottenham; Tottenham 0-0 Liverpool')
+          expect(out).not_to include('?')
+        end
+
+        it 'mantém fallback pras chaves legadas home_goals/away_goals' do
+          h2h = [{ 'home_team' => 'A', 'away_team' => 'B', 'home_goals' => 1, 'away_goals' => 3 }]
+          expect(runner.send(:summarize_h2h, h2h)).to eq('A 1-3 B')
+        end
+      end
+    end
   end
 end

@@ -10,6 +10,7 @@ import {
   computeWinRate,
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
+import { DestaquesDoDia } from "../_components/destaques-do-dia";
 import { OportunidadesIa } from "../_components/oportunidades-ia";
 import { QuietModeCard } from "@/components/disciplina/quiet-mode-card";
 import { isQuietModeActive } from "@/lib/disciplina/quiet-mode";
@@ -104,7 +105,14 @@ export default async function OverviewPage() {
           cumulativePl={cumulativePl}
         />
       ) : (
-        <OportunidadesIa />
+        <>
+          {/* Item 2 (Pacote A): DestaquesDoDia existia completo (component +
+              dismissAlert + alert_dismissals 0015 + high_signal 0017/0043)
+              mas nunca fora fiado. Mesmo gating de quiet mode das
+              oportunidades — fricção ética suprime sinal de aposta. */}
+          <DestaquesDoDia />
+          <OportunidadesIa />
+        </>
       )}
 
       {isEmpty ? <FirstRun /> : (

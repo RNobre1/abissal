@@ -95,14 +95,17 @@ export default async function BancaPage() {
       .order("resolved_at", { ascending: false }),
   ]);
 
-  // Bankroll snapshots — optional, degrades gracefully when table absent
+  // Bankroll snapshots — daily_pl_view agrega balance_snapshots por dia
+  // (soma das casas). Item 3 do Pacote A: antes lia a tabela FANTASMA
+  // banca_snapshots (não existe) e o gráfico ficava morto desde sempre.
+  // Client do usuário (RLS aplica via security_invoker). Degrada gracioso.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let snapshotsQuery: { data: any[] | null; error: unknown } = { data: null, error: null };
   try {
     const from90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
     const snapshotChain = sbAny
-      .from("banca_snapshots")
-      .select("snapshot_date, balance");
+      .from("daily_pl_view")
+      .select("snapshot_date, total_balance");
     if (typeof snapshotChain.gte === "function") {
       snapshotsQuery = await snapshotChain
         .gte("snapshot_date", from90)
@@ -110,7 +113,7 @@ export default async function BancaPage() {
         .limit(90);
     }
   } catch {
-    // banca_snapshots not available in this environment — skip chart
+    // daily_pl_view not available in this environment — skip chart
   }
 
   const houses = (houseViewQuery.data ?? []) as RoiByHouseRow[];
@@ -118,11 +121,11 @@ export default async function BancaPage() {
   const bets = (betsQuery.data ?? []) as BetKindRow[];
 
   // Bankroll chart data
-  type SnapshotRow = { snapshot_date: string; balance: number };
+  type SnapshotRow = { snapshot_date: string; total_balance: number | string };
   const rawSnapshots = (snapshotsQuery?.data ?? []) as SnapshotRow[];
   const snapshotPoints = rawSnapshots.map((s) => ({
     date: s.snapshot_date,
-    balance: Number(s.balance),
+    balance: Number(s.total_balance),
   }));
   const today = new Date().toISOString().slice(0, 10);
   const chartFrom90 = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);

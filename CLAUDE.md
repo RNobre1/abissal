@@ -108,6 +108,7 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
   - `ai-reco.yml` — 10:45 UTC (07:45 BRT), ~45min após o scrape. Recomendador IA-2 **desacoplado** (B20-bis): `bin/run_ai_recommender` → `AiRecommenderJob`. Chamadas R1 paralelizadas (`AI_RECO_CONCURRENCY`, default 6). `timeout-minutes: 45`, cron+manual only (sem push — workflow caro de LLM). `workflow_dispatch` disponível.
   - `closing-odds-capture.yml` — 15/17/19/21 UTC. Captura closing odds (CLV) na janela ao redor do KO.
   - `telegram-closure.yml` — 02:00 UTC. Resumo diário no Telegram.
+  - `balance-snapshots-daily.yml` — 03:00 UTC. Snapshot diário de saldo (`generate_balance_snapshots` via service_role, todas as contas). Sem ele o snapshot só nasce quando uma aposta resolve — dias parados viram buraco e o `/forecast` nunca acumula os 14 dias mínimos. `workflow_dispatch` disponível.
   - `calibracao-weekly.yml` — **todo domingo, 12:00 UTC** (era mensal, dia 5 — ver lição B24). Roda após o scrape (10:00) + reconcilers + ai-reco (10:45), pegando sábado já resolvido. Refita parâmetros por liga (`scripts/calibracao/fit-league-parameters.ts`, ligas com `n≥20`) + calibração isotônica IA (`scripts/calibracao/fit-isotonic.ts`). **Refit mecânico data-driven — NÃO mexe em prompt/modelo** (decisão manual, por evidência, nunca por calendário). Manual: `gh workflow run calibracao-weekly.yml -R RNobre1/abissal`. Local: `pnpm exec tsx scripts/calibracao/fit-league-parameters.ts`. Secrets: `NEXT_PUBLIC_SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`; `HEALTHCHECKS_CALIBRATE_URL` opcional.
 - Backup: Supabase free tier mantém backup rolling de 7 dias. `pg_dump` adicional exigiria Pro.
 
@@ -207,6 +208,7 @@ abissal/
     ├── ai-reco.yml                      # cron 10:45 UTC — recomendador IA-2 desacoplado (R1 paralelo)
     ├── closing-odds-capture.yml         # cron 15/17/19/21 UTC — CLV
     ├── telegram-closure.yml             # cron 02:00 UTC — resumo
+    ├── balance-snapshots-daily.yml      # cron 03:00 UTC — snapshot diário de saldo (alimenta /forecast)
     └── calibracao-weekly.yml            # cron domingo 12:00 UTC (era mensal — B24)
 ```
 

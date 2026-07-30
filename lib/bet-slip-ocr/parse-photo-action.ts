@@ -13,11 +13,18 @@
  * Erros são normalizados em ParsePhotoResult.ok=false para exibição amigável.
  */
 
-import { parseBetSlipImage, OcrParseError } from "./gemini-vision";
+import {
+  parseBetSlipImage,
+  OcrParseError,
+  type GeminiAttemptLog,
+} from "./gemini-vision";
 import { matchFixture, type MatchResult } from "./match-fixture";
 import type { ParsedLeg } from "./schema";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient } from "@/lib/supabase/admin";
 import { isAiEnabled } from "@/lib/settings/ai-toggle";
+import { recordLlmRequest } from "@/lib/llm-logs";
+import { computeCostUsd } from "@/lib/ai-reco/pricing";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -26,9 +33,29 @@ export interface ParsedLegWithMatch {
   match: MatchResult;
 }
 
+/**
+ * Taxonomia estruturada de falha (item 4c) — vai no telemetry payload
+ * (`bilhete_foto_failed.error_kind`) pra tornar o funil diagnosticável.
+ * As 5 centrais vêm do OcrErrorKind + validações locais; o resto cobre os
+ * gates da action.
+ */
+export type ParsePhotoErrorKind =
+  | "no-session"
+  | "ai-disabled"
+  | "no-image"
+  | "invalid-mime"
+  | "too-large"
+  | "gemini-error"
+  | "invalid-json"
+  | "no-legs-found"
+  | "unreadable"
+  | "unexpected";
+
 export interface ParsePhotoResult {
   ok: boolean;
   error?: string;
+  /** Categoria estruturada quando ok=false (item 4c). */
+  error_kind?: ParsePhotoErrorKind;
   slip?: {
     legs: ParsedLegWithMatch[];
     stake_total: number | null;
@@ -43,6 +70,77 @@ export interface ParsePhotoResult {
 
 const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
 
+/**
+ * Mensagens acionáveis por categoria (item 4d): "foto ruim — muda a foto"
+ * é um conserto diferente de "serviço fora — só tenta de novo".
+ */
+const OCR_ERROR_MESSAGES: Record<
+  Extract<ParsePhotoErrorKind, "gemini-error" | "invalid-json" | "no-legs-found" | "unreadable">,
+  string
+> = {
+  "gemini-error":
+    "Erro no serviço de leitura — não é culpa da foto. Tenta de novo em instantes.",
+  "invalid-json":
+    "O serviço de leitura retornou dados inválidos — tenta de novo; se persistir, adiciona as pernas manualmente.",
+  "no-legs-found":
+    "Não encontrei seleções no cupom — enquadra só o bilhete, mais de perto, com as seleções visíveis.",
+  unreadable:
+    "Não consegui ler o cupom — tenta uma foto mais de perto, sem reflexo e com o bilhete inteiro no quadro.",
+};
+
+// ── OCR observability (item 4a) ───────────────────────────────────────────────
+
+/**
+ * Constrói o logger de tentativas do Gemini. O insert em `llm_request_logs`
+ * exige service_role (não há policy de INSERT pra authenticated); se o admin
+ * client não puder ser criado (env ausente em dev/test), retorna undefined e
+ * o OCR segue sem logging.
+ */
+function buildOcrAttemptLogger():
+  | { onAttempt: (a: GeminiAttemptLog) => void; flush: () => Promise<void> }
+  | undefined {
+  let sink: Parameters<typeof recordLlmRequest>[0] | null = null;
+  try {
+    sink = createAdminClient() as unknown as Parameters<typeof recordLlmRequest>[0];
+  } catch {
+    return undefined;
+  }
+  const admin = sink;
+  // Inserts pendentes: a action AGUARDA todos via flush() antes de retornar.
+  // Fire-and-forget num Worker CF mata o insert quando o request encerra
+  // (lição já paga no /auto UX overhaul) — e era exatamente a observabilidade
+  // que este logging veio criar. Cada promise já engole o próprio erro
+  // (best-effort: logging jamais quebra o OCR).
+  const pending: Array<Promise<void>> = [];
+  const onAttempt = (a: GeminiAttemptLog) => {
+    const hasTokens = a.promptTokens !== null || a.completionTokens !== null;
+    pending.push(
+      recordLlmRequest(admin, {
+        route: "ocr",
+        fixture_id: null,
+        model: a.model,
+        latency_ms: a.latencyMs,
+        prompt_tokens: a.promptTokens,
+        completion_tokens: a.completionTokens,
+        total_tokens: a.totalTokens,
+        cost_usd: hasTokens
+          ? computeCostUsd(a.model, a.promptTokens ?? 0, a.completionTokens ?? 0)
+          : null,
+        error: a.error,
+      }).then(
+        () => undefined,
+        () => undefined,
+      ),
+    );
+  };
+  return {
+    onAttempt,
+    flush: async () => {
+      await Promise.all(pending);
+    },
+  };
+}
+
 // ── Action ────────────────────────────────────────────────────────────────────
 
 /**
@@ -53,6 +151,7 @@ const MAX_IMAGE_SIZE_BYTES = 8 * 1024 * 1024; // 8 MB
 export async function parseBetSlipPhoto(
   formData: FormData,
 ): Promise<ParsePhotoResult> {
+  const ocrLogger = buildOcrAttemptLogger();
   try {
     const supabase = await createClient();
 
@@ -65,7 +164,11 @@ export async function parseBetSlipPhoto(
     // server-side forte (B22).
     const { data: auth } = await supabase.auth.getUser();
     if (!auth?.user) {
-      return { ok: false, error: "Sessão expirada. Entre novamente para enviar a foto." };
+      return {
+        ok: false,
+        error_kind: "no-session",
+        error: "Sessão expirada. Entre novamente para enviar a foto.",
+      };
     }
 
     // 0b. Kill switch global de IA: o OCR usa Gemini via OpenRouter. Quando
@@ -74,6 +177,7 @@ export async function parseBetSlipPhoto(
     if (!(await isAiEnabled(supabase as never))) {
       return {
         ok: false,
+        error_kind: "ai-disabled",
         error: "IA desativada no sistema. Adicione as pernas do bilhete manualmente.",
       };
     }
@@ -81,23 +185,36 @@ export async function parseBetSlipPhoto(
     // 1. Extrair e validar arquivo
     const file = formData.get("image");
     if (!(file instanceof File)) {
-      return { ok: false, error: "Nenhuma imagem enviada." };
+      return { ok: false, error_kind: "no-image", error: "Nenhuma imagem enviada." };
     }
 
     if (!file.type.startsWith("image/")) {
-      return { ok: false, error: "Formato inválido. Envie uma imagem (JPEG, PNG, WEBP, etc)." };
+      return {
+        ok: false,
+        error_kind: "invalid-mime",
+        error: "Formato inválido. Envie uma imagem (JPEG, PNG, WEBP, etc).",
+      };
     }
 
     if (file.size > MAX_IMAGE_SIZE_BYTES) {
-      return { ok: false, error: "Imagem muito grande. Tamanho máximo: 8 MB." };
+      return {
+        ok: false,
+        error_kind: "too-large",
+        error: "Imagem muito grande. Tamanho máximo: 8 MB.",
+      };
     }
 
     // 2. Converter File → Buffer
     const arrayBuffer = await file.arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    // 3. Parsear via Gemini Vision
-    const parsed = await parseBetSlipImage(buffer);
+    // 3. Parsear via Gemini Vision, logando CADA tentativa em
+    // `llm_request_logs` (route='ocr' — item 4a): sem isso o custo/erro do
+    // OCR era invisível em /llm-observability. Best-effort: admin client
+    // indisponível ou insert falhando jamais quebram o OCR.
+    const parsed = await parseBetSlipImage(buffer, {
+      onAttempt: ocrLogger?.onAttempt,
+    });
 
     // 4a. Bet Builder: single-game multi-market — redirect ao /bilhete/builder
     if (parsed.is_bet_builder === true) {
@@ -165,12 +282,20 @@ export async function parseBetSlipPhoto(
     };
   } catch (err) {
     if (err instanceof OcrParseError) {
-      return {
-        ok: false,
-        error: "Não consegui ler o cupom. Tenta com uma foto mais clara.",
-      };
+      // Item 4c/4d: categoria estruturada + mensagem acionável por categoria.
+      // Instância legada sem `kind` (ou kind desconhecido) cai em "unreadable".
+      const kind =
+        err.kind && err.kind in OCR_ERROR_MESSAGES
+          ? (err.kind as keyof typeof OCR_ERROR_MESSAGES)
+          : "unreadable";
+      return { ok: false, error_kind: kind, error: OCR_ERROR_MESSAGES[kind] };
     }
     const msg = err instanceof Error ? err.message : String(err);
-    return { ok: false, error: `Erro inesperado: ${msg}` };
+    return { ok: false, error_kind: "unexpected", error: `Erro inesperado: ${msg}` };
+  } finally {
+    // Aguarda os inserts de log pendentes ANTES do request encerrar —
+    // inclusive nos caminhos de erro (as tentativas com erro são justamente
+    // as mais importantes de registrar).
+    await ocrLogger?.flush();
   }
 }

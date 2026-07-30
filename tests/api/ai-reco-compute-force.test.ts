@@ -94,9 +94,11 @@ function buildAdminMock() {
           });
         return c;
       }
-      if (table === "banca_snapshots" || table === "balance_snapshots") {
+      // bankroll: daily_pl_view (item 3 — banca_snapshots era tabela fantasma)
+      if (table === "daily_pl_view") {
         const c: Record<string, unknown> = {};
         c.select = () => c;
+        c.eq = () => c;
         c.order = () => c;
         c.limit = () => c;
         c.maybeSingle = () => Promise.resolve({ data: null, error: null });

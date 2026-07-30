@@ -12,9 +12,20 @@ module AdamStats
       # Adicionados mercados secundários (corners, cards, SOT) no schema JSON
       # e heurísticas contextuais.
       #
+      # prompt-v1.2 (2026-07-30): (Bug 1) forma recente/H2H mostram placares
+      # reais — o contexto lia chaves inexistentes e saía "W (?-?)" em 100%
+      # dos prompts. (Bug 2) o texto declarava "edge >= 20%" enquanto o filtro
+      # real é 10% — agora interpolado de EDGE_THRESHOLD.
+      #
       # Spec §6.
       module PromptBuilder
-        PROMPT_VERSION = 'prompt-v1.1'.freeze
+        PROMPT_VERSION = 'prompt-v1.2'.freeze
+
+        # Threshold mínimo de edge_pct aplicado a montante pelo
+        # AiRecommenderRunner (que REFERENCIA esta constante — fonte única,
+        # o texto do prompt não pode divergir do filtro real). Histórico
+        # completo do valor no comentário do runner.
+        EDGE_THRESHOLD = 10.0
 
         SYSTEM = <<~TEXT.freeze
           Você é um analista de apostas pré-jogo. Tarefa: escolher UMA recomendação entre os candidatos abaixo (já calculados deterministicamente) e justificar em 3-5 parágrafos. Você NÃO pode aumentar units além do Kelly sugerido — só reduzir se houver red flag qualitativo.
@@ -67,7 +78,7 @@ module AdamStats
           user << "Kickoff (UTC): #{kickoff_utc || '—'}\n"
           user << "Árbitro: #{referee_label}\n\n"
 
-          user << "# Candidatos (ordenados por edge desc; somente com edge >= 20% foram filtrados a montante)\n"
+          user << "# Candidatos (ordenados por edge desc; somente com edge >= #{format('%g', EDGE_THRESHOLD)}% foram filtrados a montante)\n"
           user << "#{format_candidates(candidates)}\n\n"
 
           user << "# Contexto\n"
