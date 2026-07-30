@@ -18,6 +18,7 @@
 import Link from "next/link";
 import type { Conflict, SlipLeg } from "@/lib/bet-slip/compute";
 import { BetSlipPhotoImport } from "./bet-slip-photo-import";
+import { BilheteCriticSection } from "./bilhete-critic-panel";
 import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 interface HouseOption {
@@ -40,6 +41,8 @@ interface BetSlipDrawerProps {
   onCommit: (houseId: string) => void;
   onCancel: () => void;
   onLegsAdded?: () => void;
+  /** Kill switch global de IA (app_settings.ai_enabled) — false esconde o crítico. */
+  aiEnabled?: boolean;
 }
 
 function fmtOdd(v: number): string {
@@ -65,6 +68,7 @@ export function BetSlipDrawer({
   onCommit,
   onCancel,
   onLegsAdded,
+  aiEnabled = true,
 }: BetSlipDrawerProps) {
   const track = useTelemetry();
 
@@ -208,6 +212,16 @@ export function BetSlipDrawer({
             </span>
           </div>
         ) : null}
+      </div>
+
+      {/* Advogado do diabo — crítica IA do bilhete (F2) */}
+      <div className="border-t border-[var(--color-line)] px-4 py-3">
+        <BilheteCriticSection
+          legs={legs}
+          stakeTotal={stakeTotal}
+          oddCombined={oddCombined}
+          aiEnabled={aiEnabled}
+        />
       </div>
 
       {/* Actions */}
