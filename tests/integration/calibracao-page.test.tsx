@@ -93,6 +93,17 @@ function buildAdminMock() {
   };
 }
 
+// A página escopa o ROI realizado pelo usuário da sessão (as apostas são
+// pessoais, as recomendações são compartilhadas). Sem este mock o
+// `createClient` real chama `cookies()` fora do escopo de request.
+vi.mock("@/lib/supabase/server", () => ({
+  createClient: async () => ({
+    auth: {
+      getClaims: async () => ({ data: { claims: { sub: "user-de-teste" } }, error: null }),
+    },
+  }),
+}));
+
 vi.mock("@/lib/supabase/admin", () => ({
   createAdminClient: () => buildAdminMock(),
 }));

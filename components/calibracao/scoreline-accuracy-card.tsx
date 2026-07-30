@@ -86,7 +86,7 @@ export function ScorelineAccuracyCard({ summary }: Props) {
         </span>
         <Bar label="a sim previa" value={raw.top1Pred} scale={top1Scale} color="var(--color-vermelho)" tag="cru" />
         <Bar label="calibrado" value={cal.top1Pred} scale={top1Scale} color="var(--color-ink-muted)" tag={`T${temperature.toFixed(1)}`} />
-        <Bar label="real (cravou)" value={raw.top1Hit} scale={top1Scale} color="var(--color-green,#22c55e)" emphasis tag="alvo" />
+        <Bar label="real (cravou)" value={raw.top1Hit} scale={top1Scale} color="var(--color-success)" emphasis tag="alvo" />
         <span className="text-[10px] text-[var(--color-ink-faint)]">
           a sim dizia {p1(raw.top1Pred)} mas o top-1 só crava {p1(raw.top1Hit)} → calibração aproxima do real.
         </span>
@@ -98,7 +98,7 @@ export function ScorelineAccuracyCard({ summary }: Props) {
           Taxa de empate — viés diagnosticado (B28)
         </span>
         <Bar label="previsto" value={raw.drawPred} scale={drawScale} color="var(--color-vermelho)" tag="cru" />
-        <Bar label="real" value={raw.drawReal} scale={drawScale} color="var(--color-green,#22c55e)" emphasis tag="alvo" />
+        <Bar label="real" value={raw.drawReal} scale={drawScale} color="var(--color-success)" emphasis tag="alvo" />
         <span className="text-[10px] text-[var(--color-ink-faint)]">
           inflação de +{p1(raw.drawPred - raw.drawReal)} (δ={drawFactor.toFixed(2)} deflaciona o grid; a barra de Empate usa a isotônica 1x2-draw).
         </span>

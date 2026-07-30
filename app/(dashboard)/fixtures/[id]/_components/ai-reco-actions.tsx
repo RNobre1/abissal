@@ -118,7 +118,7 @@ export function AiRecoActions({
         data-apostei-linked
         aria-live="polite"
         aria-atomic="true"
-        className="label flex flex-wrap items-baseline gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-bg-soft,transparent)] px-3 py-2 text-[var(--color-ink)]"
+        className="label flex flex-wrap items-baseline gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-2 text-[var(--color-ink)]"
       >
         <span className="font-semibold text-[var(--color-vermelho)]">
           ✓ Apostou

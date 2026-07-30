@@ -61,7 +61,7 @@ function VerdictBadge({ verdict }: VerdictBadgeProps) {
   const { label, color } = map[verdict];
   const style =
     color === "green"
-      ? "var(--color-green, #22c55e)"
+      ? "var(--color-success)"
       : color === "vermelho"
       ? "var(--color-vermelho)"
       : "var(--color-ink-faint)";
@@ -210,7 +210,7 @@ export function ChampionChallengerCard({ champion, challengers }: ChampionChalle
                       scale={scale}
                       color={
                         chal.verdict === "challenger_better"
-                          ? "var(--color-green, #22c55e)"
+                          ? "var(--color-success)"
                           : chal.verdict === "champion_better"
                           ? "var(--color-vermelho)"
                           : "var(--color-ink-muted)"

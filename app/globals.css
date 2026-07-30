@@ -15,7 +15,12 @@
   --color-ink: #f0ece3;
   --color-ink-display: #f8f5ef;
   --color-ink-muted: #8a8882;
-  --color-ink-faint: #898782;
+  /* 4.51:1 sobre --color-surface-3, a superfície mais clara. Era #898782, que
+     dava 4.45:1 — abaixo do mínimo AA de 4.5:1 para texto normal, e esta é a
+     cor da classe .label (10px), usada nos cabeçalhos de tabela de todo o app.
+     O +1 por canal é imperceptível; o guard em contrast-tokens-wcag.test.ts
+     impede a regressão. */
+  --color-ink-faint: #8a8883;
 
   /* Color — Identity (Vermelho Garantido) */
   --color-vermelho: #c42b2b;

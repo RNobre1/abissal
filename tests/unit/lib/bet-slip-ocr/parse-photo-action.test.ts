@@ -45,8 +45,12 @@ const mockIsAiEnabled = vi.fn<() => Promise<boolean>>();
 vi.mock("@/lib/settings/ai-toggle", () => ({
   isAiEnabled: () => mockIsAiEnabled(),
 }));
+const mockGetUser = vi.fn(async () => ({
+  data: { user: { id: "user-1" } },
+  error: null,
+}));
 vi.mock("@/lib/supabase/server", () => ({
-  createClient: vi.fn(async () => ({})),
+  createClient: vi.fn(async () => ({ auth: { getUser: () => mockGetUser() } })),
 }));
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -324,5 +328,46 @@ describe("parseBetSlipPhoto", () => {
     expect(result.ok).toBe(true);
     expect(result.slip).toBeDefined();
     expect(result.redirect_to).toBeUndefined();
+  });
+});
+
+/**
+ * Gate de autenticação (2026-07-30).
+ *
+ * Esta Server Action gasta crédito de LLM (Gemini Vision) e não checava sessão
+ * — ao contrário de `/api/ai-reco/compute` e `/feedback`, que checam. Server
+ * Actions são invocáveis por POST com o header `next-action`, então qualquer
+ * um podia drenar o orçamento que o próprio kill switch de IA existe pra
+ * proteger.
+ *
+ * Virou prioridade quando o sistema passou a ter mais de um usuário.
+ */
+describe("parseBetSlipPhoto · gate de autenticação", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockIsAiEnabled.mockResolvedValue(true);
+    mockGetUser.mockResolvedValue({ data: { user: { id: "user-1" } }, error: null });
+  });
+
+  it("recusa sem sessão, ANTES de gastar LLM", async () => {
+    mockGetUser.mockResolvedValue({
+      data: { user: null },
+      error: null,
+    } as unknown as { data: { user: { id: string } }; error: null });
+    const { parseBetSlipPhoto } = await import("@/lib/bet-slip-ocr/parse-photo-action");
+    const out = await parseBetSlipPhoto(makeFormData());
+    expect(out.ok).toBe(false);
+    expect(mockParseBetSlipImage).not.toHaveBeenCalled();
+  });
+
+  it("segue normalmente com sessão válida", async () => {
+    mockParseBetSlipImage.mockResolvedValue(PARSED_SLIP_FIXTURE);
+    mockMatchFixture.mockResolvedValue({
+      best: null,
+      candidates: [],
+    } as unknown as MatchResult);
+    const { parseBetSlipPhoto } = await import("@/lib/bet-slip-ocr/parse-photo-action");
+    const out = await parseBetSlipPhoto(makeFormData());
+    expect(out.ok).toBe(true);
   });
 });

@@ -60,20 +60,20 @@ function pendingStatus(count: number): SemaforoStatus {
 }
 
 const STATUS_COLORS: Record<SemaforoStatus, string> = {
-  verde: "text-[var(--color-green,#22c55e)]",
-  amarelo: "text-[var(--color-amarelo,#eab308)]",
+  verde: "text-[var(--color-success)]",
+  amarelo: "text-[var(--color-warning)]",
   vermelho: "text-[var(--color-vermelho)]",
 };
 
 const STATUS_BG: Record<SemaforoStatus, string> = {
-  verde: "border-[color-mix(in_srgb,var(--color-green,#22c55e)_20%,transparent)]",
-  amarelo: "border-[color-mix(in_srgb,var(--color-amarelo,#eab308)_20%,transparent)]",
+  verde: "border-[color-mix(in_srgb,var(--color-success)_20%,transparent)]",
+  amarelo: "border-[color-mix(in_srgb,var(--color-warning)_20%,transparent)]",
   vermelho: "border-[color-mix(in_srgb,var(--color-vermelho)_20%,transparent)]",
 };
 
 const STATUS_DOT: Record<SemaforoStatus, string> = {
-  verde: "bg-[var(--color-green,#22c55e)]",
-  amarelo: "bg-[var(--color-amarelo,#eab308)]",
+  verde: "bg-[var(--color-success)]",
+  amarelo: "bg-[var(--color-warning)]",
   vermelho: "bg-[var(--color-vermelho)]",
 };
 

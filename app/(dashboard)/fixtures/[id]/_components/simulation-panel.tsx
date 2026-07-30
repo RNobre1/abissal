@@ -653,7 +653,7 @@ function PlayerChip({ player, odds }: { player: SimPlayerEvent; odds?: PlayerOdd
                 <span
                   aria-label="sim vê valor"
                   title="sim acima do implícito (com folga sobre a margem)"
-                  style={{ color: "var(--color-positive, #4ade80)" }}
+                  style={{ color: "var(--color-success)" }}
                 >
                   ▲
                 </span>

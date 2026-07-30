@@ -80,6 +80,21 @@ import { getDistK, type DistKMap } from "@/lib/ai-reco/dist-k-repository";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * Id do usuário da sessão, ou `null`. Usado para escopar tudo que é
+ * user-scoped nesta página — que lê via client admin (service_role) e portanto
+ * NÃO tem RLS como rede de segurança.
+ */
+async function currentUserId(): Promise<string | null> {
+  try {
+    const { createClient } = await import("@/lib/supabase/server");
+    const { authedUserId } = await import("@/lib/supabase/auth");
+    return await authedUserId(await createClient());
+  } catch {
+    return null;
+  }
+}
+
 const FIXTURE_COLUMNS =
   "id, match_date, ko_time, home_team, away_team, league, country, source_url, detail_json, kickoff_utc";
 
@@ -273,7 +288,11 @@ export default async function StatsPage({ params }: StatsPageProps) {
   // (tabela faltando, RLS, etc.) — o painel ainda renderiza os 4 botões
   // legados sem o modal de bet.
   const aposteiHouses = await fetchAposteiHouses();
-  const linkedBet = aiReco !== null ? await fetchLinkedBet(aiReco.id, untyped) : null;
+  // Identidade do dono da sessão: tudo que for user-scoped nesta página passa
+  // por aqui, porque `untyped` é o client admin e não aplica RLS.
+  const viewerId = await currentUserId();
+  const linkedBet =
+    aiReco !== null ? await fetchLinkedBet(aiReco.id, viewerId, untyped) : null;
 
   const bankrollSettings = await fetchBankrollSettings(untyped);
   const kpis = deriveHeroKpis(detail, row.home_team, row.away_team);
@@ -482,8 +501,17 @@ async function fetchAposteiHouses(): Promise<Array<{ id: string; name: string }>
  * resolvida e o Pilot tenha re-apostado). Degrada pra null em qualquer
  * erro — o painel mostra os 4 botões normais.
  */
+/**
+ * A aposta DESTE usuário ligada à recomendação.
+ *
+ * O `user_id` não é opcional: `ai_recommendations` é dado compartilhado entre
+ * contas, e esta função roda com o client admin (service_role, que ignora RLS).
+ * Sem o filtro, abrir um jogo mostrava a aposta de OUTRO usuário — stake, odd,
+ * casa e status — para qualquer um que abrisse a mesma partida.
+ */
 async function fetchLinkedBet(
   aiRecommendationId: number,
+  userId: string | null,
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: any,
 ): Promise<{
@@ -493,11 +521,14 @@ async function fetchLinkedBet(
   house_name: string | null;
   status: string;
 } | null> {
+  // Sem usuário identificado não há aposta "sua" a mostrar.
+  if (!userId) return null;
   try {
     const { data, error } = await supabase
       .from("bets")
       .select("id, total_stake, total_odds, status, house_id, placed_at")
       .eq("ai_recommendation_id", aiRecommendationId)
+      .eq("user_id", userId)
       .order("placed_at", { ascending: false })
       .limit(1)
       .maybeSingle();
@@ -506,10 +537,15 @@ async function fetchLinkedBet(
     // Resolve house name (single extra escalar query — cheap; degrade to null)
     let houseName: string | null = null;
     try {
+      // Também escopado: a casa pertence ao dono da aposta. Redundante depois
+      // do filtro acima (a aposta já é dele), mas o guard de isolamento exige
+      // o filtro explícito em toda leitura user-scoped via client admin — e
+      // redundância defensiva aqui é barata.
       const hr = await supabase
         .from("houses")
         .select("name")
         .eq("id", row.house_id)
+        .eq("user_id", userId)
         .maybeSingle();
       if (hr.data && typeof (hr.data as Record<string, unknown>).name === "string") {
         houseName = String((hr.data as Record<string, unknown>).name);

@@ -44,7 +44,7 @@ const MIN_N = 30;
 
 function barColor(n: number, roiPct: number): string {
   if (n < MIN_N) return "var(--color-ink-faint)";
-  if (roiPct >= ROI_GREEN_THRESHOLD) return "var(--color-green,#22c55e)";
+  if (roiPct >= ROI_GREEN_THRESHOLD) return "var(--color-success)";
   if (roiPct >= 0) return "var(--color-ink-muted)";
   return "var(--color-vermelho)";
 }

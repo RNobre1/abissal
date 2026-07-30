@@ -29,7 +29,11 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
-import { fitTemperature, applyTemperature } from "@/lib/calibracao/temperature";
+import {
+  fitTemperature,
+  applyTemperature,
+  temperatureHeldOutGate,
+} from "@/lib/calibracao/temperature";
 
 function ensureEnv() {
   if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) return;
@@ -189,6 +193,23 @@ async function main() {
         console.log(`[skip] ${version} ${m.metric}: T=1 (nada a corrigir)`);
         continue;
       }
+
+      // Gate out-of-sample (2026-07-30): o ganho impresso acima é IN-SAMPLE —
+      // um parâmetro livre ajustado e medido no mesmo conjunto sempre melhora
+      // o log-loss, e isso não diz nada sobre generalizar. Foi exatamente essa
+      // a armadilha da B24. O `fit-isotonic.ts` já tinha este gate; aqui
+      // faltava, no script que roda no MESMO cron semanal.
+      const gate = temperatureHeldOutGate(pts);
+      if (!gate.keep) {
+        console.log(
+          `[gate reprovou] ${version} ${m.metric}: fora da amostra o T não bate o cru ` +
+            `(${gate.tempered.toFixed(4)} vs ${gate.raw.toFixed(4)}, n_test=${gate.nTest}) — não persiste`,
+        );
+        continue;
+      }
+      console.log(
+        `[gate ok] ${version} ${m.metric}: ${gate.tempered.toFixed(4)} vs cru ${gate.raw.toFixed(4)} (n_test=${gate.nTest})`,
+      );
       await persist(version, m.metric, T, pts.length);
     }
   }

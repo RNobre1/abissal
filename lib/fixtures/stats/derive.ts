@@ -450,7 +450,7 @@ const DIST_KEYS: StatKey[] = [
 ];
 
 function zeroBox(): BoxStats {
-  return { min: 0, q1: 0, median: 0, q3: 0, max: 0 };
+  return { min: 0, q1: 0, median: 0, q3: 0, max: 0, count: 0 };
 }
 
 function boxFromSeries(series: number[]): BoxStats {
@@ -462,6 +462,7 @@ function boxFromSeries(series: number[]): BoxStats {
     median: quantileSorted(sorted, 0.5),
     q3: quantileSorted(sorted, 0.75),
     max: sorted[sorted.length - 1],
+    count: sorted.length,
   };
 }
 
@@ -472,7 +473,15 @@ export function deriveDistributions(matches: NormalizedRecentMatch[]): Distribut
     return out;
   }
   for (const k of DIST_KEYS) {
-    const series = matches.map((m) => safeNumber(m[k], 0));
+    // B52 (2ª parte): era `safeNumber(m[k], 0)` — ausência entrava na amostra
+    // como zero e puxava min/q1/mediana pra baixo. Um jogo sem o dado não é um
+    // jogo com zero escanteios, e a diferença aparece direto nos quartis.
+    // Hoje o choistats preenche 100% destes campos (medido: 489 partidas FT,
+    // zero nulos), então isto é blindagem contra a classe, não conserto de
+    // sintoma ativo.
+    const series = matches
+      .map((m) => m[k])
+      .filter((v): v is number => typeof v === "number" && Number.isFinite(v));
     out[k] = boxFromSeries(series);
   }
   return out;

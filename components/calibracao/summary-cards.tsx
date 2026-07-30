@@ -72,14 +72,14 @@ interface MetricCardProps {
 function MetricCard({ metric, label, value, status, targetLabel, icLabel, n, sampleLevel }: MetricCardProps) {
   const colorClass =
     status === "good"
-      ? "text-[var(--color-green,#22c55e)]"
+      ? "text-[var(--color-success)]"
       : status === "warn"
         ? "text-[var(--color-vermelho)]"
         : "text-[var(--color-ink)]";
 
   const bgClass =
     status === "good"
-      ? "border-[color-mix(in_srgb,var(--color-green,#22c55e)_30%,transparent)]"
+      ? "border-[color-mix(in_srgb,var(--color-success)_30%,transparent)]"
       : status === "warn"
         ? "border-[color-mix(in_srgb,var(--color-vermelho)_30%,transparent)]"
         : "border-[var(--color-line)]";

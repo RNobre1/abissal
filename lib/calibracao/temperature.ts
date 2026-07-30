@@ -128,3 +128,77 @@ export function fitTemperature(points: ReadonlyArray<[number, number]>): number 
   }
   return bestT;
 }
+
+/**
+ * Cortes temporais do gate. Maioria decide.
+ *
+ * Um split único inverte o veredito conforme a fatia — as diferenças de
+ * log-loss aqui são da mesma ordem do ruído amostral, então "um corte 70/30"
+ * é coin flip com aparência de rigor. Mesma constante do gate da isotônica,
+ * pelo mesmo motivo.
+ */
+const GATE_CUTS: readonly number[] = [0.5, 0.6, 0.7, 0.8, 0.85];
+const MIN_GATE_SIDE = 50;
+
+function logLossCom(pts: ReadonlyArray<[number, number]>, T: number): number {
+  const clamp = (p: number) => Math.min(Math.max(p, 0.01), 0.99);
+  let s = 0;
+  for (const [p, o] of pts) {
+    const q = clamp(applyTemperature(p, T));
+    s -= o === 1 ? Math.log(q) : Math.log(1 - q);
+  }
+  return s / pts.length;
+}
+
+function corteUnico(
+  pts: ReadonlyArray<[number, number]>,
+  frac: number,
+): { keep: boolean; raw: number; tempered: number; nTest: number } | null {
+  const cut = Math.floor(pts.length * frac);
+  const train = pts.slice(0, cut);
+  const test = pts.slice(cut);
+  if (test.length < MIN_GATE_SIDE || train.length < MIN_GATE_SIDE) return null;
+
+  const T = fitTemperature(train);
+  const raw = logLossCom(test, 1);
+  const tempered = logLossCom(test, T);
+  return { keep: tempered < raw, raw, tempered, nTest: test.length };
+}
+
+/**
+ * O T só deve ir para produção se BATER o dado cru em amostra que não viu.
+ *
+ * POR QUE EXISTE: `fit-temperature.ts` fitava o T e media o ganho na MESMA
+ * amostra do fit, persistindo com base nisso. Um parâmetro livre ajustado e
+ * avaliado no mesmo conjunto sempre melhora o log-loss — não é evidência de
+ * generalização, é aritmética. Foi essa a armadilha que produziu a regra B24
+ * (in-sample dizia +14% de ROI; walk-forward disse −14%).
+ *
+ * O gate da isotônica (`fit-isotonic.ts`, 29/07) nasceu depois de flagrar
+ * curvas ativas piores que o raw. Este é o mesmo remédio para o irmão que roda
+ * no mesmo cron semanal.
+ *
+ * Sem amostra suficiente para dividir, reprova: ausência de evidência não é
+ * evidência de ganho.
+ */
+export function temperatureHeldOutGate(pts: ReadonlyArray<[number, number]>): {
+  keep: boolean;
+  raw: number;
+  tempered: number;
+  nTest: number;
+} {
+  const votos = GATE_CUTS.map((f) => corteUnico(pts, f)).filter(
+    (v): v is { keep: boolean; raw: number; tempered: number; nTest: number } => v !== null,
+  );
+  if (votos.length === 0) return { keep: false, raw: NaN, tempered: NaN, nTest: 0 };
+
+  const aprovados = votos.filter((v) => v.keep).length;
+  const media = (get: (v: (typeof votos)[number]) => number) =>
+    votos.reduce((a, v) => a + get(v), 0) / votos.length;
+  return {
+    keep: aprovados > votos.length / 2,
+    raw: media((v) => v.raw),
+    tempered: media((v) => v.tempered),
+    nTest: Math.round(media((v) => v.nTest)),
+  };
+}

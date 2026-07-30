@@ -77,7 +77,7 @@ export function ForceAnalysisButton({ fixtureId }: ForceAnalysisButtonProps) {
       <div className="flex flex-col gap-2">
         <p
           data-testid="forced-disclaimer"
-          className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-raised)] px-3 py-2 text-[var(--color-ink-muted)]"
+          className="label rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-2)] px-3 py-2 text-[var(--color-ink-muted)]"
         >
           ⚠ análise forçada — abaixo do edge mínimo; não conta pra calibração
         </p>

@@ -104,7 +104,7 @@ export function RoiCumulativeChart({ bets }: RoiCumulativeChartProps) {
         <span>P/L cumulativo ({bets.length} apostas)</span>
         <span
           className="font-semibold num"
-          style={{ color: isPositive ? "var(--color-green,#22c55e)" : "var(--color-vermelho)" }}
+          style={{ color: isPositive ? "var(--color-success)" : "var(--color-vermelho)" }}
         >
           {isPositive ? "+" : ""}{lastPl.toFixed(2)}u
         </span>

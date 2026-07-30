@@ -44,7 +44,7 @@ export function ClvGauge({ betCount, targetCount, clvPct, targetClvPct }: ClvGau
           </span>
         )}
         {isAboveTarget && (
-          <span className="label" style={{ color: "var(--color-green, #22c55e)" }}>
+          <span className="label" style={{ color: "var(--color-success)" }}>
             · acima do target ✓
           </span>
         )}
@@ -66,7 +66,7 @@ export function ClvGauge({ betCount, targetCount, clvPct, targetClvPct }: ClvGau
             style={{
               width: `${progressPct}%`,
               background: isAboveTarget
-                ? "var(--color-green, #22c55e)"
+                ? "var(--color-success)"
                 : "var(--color-vermelho)",
             }}
           />

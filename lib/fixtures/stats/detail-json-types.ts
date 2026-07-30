@@ -363,6 +363,12 @@ export interface BoxStats {
   median: number;
   q3: number;
   max: number;
+  /**
+   * Quantos valores REAIS entraram na distribuição. `0` significa "não há dado",
+   * que é diferente de "os valores são zero" — sem isso, uma série inteiramente
+   * ausente lê como "este time faz zero escanteios" (a classe de bug do B52).
+   */
+  count?: number;
 }
 
 export type StatKey =

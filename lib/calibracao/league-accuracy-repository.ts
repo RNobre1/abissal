@@ -41,18 +41,26 @@ export interface LeaguePerformance {
   leagueCalls: number;
   markets: MarketAccuracy[];
   window: { from: string | null; to: string | null };
+  /**
+   * Versão do motor que produziu ESTA medição. Vai pra tela: sem isso o número
+   * fica sem procedência, e foi justamente misturar versões que estragou a
+   * medição anterior.
+   */
+  modelVersion: string;
 }
 
 type RowWithKickoff = AccuracyRow & { kickoff_utc: string | null };
 
-let globalCache: {
-  markets: MarketAccuracy[];
-  window: LeaguePerformance["window"];
-} | null = null;
+// Memoização do agregado global, CHAVEADA POR VERSÃO: cada motor tem a sua
+// medição, e um cache único vazaria o número de uma versão pra outra.
+const globalCache = new Map<
+  string,
+  { markets: MarketAccuracy[]; window: LeaguePerformance["window"] }
+>();
 
 /** Só para teste — zera a memoização do agregado global. */
 export function __resetGlobalCache(): void {
-  globalCache = null;
+  globalCache.clear();
 }
 
 function windowOf(rows: RowWithKickoff[]): LeaguePerformance["window"] {
@@ -71,12 +79,14 @@ async function fetchRows(
   supabase: AnySupabase,
   league: string | null,
   limit: number,
+  modelVersion: string,
 ): Promise<RowWithKickoff[] | null> {
   try {
     let q = supabase
       .from("fixture_simulations")
       .select(COLUMNS)
       .eq("status", "resolved")
+      .eq("model_version", modelVersion)
       .not("sim_stats", "is", null)
       .limit(limit);
     if (league !== null) q = q.eq("league", league);
@@ -91,15 +101,18 @@ async function fetchRows(
 async function globalPerformance(
   supabase: AnySupabase,
   distK: DistKMap,
+  modelVersion: string,
 ): Promise<{ markets: MarketAccuracy[]; window: LeaguePerformance["window"] } | null> {
-  if (globalCache) return globalCache;
-  const rows = await fetchRows(supabase, null, GLOBAL_LIMIT);
+  const cached = globalCache.get(modelVersion);
+  if (cached) return cached;
+  const rows = await fetchRows(supabase, null, GLOBAL_LIMIT, modelVersion);
   if (!rows) return null;
-  globalCache = {
+  const computed = {
     markets: marketAccuracies(rows, { distK, tier: "global" }),
     window: windowOf(rows),
   };
-  return globalCache;
+  globalCache.set(modelVersion, computed);
+  return computed;
 }
 
 /**
@@ -121,6 +134,12 @@ export async function getLeaguePerformance(
   injectedDistK?: DistKMap,
 ): Promise<LeaguePerformance | null> {
   if (!league) return null;
+  // Sem saber de qual motor vieram os números, não há medição honesta a fazer:
+  // versões coexistem em `fixture_simulations` e somá-las mede um modelo que
+  // não existe. Melhor não mostrar painel do que mostrar número de procedência
+  // desconhecida.
+  const version = (modelVersion ?? "").trim();
+  if (!version) return null;
 
   let distK: DistKMap = injectedDistK ?? {};
   if (!injectedDistK) {
@@ -131,7 +150,7 @@ export async function getLeaguePerformance(
     }
   }
 
-  const rows = await fetchRows(supabase, league, LEAGUE_LIMIT);
+  const rows = await fetchRows(supabase, league, LEAGUE_LIMIT, version);
   if (!rows) return null;
 
   const leagueMarkets = marketAccuracies(rows, { distK, tier: "liga" });
@@ -144,10 +163,11 @@ export async function getLeaguePerformance(
       leagueCalls,
       markets: leagueMarkets,
       window: windowOf(rows),
+      modelVersion: version,
     };
   }
 
-  const global = await globalPerformance(supabase, distK);
+  const global = await globalPerformance(supabase, distK, version);
   if (!global) return null;
   return {
     league,
@@ -155,5 +175,6 @@ export async function getLeaguePerformance(
     leagueCalls,
     markets: global.markets,
     window: global.window,
+    modelVersion: version,
   };
 }
