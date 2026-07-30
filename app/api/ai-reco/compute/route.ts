@@ -23,7 +23,10 @@ import {
 import { computeCostUsd } from "@/lib/ai-reco/pricing";
 import { getDistK } from "@/lib/ai-reco/dist-k-repository";
 import { getTemperature } from "@/lib/ai-reco/temp-repository";
-import { applyIsotonic } from "@/lib/calibracao/isotonic";
+import {
+  buildIsotonicLookup,
+  isLeagueCalibrated,
+} from "@/lib/ai-reco/calibration-context";
 import { getFixtureSimulation } from "@/lib/fixtures/simulation-repository";
 import { parseChoistatsId } from "@/lib/fixtures/choistats-id";
 import { isAiEnabled } from "@/lib/settings/ai-toggle";
@@ -872,78 +875,8 @@ async function loadBankroll(
   return DEFAULT_BANKROLL;
 }
 
-/**
- * Converts the `ActiveCurves` DTO into the `isotonicLookup` shape that
- * `buildEdgeTable` consumes ('1x2-home', '1x2-draw', '1x2-away', 'over25').
- */
-// Fix 2/3: lê TODAS as curvas ativas de model_calibration por metric (genérico),
-// não só os 4 slots tipados — pega over25-under/btts/btts-nao e os secundários
-// (corners/cards/sot) sem precisar estender o DTO. Espelha o Ruby
-// AiReco::IsotonicLookup.load. Keyed por metric string (igual ao calibrate()).
-async function buildIsotonicLookup(
-  modelVersion: string | null,
-  supabase: AnySupabase,
-): Promise<Partial<Record<string, (p: number) => number>>> {
-  if (!modelVersion) return {};
-  const { data, error } = await supabase
-    .from("model_calibration")
-    .select("metric, pairs")
-    .eq("model_version", modelVersion)
-    .is("effective_until", null);
-  if (error || !data) return {};
-  const lookup: Partial<Record<string, (p: number) => number>> = {};
-  for (const row of data as Array<{ metric: string | null; pairs: unknown }>) {
-    const metric = String(row.metric ?? "");
-    // '*-dist' são fatores de distribuição (getDistK), não curvas isotônicas.
-    if (metric.endsWith("-dist")) continue;
-    const pairs = asPairs(row.pairs);
-    if (!metric || pairs.length === 0) continue;
-    lookup[metric] = (p: number) => applyIsotonic(pairs, p);
-  }
-  return lookup;
-}
-
-/** jsonb `pairs` → Array<[number,number]> validado; [] se inválido. */
-function asPairs(raw: unknown): Array<[number, number]> {
-  if (!Array.isArray(raw)) return [];
-  const out: Array<[number, number]> = [];
-  for (const p of raw) {
-    if (
-      Array.isArray(p) &&
-      p.length >= 2 &&
-      typeof p[0] === "number" &&
-      typeof p[1] === "number"
-    ) {
-      out.push([p[0], p[1]]);
-    }
-  }
-  return out;
-}
-
-/**
- * `effective_until IS NULL` row in `league_parameters` for the given league
- * means the engine has fit a per-league parameter set — used as the
- * "calibrated league" gate that determines the 2.0u vs 0.5u units cap.
- */
-async function isLeagueCalibrated(
-  league: string | null,
-  supabase: AnySupabase,
-): Promise<boolean> {
-  if (!league) return false;
-  try {
-    const { data, error } = await supabase
-      .from("league_parameters")
-      .select("league")
-      .eq("league", league)
-      .is("effective_until", null)
-      .limit(1)
-      .maybeSingle();
-    if (!error && data) return true;
-  } catch {
-    // missing table / transient → not calibrated (safer default: 0.5u cap)
-  }
-  return false;
-}
+// buildIsotonicLookup / isLeagueCalibrated: extraídos pra
+// `lib/ai-reco/calibration-context.ts` (compartilhados com /api/bilhete/critic).
 
 async function insertLlmLog(args: {
   supabase: AnySupabase;
