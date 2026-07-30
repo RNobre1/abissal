@@ -576,6 +576,79 @@ describe("POST /api/ai-reco/compute — happy path", () => {
     ]);
   });
 
+  it("prompt mostra placares reais quando detail_json usa as chaves reais do merger (homeGoalsFt)", async () => {
+    // O WidgetMerger (Ruby) grava homeGoalsFt/awayGoalsFt — NUNCA
+    // home_goals/away_goals. Antes do prompt-v1.2 o builder TS lia as chaves
+    // erradas e 100% dos prompts saíam "W (?-?)" / "Time ?-? Time".
+    mockState.fixtureRow = makeFixtureRow({
+      detail_json: {
+        ...makeFixtureRow().detail_json!,
+        recent_matches: {
+          home: [
+            { result: "W", homeGoalsFt: 3, awayGoalsFt: 1 },
+            { result: "D", homeGoalsFt: 0, awayGoalsFt: 0 },
+          ],
+          away: [{ result: "L", homeGoalsFt: 0, awayGoalsFt: 2 }],
+        },
+        h2h: [
+          { home_team: "Liverpool", homeGoalsFt: 2, awayGoalsFt: 1, away_team: "Tottenham" },
+        ],
+      },
+    });
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
+    mockState.calibratedLeagueRows = [{ league: "Premier League" }];
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    const snapshot = mockState.insertedLlmLog!.prompt_snapshot as {
+      system: string;
+      user: string;
+    };
+    expect(snapshot.user).toContain("W (3-1), D (0-0)");
+    expect(snapshot.user).toContain("L (0-2)");
+    expect(snapshot.user).toContain("Liverpool 2-1 Tottenham");
+    expect(snapshot.user).not.toContain("?-?");
+  });
+
+  it("prompt mantém fallback pras chaves legadas home_goals/away_goals", async () => {
+    // makeFixtureRow usa as chaves snake_case legadas — o fallback de
+    // robustez deve continuar renderizando os placares.
+    mockState.fixtureRow = makeFixtureRow();
+    mockState.simRow = makeSimRow({ p_home: 0.75, p_draw: 0.15, p_away: 0.10 });
+    mockState.calibratedLeagueRows = [{ league: "Premier League" }];
+
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [{ message: { content: JSON.stringify(VALID_DECISION) } }],
+        usage: { prompt_tokens: 1000, completion_tokens: 200, total_tokens: 1200 },
+        model: "deepseek/deepseek-r1",
+      }),
+    });
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({ fixtureId: 42 });
+    expect(res.status).toBe(200);
+
+    const snapshot = mockState.insertedLlmLog!.prompt_snapshot as {
+      user: string;
+    };
+    expect(snapshot.user).toContain("W (3-1), W (2-0)");
+    expect(snapshot.user).toContain("Liverpool 2-1 Tottenham");
+    expect(snapshot.user).not.toContain("?-?");
+  });
+
   it("returns skip path when no candidates have edge >= 20%", async () => {
     // Probs tuned so EVERY market (após blending α=0.5) sits under the
     // 20% edge threshold (v2 — backtest D20 ROI +14.4%). Edges raw:
