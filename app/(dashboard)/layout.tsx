@@ -7,6 +7,7 @@ import { MobileBottomNav } from "@/components/mobile-bottom-nav";
 import { KeyboardHelpModal } from "@/components/keyboard-help-modal";
 import { getDraftSlip } from "@/lib/bet-slip/actions";
 import { BetSlipProvider } from "@/components/bet-slip/bet-slip-provider";
+import { isAiEnabled } from "@/lib/settings/ai-toggle";
 
 const NAV_GROUPS: Array<{
   label: string;
@@ -68,7 +69,9 @@ export default async function DashboardLayout({
     "you";
 
   // Bet slip — fetch draft slip + houses for FAB/drawer (graceful degradation on error)
-  const [draftSlip, housesResult] = await Promise.all([
+  // + kill switch global de IA (esconde o "Criticar bilhete" quando desligado;
+  // isAiEnabled nunca lança e defaulta ligado).
+  const [draftSlip, housesResult, aiEnabled] = await Promise.all([
     getDraftSlip().catch(() => null),
     Promise.resolve(
       supabase
@@ -79,6 +82,7 @@ export default async function DashboardLayout({
     )
       .then((res: { data: Array<{ id: string; name: string }> | null }) => res.data ?? [])
       .catch(() => [] as Array<{ id: string; name: string }>),
+    isAiEnabled(supabase),
   ]);
 
   return (
@@ -140,7 +144,11 @@ export default async function DashboardLayout({
       <KeyboardHelpModal />
 
       {/* Bet slip FAB + Drawer — always-visible when draft slip has legs */}
-      <BetSlipProvider initialSlip={draftSlip} houses={housesResult} />
+      <BetSlipProvider
+        initialSlip={draftSlip}
+        houses={housesResult}
+        aiEnabled={aiEnabled}
+      />
     </div>
   );
 }

@@ -28,6 +28,7 @@ import {
   cancelSlip,
 } from "@/lib/bet-slip/actions";
 import { BetSlipPhotoImport } from "@/components/bet-slip/bet-slip-photo-import";
+import { BilheteCriticSection } from "@/components/bet-slip/bilhete-critic-panel";
 
 interface HouseOption {
   id: string;
@@ -37,6 +38,8 @@ interface HouseOption {
 interface BetSlipPageClientProps {
   initialSlip: BetSlip | null;
   houses: HouseOption[];
+  /** Kill switch global de IA — false esconde o "Criticar bilhete". */
+  aiEnabled?: boolean;
 }
 
 function fmtOdd(v: number): string {
@@ -47,7 +50,11 @@ function fmtBrl(v: number): string {
   return v.toFixed(2).replace(".", ",");
 }
 
-export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProps) {
+export function BetSlipPageClient({
+  initialSlip,
+  houses,
+  aiEnabled = true,
+}: BetSlipPageClientProps) {
   const router = useRouter();
   const [slip, setSlip] = useState<BetSlip | null>(initialSlip);
   const [houseId, setHouseId] = useState<string>(houses[0]?.id ?? "");
@@ -231,6 +238,16 @@ export function BetSlipPageClient({ initialSlip, houses }: BetSlipPageClientProp
             </div>
           </div>
         ))}
+      </section>
+
+      {/* Advogado do diabo — crítica IA do bilhete (F2) */}
+      <section className="card p-4">
+        <BilheteCriticSection
+          legs={legs}
+          stakeTotal={stakeTotal}
+          oddCombined={oddCombined}
+          aiEnabled={aiEnabled}
+        />
       </section>
 
       {/* Summary + stake + commit */}

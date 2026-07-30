@@ -16,9 +16,16 @@ export interface LlmLogInput {
    * 'fixture-copilot' (jogo) | 'ocr' (bet-slip OCR via Gemini Vision —
    * Pacote B item 4a: sem isso o custo do OCR era invisível em
    * /llm-observability) | 'briefing' (F4 — briefing matinal diário,
-   * scripts/briefing/generate-daily.ts no cron ai-reco).
+   * scripts/briefing/generate-daily.ts no cron ai-reco) | 'bilhete-critic'
+   * (F2 advogado do diabo do bilhete — /api/bilhete/critic).
    */
-  route: "analyze" | "copilot" | "fixture-copilot" | "ocr" | "briefing";
+  route:
+    | "analyze"
+    | "copilot"
+    | "fixture-copilot"
+    | "ocr"
+    | "briefing"
+    | "bilhete-critic";
   fixture_id?: number | null;
   model: string;
   cached?: boolean;
