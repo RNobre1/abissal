@@ -11,60 +11,25 @@
  *  - Tamanho máximo: 8 MB
  *
  * Erros são normalizados em ParsePhotoResult.ok=false para exibição amigável.
+ *
+ * A resolução do slip (Bet Builder redirect + fuzzy match) e o logger de
+ * tentativas vivem em módulos compartilhados com a action irmã de TEXTO
+ * (`parse-text-action.ts`): `parse-result.ts` e `ocr-attempt-logger.ts`.
  */
 
-import {
-  parseBetSlipImage,
-  OcrParseError,
-  type GeminiAttemptLog,
-} from "./gemini-vision";
-import { matchFixture, type MatchResult } from "./match-fixture";
-import type { ParsedLeg } from "./schema";
+import { parseBetSlipImage, OcrParseError } from "./gemini-vision";
+import { resolveParsedSlip, type ParsePhotoErrorKind, type ParsePhotoResult } from "./parse-result";
+import { buildOcrAttemptLogger } from "./ocr-attempt-logger";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
 import { isAiEnabled } from "@/lib/settings/ai-toggle";
-import { recordLlmRequest } from "@/lib/llm-logs";
-import { computeCostUsd } from "@/lib/ai-reco/pricing";
 
-// ── Types ─────────────────────────────────────────────────────────────────────
+// ── Types (re-export pra compat — a UI e os testes importam daqui) ────────────
 
-export interface ParsedLegWithMatch {
-  parsed: ParsedLeg;
-  match: MatchResult;
-}
-
-/**
- * Taxonomia estruturada de falha (item 4c) — vai no telemetry payload
- * (`bilhete_foto_failed.error_kind`) pra tornar o funil diagnosticável.
- * As 5 centrais vêm do OcrErrorKind + validações locais; o resto cobre os
- * gates da action.
- */
-export type ParsePhotoErrorKind =
-  | "no-session"
-  | "ai-disabled"
-  | "no-image"
-  | "invalid-mime"
-  | "too-large"
-  | "gemini-error"
-  | "invalid-json"
-  | "no-legs-found"
-  | "unreadable"
-  | "unexpected";
-
-export interface ParsePhotoResult {
-  ok: boolean;
-  error?: string;
-  /** Categoria estruturada quando ok=false (item 4c). */
-  error_kind?: ParsePhotoErrorKind;
-  slip?: {
-    legs: ParsedLegWithMatch[];
-    stake_total: number | null;
-    odd_combined: number | null;
-    house_detected: string | null;
-  };
-  /** Quando is_bet_builder=true do Gemini, vem populado; client redireciona em vez de abrir modal. */
-  redirect_to?: string;
-}
+export type {
+  ParsePhotoErrorKind,
+  ParsePhotoResult,
+  ParsedLegWithMatch,
+} from "./parse-result";
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -87,59 +52,6 @@ const OCR_ERROR_MESSAGES: Record<
   unreadable:
     "Não consegui ler o cupom — tenta uma foto mais de perto, sem reflexo e com o bilhete inteiro no quadro.",
 };
-
-// ── OCR observability (item 4a) ───────────────────────────────────────────────
-
-/**
- * Constrói o logger de tentativas do Gemini. O insert em `llm_request_logs`
- * exige service_role (não há policy de INSERT pra authenticated); se o admin
- * client não puder ser criado (env ausente em dev/test), retorna undefined e
- * o OCR segue sem logging.
- */
-function buildOcrAttemptLogger():
-  | { onAttempt: (a: GeminiAttemptLog) => void; flush: () => Promise<void> }
-  | undefined {
-  let sink: Parameters<typeof recordLlmRequest>[0] | null = null;
-  try {
-    sink = createAdminClient() as unknown as Parameters<typeof recordLlmRequest>[0];
-  } catch {
-    return undefined;
-  }
-  const admin = sink;
-  // Inserts pendentes: a action AGUARDA todos via flush() antes de retornar.
-  // Fire-and-forget num Worker CF mata o insert quando o request encerra
-  // (lição já paga no /auto UX overhaul) — e era exatamente a observabilidade
-  // que este logging veio criar. Cada promise já engole o próprio erro
-  // (best-effort: logging jamais quebra o OCR).
-  const pending: Array<Promise<void>> = [];
-  const onAttempt = (a: GeminiAttemptLog) => {
-    const hasTokens = a.promptTokens !== null || a.completionTokens !== null;
-    pending.push(
-      recordLlmRequest(admin, {
-        route: "ocr",
-        fixture_id: null,
-        model: a.model,
-        latency_ms: a.latencyMs,
-        prompt_tokens: a.promptTokens,
-        completion_tokens: a.completionTokens,
-        total_tokens: a.totalTokens,
-        cost_usd: hasTokens
-          ? computeCostUsd(a.model, a.promptTokens ?? 0, a.completionTokens ?? 0)
-          : null,
-        error: a.error,
-      }).then(
-        () => undefined,
-        () => undefined,
-      ),
-    );
-  };
-  return {
-    onAttempt,
-    flush: async () => {
-      await Promise.all(pending);
-    },
-  };
-}
 
 // ── Action ────────────────────────────────────────────────────────────────────
 
@@ -216,70 +128,9 @@ export async function parseBetSlipPhoto(
       onAttempt: ocrLogger?.onAttempt,
     });
 
-    // 4a. Bet Builder: single-game multi-market — redirect ao /bilhete/builder
-    if (parsed.is_bet_builder === true) {
-      const firstLeg = parsed.legs[0];
-      const match = await matchFixture({
-        home: firstLeg.home,
-        away: firstLeg.away,
-        kickoffIso: firstLeg.kickoff_iso ?? null,
-        league: firstLeg.league ?? null,
-      });
-
-      const params = new URLSearchParams();
-
-      const CONFIDENCE_AUTO_LINK = 0.85;
-      if (match.best !== null && match.best.confidence >= CONFIDENCE_AUTO_LINK) {
-        params.set("fixture_id", String(match.best.fixture_id));
-      } else {
-        params.set("home", firstLeg.home);
-        params.set("away", firstLeg.away);
-      }
-
-      if (parsed.odd_combined !== null) {
-        params.set("odd", String(parsed.odd_combined));
-      }
-      if (parsed.stake_total !== null) {
-        params.set("stake", String(parsed.stake_total));
-      }
-      if (parsed.house_detected !== null) {
-        params.set("house", parsed.house_detected);
-      }
-
-      const legs = parsed.legs.map((leg) => ({
-        market: leg.market,
-        side: leg.side,
-      }));
-      params.set("legs", encodeURIComponent(JSON.stringify(legs)));
-
-      return {
-        ok: true,
-        redirect_to: `/bilhete/builder?${params.toString()}`,
-      };
-    }
-
-    // 4b. Fuzzy-match cada leg contra fixtures do DB
-    const legsWithMatch: ParsedLegWithMatch[] = await Promise.all(
-      parsed.legs.map(async (leg) => {
-        const match = await matchFixture({
-          home: leg.home,
-          away: leg.away,
-          kickoffIso: leg.kickoff_iso,
-          league: leg.league,
-        });
-        return { parsed: leg, match };
-      }),
-    );
-
-    return {
-      ok: true,
-      slip: {
-        legs: legsWithMatch,
-        stake_total: parsed.stake_total,
-        odd_combined: parsed.odd_combined,
-        house_detected: parsed.house_detected,
-      },
-    };
+    // 4. Bet Builder redirect OU fuzzy-match das legs (compartilhado com o
+    // fluxo de texto — parse-result.ts).
+    return await resolveParsedSlip(parsed);
   } catch (err) {
     if (err instanceof OcrParseError) {
       // Item 4c/4d: categoria estruturada + mensagem acionável por categoria.

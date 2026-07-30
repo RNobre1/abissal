@@ -51,9 +51,12 @@ export class OcrParseError extends Error {
   }
 }
 
-const SYSTEM_PROMPT = `Você é um extrator de dados estruturados de cupons de apostas esportivas. Receba uma imagem de cupom de qualquer casa de apostas brasileira (Superbet, Bet365, Betano, Estrela, Sportingbet, etc) e devolva APENAS JSON válido (sem markdown, sem texto antes/depois) seguindo este schema:
-
-{
+/**
+ * Bloco de schema JSON compartilhado entre o prompt de FOTO (este arquivo) e o
+ * prompt de TEXTO LIVRE (`parse-text.ts`) — mantém as duas entradas produzindo
+ * o mesmo `ParsedSlip` sem duplicar a especificação.
+ */
+export const SLIP_JSON_SCHEMA_BLOCK = `{
   "legs": [
     {
       "home": "string (nome do time da casa, ex. 'Flamengo')",
@@ -69,7 +72,11 @@ const SYSTEM_PROMPT = `Você é um extrator de dados estruturados de cupons de a
   "odd_combined": number ou null (cotação combinada das múltiplas),
   "house_detected": "string ou null (slug da casa: superbet, bet365, betano, etc)",
   "is_bet_builder": boolean (true se for cupom tipo Bet Builder / Criar Aposta, false caso contrário)
-}
+}`;
+
+const SYSTEM_PROMPT = `Você é um extrator de dados estruturados de cupons de apostas esportivas. Receba uma imagem de cupom de qualquer casa de apostas brasileira (Superbet, Bet365, Betano, Estrela, Sportingbet, etc) e devolva APENAS JSON válido (sem markdown, sem texto antes/depois) seguindo este schema:
+
+${SLIP_JSON_SCHEMA_BLOCK}
 
 Regras:
 - Para cupom único (não-múltipla), legs tem 1 elemento e odd_combined = legs[0].odd_taken
@@ -100,16 +107,22 @@ export interface GeminiAttemptLog {
 }
 
 /**
- * Variante TOLERANTE do prompt (Pacote B, item 4b) — usada só no retry, após
- * a 1ª tentativa falhar o parse. Instrui a extrair o que conseguir e marcar
- * campos incertos como null em vez de desistir com legs vazias.
+ * Addendum do MODO TOLERANTE (Pacote B, item 4b) — anexado ao system prompt
+ * só no retry, após a 1ª tentativa falhar o parse. Instrui a extrair o que
+ * conseguir e marcar campos incertos como null em vez de desistir com legs
+ * vazias. Compartilhado com o modo texto (`parse-text.ts`).
  */
-const TOLERANT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
-
-MODO TOLERANTE (retry — a primeira leitura falhou). Extraia o que conseguir:
+export const TOLERANT_MODE_ADDENDUM = `MODO TOLERANTE (retry — a primeira leitura falhou). Extraia o que conseguir:
 - Prefira devolver legs PARCIAIS a devolver legs vazias: inclua a leg mesmo que só home/away/market/side estejam legíveis.
 - Qualquer campo ilegível, cortado ou incerto: use null (NUNCA invente valores).
 - Só retorne legs: [] se nem os nomes dos times forem legíveis.`;
+
+/**
+ * Variante TOLERANTE do prompt de foto — usada só no retry.
+ */
+const TOLERANT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+
+${TOLERANT_MODE_ADDENDUM}`;
 
 export interface ParseBetSlipOptions {
   model?: string;
@@ -136,12 +149,13 @@ function bufferToDataUrl(buf: Buffer): string {
 }
 
 /**
- * Build the OpenRouter request body for a given model and image data-URL.
+ * Build the OpenRouter request body for a given model and user content
+ * (array de content parts pra imagem, string pra texto livre).
  */
 function buildRequestBody(
   model: string,
-  dataUrl: string,
-  systemPrompt: string = SYSTEM_PROMPT,
+  userContent: unknown,
+  systemPrompt: string,
 ): Record<string, unknown> {
   return {
     model,
@@ -154,19 +168,24 @@ function buildRequestBody(
       },
       {
         role: "user",
-        content: [
-          {
-            type: "text",
-            text: "Extraia os dados estruturados deste cupom de aposta.",
-          },
-          {
-            type: "image_url",
-            image_url: { url: dataUrl },
-          },
-        ],
+        content: userContent,
       },
     ],
   };
+}
+
+/** Monta o user content multimodal (texto + imagem) do modo FOTO. */
+function buildImageUserContent(dataUrl: string): unknown {
+  return [
+    {
+      type: "text",
+      text: "Extraia os dados estruturados deste cupom de aposta.",
+    },
+    {
+      type: "image_url",
+      image_url: { url: dataUrl },
+    },
+  ];
 }
 
 interface OpenRouterUsage {
@@ -224,13 +243,13 @@ function hasEmptyLegs(raw: unknown): boolean {
  */
 async function attemptOnce(args: {
   model: string;
-  dataUrl: string;
+  userContent: unknown;
   apiKey: string;
   systemPrompt: string;
   signal?: AbortSignal;
   onAttempt?: (log: GeminiAttemptLog) => void;
 }): Promise<AttemptResult> {
-  const { model, dataUrl, apiKey, systemPrompt, signal, onAttempt } = args;
+  const { model, userContent, apiKey, systemPrompt, signal, onAttempt } = args;
   const started = Date.now();
 
   let res: Response;
@@ -243,7 +262,7 @@ async function attemptOnce(args: {
         "HTTP-Referer": DEFAULT_REFERER,
         "X-Title": DEFAULT_TITLE,
       },
-      body: JSON.stringify(buildRequestBody(model, dataUrl, systemPrompt)),
+      body: JSON.stringify(buildRequestBody(model, userContent, systemPrompt)),
       signal,
     });
   } catch (err) {
@@ -287,30 +306,33 @@ async function attemptOnce(args: {
 }
 
 /**
- * Parse a bet slip image and return a structured ParsedSlip.
- *
- * @param image - Buffer (binary image) or data-URL string ("data:image/...;base64,...")
- * @param opts  - Optional model override, AbortSignal and onAttempt logger
- * @throws OcrParseError if both primary and fallback models fail to return valid data
+ * Pipeline compartilhado de parse (foto E texto): tentativa primária com o
+ * prompt normal → retry único no modelo fallback com a variante TOLERANTE do
+ * prompt. Comportamento idêntico ao histórico de `parseBetSlipImage`:
+ *  - erros de rede/HTTP non-2xx são lançados sem retry;
+ *  - modelo customizado (`opts.model`) desabilita o retry;
+ *  - falha nas duas tentativas → OcrParseError com o `kind` da última.
  */
-export async function parseBetSlipImage(
-  image: Buffer | string,
-  opts?: ParseBetSlipOptions,
-): Promise<ParsedSlip> {
+export async function runSlipParsePipeline(args: {
+  userContent: unknown;
+  systemPrompt: string;
+  tolerantSystemPrompt: string;
+  opts?: ParseBetSlipOptions;
+}): Promise<ParsedSlip> {
+  const { userContent, systemPrompt, tolerantSystemPrompt, opts } = args;
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new OcrParseError("OPENROUTER_API_KEY not set", undefined, "gemini-error");
   }
 
-  const dataUrl = Buffer.isBuffer(image) ? bufferToDataUrl(image) : image;
   const primaryModel = opts?.model ?? PRIMARY_MODEL;
 
   // ── Primary attempt ───────────────────────────────────────────────────────
   const first = await attemptOnce({
     model: primaryModel,
-    dataUrl,
+    userContent,
     apiKey,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt,
     signal: opts?.signal,
     onAttempt: opts?.onAttempt,
   });
@@ -329,9 +351,9 @@ export async function parseBetSlipImage(
   // Retry único (item 4b): modelo fallback + variante de prompt tolerante.
   const second = await attemptOnce({
     model: FALLBACK_MODEL,
-    dataUrl,
+    userContent,
     apiKey,
-    systemPrompt: TOLERANT_SYSTEM_PROMPT,
+    systemPrompt: tolerantSystemPrompt,
     signal: opts?.signal,
     onAttempt: opts?.onAttempt,
   });
@@ -342,4 +364,24 @@ export async function parseBetSlipImage(
     second.failure.cause,
     second.failure.reason,
   );
+}
+
+/**
+ * Parse a bet slip image and return a structured ParsedSlip.
+ *
+ * @param image - Buffer (binary image) or data-URL string ("data:image/...;base64,...")
+ * @param opts  - Optional model override, AbortSignal and onAttempt logger
+ * @throws OcrParseError if both primary and fallback models fail to return valid data
+ */
+export async function parseBetSlipImage(
+  image: Buffer | string,
+  opts?: ParseBetSlipOptions,
+): Promise<ParsedSlip> {
+  const dataUrl = Buffer.isBuffer(image) ? bufferToDataUrl(image) : image;
+  return runSlipParsePipeline({
+    userContent: buildImageUserContent(dataUrl),
+    systemPrompt: SYSTEM_PROMPT,
+    tolerantSystemPrompt: TOLERANT_SYSTEM_PROMPT,
+    opts,
+  });
 }
