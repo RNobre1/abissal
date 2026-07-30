@@ -340,6 +340,15 @@ async function callGet(query: string): Promise<Response> {
   return GET(new Request(`http://localhost/api/ai-reco/compute${query}`));
 }
 
+// ── route config: request honesto ─────────────────────────────────────────────
+
+describe("route config", () => {
+  it("declara maxDuration=300 — o p95 real (153s) não pode morrer por construção", async () => {
+    const route = await import("@/app/api/ai-reco/compute/route");
+    expect(route.maxDuration).toBe(300);
+  });
+});
+
 // ── POST: idempotency cache ───────────────────────────────────────────────────
 
 describe("POST /api/ai-reco/compute — idempotency cache", () => {

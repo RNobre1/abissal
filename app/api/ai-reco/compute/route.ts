@@ -59,7 +59,15 @@ import { isAiEnabled } from "@/lib/settings/ai-toggle";
  *       docs/superpowers/plans/2026-05-24-ai-recomendador-plan.md Wave 3
  */
 
-export const maxDuration = 100;
+/**
+ * Request honesto (Pacote B, item 2): o p95 real do R1 on-demand é 153s e o
+ * maxDuration=100 anterior matava o request ANTES do percentil ruim por
+ * construção. 300s cobre o p99 com folga. `maxDuration` é hint do
+ * Next/OpenNext — no Worker CF não há wall-clock timeout com o cliente
+ * conectado (ADR-002). Sem fila/background job: o request segue síncrono;
+ * a honestidade de UX vem do client (timer real + polling de recuperação).
+ */
+export const maxDuration = 300;
 
 const RECO_VERSION = "reco-v1";
 const ROUTE_LABEL = "ai-reco-on-demand";
