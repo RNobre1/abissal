@@ -590,6 +590,16 @@ function statsSummary(teamStats: unknown): Record<string, number> {
   return out;
 }
 
+/**
+ * O WidgetMerger (Ruby) persiste os placares FT como `homeGoalsFt`/
+ * `awayGoalsFt` (RECENT_MATCH_FIELDS). As chaves snake_case nunca existiram
+ * no payload real — mantidas só como fallback de robustez (prompt-v1.2, Bug 1).
+ * Espelha `AiRecommenderRunner#goals_ft`.
+ */
+function goalsFt(row: Record<string, unknown>, side: "home" | "away"): unknown {
+  return row[`${side}GoalsFt`] ?? row[`${side}_goals`] ?? "?";
+}
+
 function summarizeRecent(arr: unknown): string {
   if (!Array.isArray(arr) || arr.length === 0) return "—";
   return arr
@@ -600,9 +610,7 @@ function summarizeRecent(arr: unknown): string {
         (row.result as string | undefined) ??
         ((row.outcome as Record<string, unknown> | undefined)?.result as string | undefined) ??
         "?";
-      const hg = row.home_goals ?? "?";
-      const ag = row.away_goals ?? "?";
-      return `${result} (${hg}-${ag})`;
+      return `${result} (${goalsFt(row, "home")}-${goalsFt(row, "away")})`;
     })
     .join(", ");
 }
@@ -613,7 +621,7 @@ function summarizeH2h(h2h: unknown): string {
     .slice(0, 3)
     .map((m) => {
       const row = m as Record<string, unknown>;
-      return `${row.home_team ?? "?"} ${row.home_goals ?? "?"}-${row.away_goals ?? "?"} ${row.away_team ?? "?"}`;
+      return `${row.home_team ?? "?"} ${goalsFt(row, "home")}-${goalsFt(row, "away")} ${row.away_team ?? "?"}`;
     })
     .join("; ");
 }
