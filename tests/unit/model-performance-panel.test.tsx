@@ -228,3 +228,41 @@ describe("ModelPerformancePanel · procedência da medição", () => {
     expect(container.textContent).not.toMatch(/poisson-dc-nb-mc10k/);
   });
 });
+
+/**
+ * Amostra fraca por mercado.
+ *
+ * O gate `MIN_LEAGUE_CALLS = 30` soma TODOS os mercados, então uma liga passa
+ * com ~5 jogos e cada mercado individual fica com ~10 chamadas. Depois que a
+ * medição passou a filtrar por `model_version` (30/07), isso deixou de ser
+ * hipótese: a Serie A exibia "cartões 91%" apoiado em n=11.
+ *
+ * A regra de honestidade do painel diz que o acerto nunca aparece sozinho —
+ * mas n=11 com destaque visual de 91% é exatamente aparecer sozinho, só que
+ * pior, porque parece medido. O `n` já está na tabela; o que falta é dizer que
+ * aquele número específico não sustenta conclusão.
+ */
+describe("ModelPerformancePanel · amostra fraca", () => {
+  it("marca o mercado cuja amostra não sustenta o número", () => {
+    const { container } = render(
+      <ModelPerformancePanel perf={perf({ markets: [market({ calls: 11 })] })} />,
+    );
+    const linha = container.querySelector("tbody tr");
+    expect(linha?.getAttribute("data-amostra")).toBe("fraca");
+  });
+
+  it("não marca quando a amostra sustenta", () => {
+    const { container } = render(
+      <ModelPerformancePanel perf={perf({ markets: [market({ calls: 60 })] })} />,
+    );
+    const linha = container.querySelector("tbody tr");
+    expect(linha?.getAttribute("data-amostra")).not.toBe("fraca");
+  });
+
+  it("explica o que a marca significa, em vez de só decorar", () => {
+    const { container } = render(
+      <ModelPerformancePanel perf={perf({ markets: [market({ calls: 11 })] })} />,
+    );
+    expect(container.textContent).toMatch(/poucos jogos|amostra/i);
+  });
+});
