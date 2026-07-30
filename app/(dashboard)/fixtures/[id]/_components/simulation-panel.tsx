@@ -11,9 +11,7 @@ import { scorelineDisplay } from "@/lib/fixtures/scoreline-display";
 import { InfoPopover } from "@/components/fixtures/stats/_primitives/info-popover";
 import { PanelShell } from "@/components/fixtures/stats/panels/_shell";
 import {
-  countTotalMean,
-  marketCall,
-  MARKET_LINES,
+  anchoredCall,
   STRONG_THRESHOLD,
   type CountMarket,
 } from "@/lib/calibracao/market-accuracy";
@@ -59,6 +57,15 @@ interface SimulationPanelProps {
   /** odds de jogador (detail_json.player_extra.outcome_odds_by_player), nome→odds.
    *  Esparso (~10% dos fixtures). Quando presente, vira caça-valor manual. */
   playerOdds?: PlayerOddsMap;
+  /**
+   * Fatores de calibração de distribuição (k = real/previsto) do model_version
+   * desta sim. A medição de acerto por liga (`marketAccuracies`) e o
+   * EdgeCalculator já aplicam o k; esta tabela era a única superfície que lia a
+   * média CRUA, então o lado exibido podia divergir do lado medido no
+   * histórico — o k de corners é ~1.10, o bastante pra inverter uma chamada de
+   * fronteira. Fiação no sentido de B16/B25.
+   */
+  distK?: DistKMap;
   /**
    * "shell" (default): renderiza o conteúdo dentro do PanelShell padrão.
    * "bare": entrega só o body — o pai (SimulationDisclosure) fornece a casca.
@@ -185,16 +192,13 @@ export function signalFor(
   metric: CountMarket,
   distK?: DistKMap,
 ): { symbol: string; text: string; call: string | null } | null {
-  const lines = MARKET_LINES[metric];
-  if (!lines) return null;
-  const mean = countTotalMean(simStats, metric);
-  if (mean === null) return null;
-
-  const line = lines.reduce((best, l) =>
-    Math.abs(l - mean) < Math.abs(best - mean) ? l : best,
-  );
-  const { side, prob } = marketCall(simStats, metric, line, distK);
-  if (prob === null) return null;
+  // A ancoragem vive em `anchoredCall` (lib/calibracao/market-accuracy) porque
+  // o painel de desempenho por liga precisa exatamente do mesmo cálculo pra
+  // dizer se o histórico que ele mostra é da linha que ESTE jogo chamou. Duas
+  // cópias divergiriam no primeiro ajuste de threshold.
+  const anchored = anchoredCall(simStats, metric, distK);
+  if (anchored === null) return null;
+  const { line, side, prob } = anchored;
 
   if (side === null) {
     // `call: null` ⇒ o mobile OMITE a linha. No desktop o "≈" cabe numa coluna
@@ -235,6 +239,7 @@ interface SimulationBodyProps {
   awayTeam: string;
   sampleSize: { home: number | null; away: number | null };
   playerOdds?: PlayerOddsMap;
+  distK?: DistKMap;
 }
 
 function SimulationBody({
@@ -243,6 +248,7 @@ function SimulationBody({
   awayTeam,
   sampleSize,
   playerOdds,
+  distK,
 }: SimulationBodyProps) {
   const score = scorelineDisplay(sim.top_scorelines);
   const top = score.top;
@@ -401,7 +407,7 @@ function SimulationBody({
             {STAT_ROWS.map((r) => {
               const noSplit = r.totalOnly || !sim.per_half_available;
               const signal = SIGNAL_METRICS.has(r.key)
-                ? signalFor(sim.sim_stats, r.key as CountMarket)
+                ? signalFor(sim.sim_stats, r.key as CountMarket, distK)
                 : null;
               return (
                 <tr
@@ -518,6 +524,7 @@ export function SimulationPanel({
   awayTeam,
   sampleSize,
   playerOdds,
+  distK,
   chrome = "shell",
 }: SimulationPanelProps) {
   if (!sim) {
@@ -536,6 +543,7 @@ export function SimulationPanel({
       awayTeam={awayTeam}
       sampleSize={sampleSize}
       playerOdds={playerOdds}
+      distK={distK}
     />
   );
 

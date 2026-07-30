@@ -70,8 +70,13 @@ import {
   type CardsShadowRow,
 } from "@/lib/fixtures/shadow-card-predictions";
 import { AiRecoPanel } from "./_components/ai-reco-panel";
-import { ModelPerformancePanel } from "@/components/fixtures/model-performance-panel";
+import {
+  ModelPerformancePanel,
+  type GameCall,
+} from "@/components/fixtures/model-performance-panel";
 import { getLeaguePerformance } from "@/lib/calibracao/league-accuracy-repository";
+import { anchoredCall } from "@/lib/calibracao/market-accuracy";
+import { getDistK, type DistKMap } from "@/lib/ai-reco/dist-k-repository";
 
 export const dynamic = "force-dynamic";
 
@@ -301,6 +306,26 @@ export default async function StatsPage({ params }: StatsPageProps) {
     /* shadow é experimental — nunca quebra a página */
   }
 
+  // Fatores de distribuição do model_version desta sim. Buscados UMA vez e
+  // usados nos dois lugares: na tabela da simulação (que mostra o lado) e no
+  // cálculo das chamadas deste jogo (que o painel de liga cruza com o
+  // histórico). Se as duas superfícies usassem k diferentes, a tabela poderia
+  // dizer "menos de 8.5" e o painel marcar "mais de 9.5" no mesmo jogo.
+  let distK: DistKMap = {};
+  try {
+    distK = await getDistK(sim?.model_version ?? "", untyped);
+  } catch {
+    distK = {};
+  }
+
+  // O que a simulação DESTE jogo chama, por mercado — a ponte entre a tabela e
+  // o histórico por liga, que é medido POR LINHA.
+  const gameCalls: GameCall[] = [];
+  for (const metric of ["corners", "cards", "sot"] as const) {
+    const c = anchoredCall(sim?.sim_stats, metric, distK);
+    if (c) gameCalls.push({ market: metric, line: c.line, side: c.side });
+  }
+
   // Desempenho histórico do modelo NESTA liga — o contexto que diz quanto
   // confiar na simulação acima. Cai pro agregado global quando a liga tem
   // amostra fraca. Nunca quebra a página: sem dado, o painel some.
@@ -310,6 +335,7 @@ export default async function StatsPage({ params }: StatsPageProps) {
       row.league ?? null,
       sim?.model_version ?? null,
       untyped,
+      distK,
     );
   } catch {
     leaguePerf = null;
@@ -328,6 +354,8 @@ export default async function StatsPage({ params }: StatsPageProps) {
     bankrollSettings,
     shadowCards,
     leaguePerf,
+    gameCalls,
+    distK,
   );
 
   // DecisionZone: Hero + AiRecoPanel + MomentumChart no topo, com divisor
@@ -557,6 +585,10 @@ function buildPanels(
   bankrollSettings: { bankroll: number; units_per_bankroll: number },
   shadowCards: { rows: CardsShadowRow[]; nu: number | null; r: number | null },
   leaguePerf: Awaited<ReturnType<typeof getLeaguePerformance>>,
+  /** O que a sim deste jogo chama por mercado — cruzado com o histórico da liga. */
+  gameCalls: GameCall[],
+  /** Mesmo k usado no cálculo acima, pra tabela e painel nunca discordarem. */
+  distK: DistKMap,
 ): PanelSlot[] {
   // Computa stake default usando banca real do Pilot (fix #1: defaultStake=0 bug).
   // computeDefaultStake retorna 0 quando units_final é null → sem fallback espúrio.
@@ -577,6 +609,7 @@ function buildPanels(
           awayTeam={awayTeam}
           sampleSize={readAvgsSampleSize(detail)}
           playerOdds={playerOddsFromDetail(detail)}
+          distK={distK}
           chrome="bare"
         />
         <ShadowModelsToggle
@@ -594,7 +627,7 @@ function buildPanels(
     id: "MODEL_PERF",
     colSpan: "span 12 / span 12",
     label: "desempenho do modelo nesta liga",
-    node: <ModelPerformancePanel perf={leaguePerf} />,
+    node: <ModelPerformancePanel perf={leaguePerf} gameCalls={gameCalls} />,
   };
 
   const aiRecoSlot: PanelSlot = {

@@ -138,3 +138,39 @@ describe("getLeaguePerformance", () => {
     expect(await getLeaguePerformance("Serie B", "sim-v7", boom)).toBeNull();
   });
 });
+
+/**
+ * A página do jogo precisa do MESMO distK que este repositório usa: ela calcula
+ * as chamadas do jogo (pra cruzar com o histórico) e alimenta a tabela da
+ * simulação. Sem poder injetar, seriam duas idas a `model_calibration` por
+ * request — e o Worker deste projeto tem histórico de cair por peso (B12/B21/
+ * B23). Injetar também garante que as duas superfícies não divirjam.
+ */
+describe("getLeaguePerformance · distK injetado", () => {
+  beforeEach(() => __resetGlobalCache());
+
+  it("não consulta model_calibration quando o distK vem pronto", async () => {
+    const sb = stub({ "Serie B": rows(60, "Serie B") }, rows(200, "X"));
+    await getLeaguePerformance("Serie B", "sim-v7", sb, { corners: 1.1 });
+    expect(sb.calls.some((c) => c.table === "model_calibration")).toBe(false);
+  });
+
+  it("consulta normalmente quando não vem", async () => {
+    const sb = stub({ "Serie B": rows(60, "Serie B") }, rows(200, "X"));
+    await getLeaguePerformance("Serie B", "sim-v7", sb);
+    expect(sb.calls.some((c) => c.table === "model_calibration")).toBe(true);
+  });
+
+  it("usa o k injetado no cálculo (não o vazio)", async () => {
+    const sb = stub({ "Serie B": rows(60, "Serie B") }, rows(200, "X"));
+    // O SIM do fixture projeta 14 escanteios: chama `over` em todas as linhas
+    // canônicas (8.5/9.5/10.5). Só um k que derrube a média abaixo delas
+    // inverte o lado — k=0.4 leva 14 pra 5.6. (Um k ALTO não provaria nada
+    // aqui: já estava over.)
+    const semK = await getLeaguePerformance("Serie B", "sim-v7", sb, {});
+    const comK = await getLeaguePerformance("Serie B", "sim-v7", sb, { corners: 0.4 });
+    const linha = (p: typeof semK) => p!.markets.find((m) => m.market === "corners");
+    expect(linha(semK)?.dominantSide).toBe("over");
+    expect(linha(comK)?.dominantSide).toBe("under");
+  });
+});
