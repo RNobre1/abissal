@@ -49,8 +49,11 @@ RSpec.describe 'generate_balance_snapshots', :db do
     uid = conn.exec(
       "insert into auth.users (id, email) values (gen_random_uuid(), 't' || floor(random()*1e9)::text || '@teste.local') returning id"
     )[0]['id']
+    # `slug` é NOT NULL com único em (user_id, slug) — derivo do nome pra não
+    # colidir entre as casas do mesmo seed.
     hid = conn.exec_params(
-      'insert into houses (user_id, name) values ($1, $2) returning id', [uid, nome]
+      'insert into houses (user_id, name, slug) values ($1, $2, $3) returning id',
+      [uid, nome, nome.downcase.gsub(/[^a-z0-9]+/, '-')]
     )[0]['id']
     conn.exec_params(
       "insert into transactions (user_id, house_id, kind, direction, amount, occurred_at)
