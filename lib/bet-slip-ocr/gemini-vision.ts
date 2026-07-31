@@ -65,7 +65,8 @@ export const SLIP_JSON_SCHEMA_BLOCK = `{
       "side": "string (ex. 'Casa', 'Empate', 'Fora', 'Over', 'Under', 'Sim', 'Não')",
       "odd_taken": number ou null (ex. 1.85 — null em cupons Bet Builder, ver abaixo),
       "league": "string ou null (ex. 'Brasileirão Série A')",
-      "kickoff_iso": "string ISO 8601 UTC ou null (ex. '2026-05-26T22:00:00Z')"
+      "kickoff_iso": "string ISO 8601 UTC ou null (ex. '2026-05-26T22:00:00Z')",
+      "builder_selections": array de strings ou null (SÓ para perna-grupo 'Criar Aposta' dentro de uma múltipla mista — lista das seleções internas do grupo, ex. ["Menos de 2.5 - Total de Gols", "Menos de 9.5 - Total de Escanteios"]; null em perna simples)
     }
   ],
   "stake_total": number ou null (valor apostado total em R$, sem símbolo),
@@ -86,9 +87,14 @@ Regras:
 - Datas relativas ("Hoje 22h", "Amanhã 16:00"): converta pra ISO usando "hoje" = data UTC atual (assuma a imagem foi tirada hoje).
 
 Bet Builder / Criar Aposta:
-- Se o cupom for tipo "Criar Aposta", "Bet Builder" ou "Build a Bet" (vários mercados no mesmo jogo com 1 só odd combinada e SEM odds individuais por seleção), marque is_bet_builder: true na raiz.
-- Indicadores típicos: header "Criar Aposta" ou "Bet Builder", vários mercados todos do mesmo jogo (mesmo home/away), 1 só odd visível no total do bilhete.
-- Nesses casos, deixe odd_taken: null em cada leg — a odd combinada vai em odd_combined (campo raiz do slip).`;
+- is_bet_builder: true SOMENTE quando o cupom INTEIRO é de um único jogo ("Criar Aposta", "Bet Builder", "Build a Bet": vários mercados do mesmo home/away com 1 só odd combinada e SEM odds individuais por seleção).
+- Nesse caso, deixe odd_taken: null em cada leg — a odd combinada vai em odd_combined (campo raiz do slip).
+
+Múltipla MISTA (jogos diferentes onde alguma perna é um grupo "Criar Aposta"):
+- Cada grupo "Criar Aposta" vira UMA leg: home/away do jogo do grupo, market: "Criar Aposta", side: resumo curto das seleções unidas por " + ", odd_taken: a odd DO GRUPO (aparece ao lado do header "Criar Aposta" daquele jogo), builder_selections: a lista completa das seleções internas.
+- Pernas simples da mesma múltipla seguem o formato normal (builder_selections: null).
+- is_bet_builder fica false — o campo raiz é só pro cupom inteiro de um jogo só.
+- odd_combined = cotação combinada total do bilhete (multiplicação de todas as pernas, visível no rodapé).`;
 
 /**
  * Log de UMA tentativa de OCR (Pacote B, item 4a). Emitido via

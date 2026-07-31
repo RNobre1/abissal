@@ -563,6 +563,19 @@ export function BetSlipPhotoImport({ onLegsAdded }: BetSlipPhotoImportProps) {
                       <div className="label text-[var(--color-ink-muted)]">
                         {leg.parsed.market} / {leg.parsed.side}
                       </div>
+                      {leg.parsed.builder_selections &&
+                      leg.parsed.builder_selections.length > 0 ? (
+                        <ul className="mt-0.5 space-y-0.5">
+                          {leg.parsed.builder_selections.map((sel, si) => (
+                            <li
+                              key={si}
+                              className="label text-xs text-[var(--color-ink-faint)]"
+                            >
+                              ◦ {sel}
+                            </li>
+                          ))}
+                        </ul>
+                      ) : null}
                       {leg.parsed.league ? (
                         <div className="label text-xs text-[var(--color-ink-faint)]">
                           {leg.parsed.league}

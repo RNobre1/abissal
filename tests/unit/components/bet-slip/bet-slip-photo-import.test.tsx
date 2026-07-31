@@ -71,6 +71,7 @@ const PARSED_RESULT_OK: ParsePhotoResult = {
           odd_taken: 2.1,
           league: "Brasileirão Série A",
           kickoff_iso: "2026-05-26T22:00:00Z",
+          builder_selections: null,
         },
         match: {
           best: {
@@ -115,6 +116,7 @@ const PARSED_RESULT_NO_MATCH: ParsePhotoResult = {
           odd_taken: 1.8,
           league: null,
           kickoff_iso: null,
+          builder_selections: null,
         },
         match: {
           best: null,
@@ -141,6 +143,7 @@ const PARSED_RESULT_LOW_CONFIDENCE: ParsePhotoResult = {
           odd_taken: 1.7,
           league: "Premier League",
           kickoff_iso: "2026-05-27T20:00:00Z",
+          builder_selections: null,
         },
         match: {
           best: {
@@ -234,6 +237,49 @@ describe("BetSlipPhotoImport", () => {
     });
     // Confirmation footer button
     expect(screen.getByRole("button", { name: /adicionar/i })).toBeInTheDocument();
+  });
+
+  it("perna-grupo (múltipla mista): renderiza as seleções internas do 'Criar Aposta'", async () => {
+    const mixed: ParsePhotoResult = {
+      ok: true,
+      slip: {
+        legs: [
+          {
+            parsed: {
+              home: "CSKA 1948 Sofia",
+              away: "Arda Kardzhali",
+              market: "Criar Aposta",
+              side: "Menos 2.5 + Menos 9.5 + Menos 4.5",
+              odd_taken: 4.0,
+              league: null,
+              kickoff_iso: null,
+              builder_selections: [
+                "Menos de 2.5 - Total de Gols",
+                "Menos de 9.5 - Total de Escanteios",
+                "Menos de 4.5 - Total de Cartões",
+              ],
+            },
+            match: { best: null, candidates: [] },
+          },
+        ],
+        stake_total: 10,
+        odd_combined: 12.16,
+        house_detected: "superbet",
+      },
+    };
+    mockParseBetSlipPhoto.mockResolvedValueOnce(mixed);
+
+    await renderComponent();
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    await act(async () => {
+      fireEvent.change(input, { target: { files: [makeImageFile()] } });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/CSKA 1948 Sofia/i)).toBeInTheDocument();
+    });
+    expect(screen.getByText(/Menos de 9\.5 - Total de Escanteios/)).toBeInTheDocument();
+    expect(screen.getByText(/Menos de 4\.5 - Total de Cartões/)).toBeInTheDocument();
   });
 
   it("renderiza erro se action retorna ok:false", async () => {

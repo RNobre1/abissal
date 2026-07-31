@@ -31,6 +31,32 @@ describe("ParsedLegSchema", () => {
     expect(result.success).toBe(true);
   });
 
+  it("aceita builder_selections (perna-grupo 'Criar Aposta' numa múltipla MISTA)", () => {
+    const result = ParsedLegSchema.safeParse({
+      ...validLeg,
+      market: "Criar Aposta",
+      side: "Menos 2.5 Gols + Menos 9.5 Escanteios + Menos 4.5 Cartões",
+      odd_taken: 4.0,
+      builder_selections: [
+        "Menos de 2.5 - Total de Gols",
+        "Menos de 9.5 - Total de Escanteios",
+        "Menos de 4.5 - Total de Cartões",
+      ],
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.builder_selections).toHaveLength(3);
+    }
+  });
+
+  it("builder_selections default null quando ausente (perna simples)", () => {
+    const result = ParsedLegSchema.safeParse(validLeg);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.builder_selections).toBeNull();
+    }
+  });
+
   it("rejeita odd_taken negativo", () => {
     const result = ParsedLegSchema.safeParse({ ...validLeg, odd_taken: -1.5 });
     expect(result.success).toBe(false);

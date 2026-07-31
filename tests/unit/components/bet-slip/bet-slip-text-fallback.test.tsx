@@ -71,6 +71,7 @@ const TEXT_OK_RESULT: ParsePhotoResult = {
           odd_taken: 2.1,
           league: "Brasileirão Série A",
           kickoff_iso: "2026-07-30T22:00:00Z",
+          builder_selections: null,
         },
         match: {
           best: {

@@ -382,4 +382,77 @@ describe("parseBetSlipImage", () => {
 
     expect(result.is_bet_builder).toBe(false);
   });
+
+  it("prompt ensina múltipla MISTA: schema tem builder_selections e regras cobrem perna-grupo", async () => {
+    // Caso real (print Superbet 31/07): múltipla de 3 pernas onde 2 são
+    // grupos "Criar Aposta" com odd própria — sem instrução explícita o
+    // modelo não tem onde encaixar o grupo e o cupom sai mangled.
+    const fetchMock = vi.fn().mockResolvedValueOnce(makeOkResponse(superbetTripleFixture));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await parseBetSlipImage(makeMinimalPngBuffer());
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string) as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const system = body.messages.find((m) => m.role === "system")!.content as string;
+    expect(system).toContain("builder_selections");
+    expect(system).toMatch(/múltipla mista/i);
+    // is_bet_builder raiz continua reservado pro cupom inteiro de UM jogo
+    expect(system).toMatch(/um único jogo|jogo só|mesmo jogo/i);
+  });
+
+  it("múltipla mista: leg com builder_selections e odd do grupo passa na validação", async () => {
+    const mixedResponse = {
+      id: "chatcmpl-mixed",
+      choices: [
+        {
+          index: 0,
+          message: {
+            role: "assistant",
+            content: JSON.stringify({
+              legs: [
+                {
+                  home: "CSKA 1948 Sofia",
+                  away: "Arda Kardzhali",
+                  market: "Criar Aposta",
+                  side: "Menos 2.5 Gols + Menos 9.5 Escanteios",
+                  odd_taken: 4.0,
+                  league: null,
+                  kickoff_iso: null,
+                  builder_selections: [
+                    "Menos de 2.5 - Total de Gols",
+                    "Menos de 9.5 - Total de Escanteios",
+                  ],
+                },
+                {
+                  home: "Valerenga",
+                  away: "HamKam",
+                  market: "1X2",
+                  side: "Casa",
+                  odd_taken: 1.56,
+                  league: null,
+                  kickoff_iso: null,
+                },
+              ],
+              stake_total: 10,
+              odd_combined: 12.16,
+              house_detected: "superbet",
+              is_bet_builder: false,
+            }),
+          },
+          finish_reason: "stop",
+        },
+      ],
+      usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+    };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValueOnce(makeOkResponse(mixedResponse)));
+
+    const result = await parseBetSlipImage(makeMinimalPngBuffer());
+
+    expect(result.is_bet_builder).toBe(false);
+    expect(result.legs[0].builder_selections).toHaveLength(2);
+    expect(result.legs[0].odd_taken).toBe(4.0);
+    expect(result.legs[1].builder_selections).toBeNull();
+  });
 });

@@ -8,6 +8,11 @@ export const ParsedLegSchema = z.object({
   odd_taken: z.number().positive().nullable(),
   league: z.string().nullable(),
   kickoff_iso: z.string().nullable(), // ISO 8601 UTC se possível, senão null
+  // Perna-grupo "Criar Aposta" dentro de uma múltipla MISTA: lista das
+  // seleções internas do grupo (a odd do grupo vai em odd_taken). null em
+  // perna simples. Não confundir com is_bet_builder (raiz), que é o cupom
+  // INTEIRO de um jogo só.
+  builder_selections: z.array(z.string().min(1)).nullable().default(null),
 });
 
 export const ParsedSlipSchema = z.object({

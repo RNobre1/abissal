@@ -74,6 +74,7 @@ const PARSED_SLIP_FIXTURE: ParsedSlip = {
       odd_taken: 2.1,
       league: "Brasileirão Série A",
       kickoff_iso: "2026-05-26T22:00:00Z",
+      builder_selections: null,
     },
   ],
   stake_total: 50,
@@ -229,6 +230,7 @@ describe("parseBetSlipPhoto", () => {
         odd_taken: null,
         league: "Premier League",
         kickoff_iso: "2026-05-28T19:45:00Z",
+        builder_selections: null,
       },
       {
         home: "Arsenal",
@@ -238,6 +240,7 @@ describe("parseBetSlipPhoto", () => {
         odd_taken: null,
         league: "Premier League",
         kickoff_iso: "2026-05-28T19:45:00Z",
+        builder_selections: null,
       },
     ],
     stake_total: 25,

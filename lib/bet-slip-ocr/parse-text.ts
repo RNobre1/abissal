@@ -41,7 +41,8 @@ Regras:
 - Datas relativas ("hoje 22h", "amanhã 16:00"): converta pra ISO sabendo que AGORA é ${nowIso} (UTC). O usuário está no Brasil (BRT = UTC-3).
 
 Bet Builder / Criar Aposta:
-- Se o usuário descrever vários mercados DO MESMO jogo com uma única odd combinada (ex.: "criar aposta", "bet builder"), marque is_bet_builder: true na raiz, deixe odd_taken: null em cada leg e ponha a odd combinada em odd_combined.`;
+- Se o usuário descrever vários mercados DO MESMO jogo com uma única odd combinada (ex.: "criar aposta", "bet builder"), marque is_bet_builder: true na raiz, deixe odd_taken: null em cada leg e ponha a odd combinada em odd_combined.
+- Múltipla MISTA (jogos diferentes onde alguma perna é um grupo "criar aposta"): o grupo vira UMA leg com market "Criar Aposta", side resumindo as seleções, odd_taken = odd do grupo e builder_selections = lista das seleções; is_bet_builder fica false.`;
 }
 
 /**

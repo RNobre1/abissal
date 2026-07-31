@@ -21,6 +21,7 @@ const PARSED_SLIP: ParsedSlip = {
       odd_taken: 2.1,
       league: null,
       kickoff_iso: null,
+      builder_selections: null,
     },
   ],
   stake_total: 20,

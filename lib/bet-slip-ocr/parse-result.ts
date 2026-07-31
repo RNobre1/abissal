@@ -69,8 +69,15 @@ const CONFIDENCE_AUTO_LINK = 0.85;
 export async function resolveParsedSlip(
   parsed: ParsedSlip,
 ): Promise<ParsePhotoResult> {
-  // Bet Builder: single-game multi-market — redirect ao /bilhete/builder
-  if (parsed.is_bet_builder === true) {
+  // Bet Builder: single-game multi-market — redirect ao /bilhete/builder.
+  // Guarda defensiva: se o modelo marcou is_bet_builder mas as legs cobrem
+  // MAIS de um jogo, é uma múltipla mista mal-rotulada — o /bilhete/builder
+  // é single-game e o redirect descartaria os outros jogos. Trata como
+  // múltipla normal (fluxo de revisão).
+  const distinctGames = new Set(
+    parsed.legs.map((l) => `${l.home.toLowerCase()}|${l.away.toLowerCase()}`),
+  ).size;
+  if (parsed.is_bet_builder === true && distinctGames <= 1) {
     const firstLeg = parsed.legs[0];
     const match = await matchFixture({
       home: firstLeg.home,
