@@ -226,6 +226,43 @@ describe("<BilheteCriticSection>", () => {
     expect(sent.oddCombined).toBe(3.6);
   });
 
+  it("perna 'Criar Aposta' → envia builderSelections derivadas do split de side", async () => {
+    const mockFetch = okFetch();
+    vi.stubGlobal("fetch", mockFetch);
+    const { BilheteCriticSection } = await import(
+      "@/components/bet-slip/bilhete-critic-panel"
+    );
+    const groupLeg: SlipLeg = {
+      ...makeLeg(3, 4.0),
+      market: "Criar Aposta",
+      side: "Menos de 2.5 - Total de Gols + Menos de 9.5 - Total de Escanteios + Menos de 4.5 - Total de Cartões",
+    };
+    render(
+      <BilheteCriticSection
+        legs={[makeLeg(1, 2.0), groupLeg]}
+        stakeTotal={50}
+        oddCombined={8.0}
+      />,
+    );
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: /criticar bilhete/i }));
+    });
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as {
+      legs: Array<{ market: string; builderSelections?: string[] }>;
+    };
+    // Perna simples NÃO carrega builderSelections; a perna-grupo carrega a
+    // lista derivada do split de side por " + ".
+    expect(sent.legs[0].builderSelections).toBeUndefined();
+    expect(sent.legs[1].builderSelections).toEqual([
+      "Menos de 2.5 - Total de Gols",
+      "Menos de 9.5 - Total de Escanteios",
+      "Menos de 4.5 - Total de Cartões",
+    ]);
+  });
+
   it("sucesso → renderiza painel + telemetria bilhete_critic_result com elapsed_ms", async () => {
     vi.stubGlobal("fetch", okFetch());
     const { BilheteCriticSection } = await import(

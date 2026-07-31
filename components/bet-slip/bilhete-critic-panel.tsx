@@ -15,6 +15,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import type { SlipLeg } from "@/lib/bet-slip/compute";
+import { isBuilderMarket, splitBuilderSide } from "@/lib/bilhete/critic";
 import { useTelemetry } from "@/lib/telemetry/use-telemetry";
 
 // ── Tipos do resultado (contrato do POST /api/bilhete/critic) ───────────────
@@ -209,6 +210,11 @@ export function BilheteCriticSection({
             market: leg.market,
             side: leg.side,
             odd: leg.odd_taken,
+            // Perna-grupo "Criar Aposta" commitada no DB: as seleções ficam
+            // embutidas em side unidas por " + " — o crítico as decompõe.
+            ...(isBuilderMarket(leg.market)
+              ? { builderSelections: splitBuilderSide(leg.side) }
+              : {}),
           })),
           stakeTotal,
           oddCombined,

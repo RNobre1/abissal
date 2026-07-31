@@ -494,6 +494,231 @@ describe("POST /api/bilhete/critic — happy path", () => {
   });
 });
 
+// ── Pernas-grupo "Criar Aposta" (bet builder em múltipla mista) ─────────────
+
+function seedGroupFixture() {
+  mockState.fixturesById[42] = {
+    id: 42,
+    home_team: "CSKA Sofia",
+    away_team: "Ludogorets",
+    league: "Bulgaria First League",
+    source_url: `https://www.adamchoi.co.uk/fixture/${CHOISTATS_ID}/bulgaria-cska-vs-ludogorets`,
+    kickoff_utc: "2026-07-31T18:00:00Z",
+  };
+  mockState.simByApiId[CHOISTATS_ID] = {
+    id: 6,
+    created_at: "2026-07-30T10:00:00Z",
+    fixture_id: CHOISTATS_ID,
+    home_team: "CSKA Sofia",
+    away_team: "Ludogorets",
+    league: "Bulgaria First League",
+    kickoff_utc: "2026-07-31T18:00:00Z",
+    model_version: "v8",
+    p_home: 0.4,
+    p_draw: 0.3,
+    p_away: 0.3,
+    p_btts: 0.5,
+    p_over_25: 0.6,
+    top_scorelines: [],
+    sim_stats: {
+      home: { corners: { p50: 6.0 }, cards: { p50: 1.5 } },
+      away: { corners: { p50: 4.0 }, cards: { p50: 2.0 } },
+    },
+    per_half_available: true,
+    market_anchor: null,
+    player_events: [],
+    status: "simulated",
+    actual_home_goals: null,
+    actual_away_goals: null,
+    correct_winner: null,
+    correct_over_under: null,
+    actual_resolved_at: null,
+  };
+}
+
+const CSKA_SELECTIONS = [
+  "Menos de 2.5 - Total de Gols",
+  "Menos de 9.5 - Total de Escanteios",
+  "Menos de 4.5 - Total de Cartões",
+];
+
+const ONE_VERDICT = {
+  legs: [{ verdict: "fuga", why: "Produto conjunto muito abaixo da odd." }],
+  overall: { summary: "s", correlation_flags: [], ev_comment: "" },
+};
+
+describe("POST /api/bilhete/critic — perna-grupo 'Criar Aposta'", () => {
+  it("decompõe builderSelections, calcula o produto calibrado e o edge do grupo", async () => {
+    seedGroupFixture();
+    const mockFetch = okLlmFetch(ONE_VERDICT);
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({
+      legs: [
+        {
+          fixtureId: 42,
+          home: "CSKA Sofia",
+          away: "Ludogorets",
+          market: "Criar Aposta",
+          side: CSKA_SELECTIONS.join(" + "),
+          odd: 4.0,
+          builderSelections: CSKA_SELECTIONS,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const out = (await res.json()) as {
+      legs: Array<{
+        has_model_data: boolean;
+        prob_calibrated: number | null;
+        edge_pct: number | null;
+      }>;
+    };
+
+    // Produto (independência assumida): under25 × corners-under-9.5 × cards-under-4.5.
+    const { poissonProbUnder } = await import("@/lib/ai-reco/dist-helpers");
+    const expected =
+      (1 - 0.6) * poissonProbUnder(10.0, 9.5) * poissonProbUnder(3.5, 4.5);
+    expect(out.legs[0].has_model_data).toBe(true);
+    expect(out.legs[0].prob_calibrated).toBeCloseTo(expected, 4);
+    expect(out.legs[0].edge_pct).toBeCloseTo((expected * 4.0 - 1) * 100, 2);
+
+    // Prompt: cada seleção com sua prob, o produto e o caveat de correlação.
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = sent.messages.find((m) => m.role === "user")!.content;
+    const system = sent.messages.find((m) => m.role === "system")!.content;
+    for (const sel of CSKA_SELECTIONS) expect(user).toContain(sel);
+    expect(user.toLowerCase()).toContain("produto");
+    expect(user.toLowerCase()).toContain("correlacionad");
+    expect(user.toLowerCase()).toContain("subestima");
+    expect(system.toLowerCase()).toContain("criar aposta");
+  });
+
+  it("sem builderSelections: market 'Criar Aposta' cai no split de side por ' + '", async () => {
+    seedGroupFixture();
+    const mockFetch = okLlmFetch(ONE_VERDICT);
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({
+      legs: [
+        {
+          fixtureId: 42,
+          home: "CSKA Sofia",
+          away: "Ludogorets",
+          market: "Criar Aposta",
+          // 100 chars — o teto antigo de side (100) não pode barrar side de grupo.
+          side: CSKA_SELECTIONS.join(" + "),
+          odd: 4.0,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as {
+      legs: Array<{ prob_calibrated: number | null }>;
+    };
+    expect(out.legs[0].prob_calibrated).not.toBeNull();
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = sent.messages.find((m) => m.role === "user")!.content;
+    expect(user).toContain("Menos de 9.5 - Total de Escanteios");
+    expect(user.toLowerCase()).toContain("produto");
+  });
+
+  it("seleção não mapeável degrada individualmente — produto cobre o resto", async () => {
+    seedGroupFixture();
+    const mockFetch = okLlmFetch(ONE_VERDICT);
+    vi.stubGlobal("fetch", mockFetch);
+
+    const selections = [
+      "Menos de 2.5 - Total de Gols",
+      "Mais de 6.5 - Bodo/Glimt - Total de Escanteios", // por time — sem dados
+    ];
+    const res = await callRoute({
+      legs: [
+        {
+          fixtureId: 42,
+          home: "CSKA Sofia",
+          away: "Ludogorets",
+          market: "Criar Aposta",
+          side: selections.join(" + "),
+          odd: 3.0,
+          builderSelections: selections,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as {
+      legs: Array<{ has_model_data: boolean; prob_calibrated: number | null }>;
+    };
+    // Só a seleção de gols entra no produto: 1 − 0.6 = 0.4.
+    expect(out.legs[0].prob_calibrated).toBeCloseTo(0.4, 4);
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = sent.messages.find((m) => m.role === "user")!.content;
+    expect(user).toContain("Bodo/Glimt");
+    expect(user.toLowerCase()).toContain("sem dados do modelo");
+    expect(user).toContain("1 de 2");
+  });
+
+  it("grupo sem fixture no banco lista as seleções qualitativamente (sem produto)", async () => {
+    // fixturesById vazio.
+    const mockFetch = okLlmFetch(ONE_VERDICT);
+    vi.stubGlobal("fetch", mockFetch);
+
+    const res = await callRoute({
+      legs: [
+        {
+          home: "Ghost FC",
+          away: "Team FC",
+          market: "Criar Aposta",
+          side: CSKA_SELECTIONS.join(" + "),
+          odd: 4.0,
+        },
+      ],
+    });
+    expect(res.status).toBe(200);
+    const out = (await res.json()) as {
+      legs: Array<{ has_model_data: boolean; prob_calibrated: number | null }>;
+    };
+    expect(out.legs[0].has_model_data).toBe(false);
+    expect(out.legs[0].prob_calibrated).toBeNull();
+
+    const [, init] = mockFetch.mock.calls[0] as [string, RequestInit];
+    const sent = JSON.parse(init.body as string) as {
+      messages: Array<{ role: string; content: string }>;
+    };
+    const user = sent.messages.find((m) => m.role === "user")!.content;
+    expect(user).toContain("Menos de 2.5 - Total de Gols");
+    expect(user.toLowerCase()).toContain("sem dados do modelo");
+  });
+
+  it("400 quando builderSelections estoura o teto (máx 8)", async () => {
+    const res = await callRoute({
+      legs: [
+        {
+          home: "A",
+          away: "B",
+          market: "Criar Aposta",
+          side: "x",
+          odd: 2.0,
+          builderSelections: Array.from({ length: 9 }, (_, i) => `sel ${i}`),
+        },
+      ],
+    });
+    expect(res.status).toBe(400);
+  });
+});
+
 describe("POST /api/bilhete/critic — erros do LLM", () => {
   it("502 com erro limpo quando o LLM devolve JSON inválido (e loga o erro)", async () => {
     seedModeledFixture();
