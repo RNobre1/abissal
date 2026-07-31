@@ -127,10 +127,12 @@ describe("matchFixture", () => {
   });
 
   // Cenário 7 — kickoff_iso presente → RPC recebe ISO string
-  it("kickoff_iso presente: chama RPC com p_kickoff = ISO string", async () => {
+  it("kickoff_iso presente e PLAUSÍVEL: chama RPC com p_kickoff = ISO string", async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
 
-    const kickoff = "2026-05-26T22:00:00Z";
+    // Data relativa ao presente: kickoff fixo envelhece e viraria
+    // "implausível" (sanitizado pra null) conforme o calendário anda.
+    const kickoff = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
     const input: MatchInput = { home: "Flamengo", away: "Palmeiras", kickoffIso: kickoff };
     await matchFixture(input);
 
@@ -139,6 +141,18 @@ describe("matchFixture", () => {
   });
 
   // Bônus — MatchInput com league (só logging, não altera query)
+  it("kickoff implausível (anos de distância do presente): RPC recebe p_kickoff null", async () => {
+    mockRpc.mockResolvedValueOnce({ data: [], error: null });
+    await matchFixture({
+      home: "Bodo/Glimt",
+      away: "Lillestrom",
+      kickoffIso: "2024-05-26T19:00:00Z",
+      league: null,
+    });
+    const params = mockRpc.mock.calls[0]![1] as Record<string, unknown>;
+    expect(params.p_kickoff).toBeNull();
+  });
+
   it("league no input: ignorada na query (não afeta p_* passados ao RPC)", async () => {
     mockRpc.mockResolvedValue({ data: [], error: null });
 

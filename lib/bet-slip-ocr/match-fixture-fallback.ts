@@ -18,6 +18,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CONFIDENCE_MIN,
+  plausibleKickoffIso,
   type MatchInput,
   type MatchResult,
   type MatchedFixture,
@@ -73,9 +74,15 @@ function fixtureConfidence(input: MatchInput, row: FixtureRow): number {
  * Devolve o MESMO shape do matchFixture ({ best, candidates }).
  */
 export async function matchFixtureFallback(
-  input: MatchInput,
+  rawInput: MatchInput,
   client: SupabaseClient,
 ): Promise<MatchResult> {
+  // Defesa em profundidade: mesmo sanitizado no matchFixture, quem chamar
+  // direto não pode ser mordido por kickoff alucinado do OCR (caso 2024).
+  const input: MatchInput = {
+    ...rawInput,
+    kickoffIso: plausibleKickoffIso(rawInput.kickoffIso),
+  };
   const center = input.kickoffIso ? new Date(input.kickoffIso) : new Date();
   const windowDays = input.kickoffIso
     ? WINDOW_WITH_KICKOFF_DAYS

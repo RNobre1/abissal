@@ -75,7 +75,10 @@ export const SLIP_JSON_SCHEMA_BLOCK = `{
   "is_bet_builder": boolean (true se for cupom tipo Bet Builder / Criar Aposta, false caso contrário)
 }`;
 
-const SYSTEM_PROMPT = `Você é um extrator de dados estruturados de cupons de apostas esportivas. Receba uma imagem de cupom de qualquer casa de apostas brasileira (Superbet, Bet365, Betano, Estrela, Sportingbet, etc) e devolva APENAS JSON válido (sem markdown, sem texto antes/depois) seguindo este schema:
+// Função (não const): injeta a data ATUAL. Sem a âncora o modelo aluciona o
+// "hoje" das datas relativas — caso real 31/07: cupom do dia saiu com kickoff
+// de 2024 e o fuzzy-match buscou fixtures de 2 anos atrás.
+const buildVisionSystemPrompt = (nowIso: string) => `Você é um extrator de dados estruturados de cupons de apostas esportivas. Receba uma imagem de cupom de qualquer casa de apostas brasileira (Superbet, Bet365, Betano, Estrela, Sportingbet, etc) e devolva APENAS JSON válido (sem markdown, sem texto antes/depois) seguindo este schema:
 
 ${SLIP_JSON_SCHEMA_BLOCK}
 
@@ -84,7 +87,7 @@ Regras:
 - Se algum campo não estiver legível, use null (NUNCA invente).
 - Se a imagem não for um cupom de aposta, retorne {"legs": [], "stake_total": null, "odd_combined": null, "house_detected": null, "is_bet_builder": false} — schema vai falhar validação (esperado).
 - Times com sufixo (ex. "Flamengo RJ", "Palmeiras SP"): mantenha o sufixo apenas se estiver visível no cupom.
-- Datas relativas ("Hoje 22h", "Amanhã 16:00"): converta pra ISO usando "hoje" = data UTC atual (assuma a imagem foi tirada hoje).
+- Datas relativas ("Hoje 22h", "Amanhã 16:00"): converta pra ISO sabendo que AGORA é ${nowIso} (UTC) — assuma que a imagem foi tirada hoje. Horários do cupom estão em BRT (UTC-3).
 
 Bet Builder / Criar Aposta:
 - is_bet_builder: true SOMENTE quando o cupom INTEIRO é de um único jogo ("Criar Aposta", "Bet Builder", "Build a Bet": vários mercados do mesmo home/away com 1 só odd combinada e SEM odds individuais por seleção).
@@ -126,7 +129,7 @@ export const TOLERANT_MODE_ADDENDUM = `MODO TOLERANTE (retry — a primeira leit
 /**
  * Variante TOLERANTE do prompt de foto — usada só no retry.
  */
-const TOLERANT_SYSTEM_PROMPT = `${SYSTEM_PROMPT}
+const buildTolerantVisionSystemPrompt = (nowIso: string) => `${buildVisionSystemPrompt(nowIso)}
 
 ${TOLERANT_MODE_ADDENDUM}`;
 
@@ -384,10 +387,11 @@ export async function parseBetSlipImage(
   opts?: ParseBetSlipOptions,
 ): Promise<ParsedSlip> {
   const dataUrl = Buffer.isBuffer(image) ? bufferToDataUrl(image) : image;
+  const nowIso = new Date().toISOString();
   return runSlipParsePipeline({
     userContent: buildImageUserContent(dataUrl),
-    systemPrompt: SYSTEM_PROMPT,
-    tolerantSystemPrompt: TOLERANT_SYSTEM_PROMPT,
+    systemPrompt: buildVisionSystemPrompt(nowIso),
+    tolerantSystemPrompt: buildTolerantVisionSystemPrompt(nowIso),
     opts,
   });
 }

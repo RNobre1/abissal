@@ -170,6 +170,31 @@ describe("matchFixtureFallback", () => {
     }
   });
 
+  it("kickoff IMPLAUSÍVEL (anos de distância) é tratado como ausente — janela de hoje e auto-link possível", async () => {
+    // Caso real 31/07: o Gemini converteu "Hoje, 16:00" com um "hoje"
+    // alucinado de 2024 → a janela buscava fixtures de 2024 (zero linhas) e o
+    // gate de compatibilidade capava tudo em 0.84. Kickoff a mais de 30 dias
+    // do presente não é informação, é alucinação — descarta.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-31T18:00:00.000Z"));
+    try {
+      const { client, gte, lte } = makeClient(NORWAY_ROWS);
+      const result = await matchFixtureFallback(
+        { home: "Bodo/Glimt", away: "Lillestrom", kickoffIso: "2024-05-26T19:00:00Z" },
+        client,
+      );
+
+      // janela = hoje ±3 (como se kickoff fosse null), não 2024
+      expect(gte).toHaveBeenCalledWith("kickoff_utc", "2026-07-28T18:00:00.000Z");
+      expect(lte).toHaveBeenCalledWith("kickoff_utc", "2026-08-03T18:00:00.000Z");
+      // e o gate de compatibilidade não capa: nomes inequívocos → auto-link
+      expect(result.best).not.toBeNull();
+      expect(result.best!.confidence).toBeGreaterThanOrEqual(CONFIDENCE_AUTO_LINK);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   // ── Janela de datas ─────────────────────────────────────────────────────────
   it("com kickoffIso: janela = kickoff ±2 dias", async () => {
     const { client, from, select, gte, lte } = makeClient([]);

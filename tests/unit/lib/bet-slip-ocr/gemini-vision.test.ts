@@ -383,6 +383,20 @@ describe("parseBetSlipImage", () => {
     expect(result.is_bet_builder).toBe(false);
   });
 
+  it("system prompt informa a data ATUAL — sem âncora o modelo aluciona 'hoje' (caso real: kickoff de 2024)", async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(makeOkResponse(superbetTripleFixture));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await parseBetSlipImage(makeMinimalPngBuffer());
+
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string) as {
+      messages: Array<{ role: string; content: unknown }>;
+    };
+    const system = body.messages.find((m) => m.role === "system")!.content as string;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    expect(system).toContain(`AGORA é ${todayIso}`);
+  });
+
   it("prompt ensina múltipla MISTA: schema tem builder_selections e regras cobrem perna-grupo", async () => {
     // Caso real (print Superbet 31/07): múltipla de 3 pernas onde 2 são
     // grupos "Criar Aposta" com odd própria — sem instrução explícita o

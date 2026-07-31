@@ -10,6 +10,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   CONFIDENCE_AUTO_LINK,
   CONFIDENCE_MIN,
+  plausibleKickoffIso,
   type MatchInput,
   type MatchResult,
   type MatchedFixture,
@@ -53,10 +54,17 @@ export async function matchFixture(
     opts?.client ??
     (await (await import("@/lib/supabase/server")).createClient());
 
+  // Kickoff implausível do OCR (LLM alucinando o "hoje") vira null — senão a
+  // janela do RPC/fallback busca fixtures da data errada e nada casa.
+  const sanitized: MatchInput = {
+    ...input,
+    kickoffIso: plausibleKickoffIso(input.kickoffIso),
+  };
+
   const { data, error } = await supabase.rpc("match_fixture_fuzzy", {
-    p_home: input.home,
-    p_away: input.away,
-    p_kickoff: input.kickoffIso ?? null,
+    p_home: sanitized.home,
+    p_away: sanitized.away,
+    p_kickoff: sanitized.kickoffIso ?? null,
   });
 
   if (error) {
@@ -91,7 +99,7 @@ export async function matchFixture(
   // vs curto ("Arda Kardzhali" vs "Arda"). Best-effort: se o fallback falhar,
   // devolve o resultado do primário — comportamento de hoje, nunca pior.
   try {
-    const fallback = await matchFixtureFallback(input, supabase);
+    const fallback = await matchFixtureFallback(sanitized, supabase);
     return mergeResults(candidates, fallback.candidates);
   } catch {
     return { best, candidates };
