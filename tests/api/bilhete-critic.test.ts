@@ -447,6 +447,17 @@ describe("POST /api/bilhete/critic — happy path", () => {
     expect(mockState.insertedLlmLog!.error).toBeNull();
     expect(typeof mockState.insertedLlmLog!.cost_usd).toBe("number");
     expect(mockState.insertedLlmLog!.cost_usd as number).toBeGreaterThan(0);
+
+    // Auditabilidade (31/07): sem prompt_snapshot/response_raw não dá pra
+    // AVALIAR a crítica depois — foi a primeira coisa que o Pilot pediu.
+    const snapshot = mockState.insertedLlmLog!.prompt_snapshot as {
+      system: string;
+      user: string;
+    };
+    expect(snapshot.system.length).toBeGreaterThan(0);
+    expect(snapshot.user).toContain("Liverpool");
+    expect(typeof mockState.insertedLlmLog!.response_raw).toBe("string");
+    expect((mockState.insertedLlmLog!.response_raw as string).length).toBeGreaterThan(0);
   });
 
   it("perna com fixtureId inexistente degrada pra 'sem dados do modelo'", async () => {

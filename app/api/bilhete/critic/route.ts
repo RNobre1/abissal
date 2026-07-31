@@ -254,6 +254,10 @@ export async function POST(request: Request): Promise<Response> {
     completion_tokens: usage.completion_tokens ?? null,
     total_tokens: usage.total_tokens ?? null,
     cost_usd: costUsd,
+    // Auditabilidade: sem o prompt e a resposta persistidos não dá pra
+    // avaliar a qualidade da crítica depois (pedido do Pilot em 31/07).
+    prompt_snapshot: { system: prompt.system, user: prompt.user },
+    response_raw: rawContent ?? null,
     error: result
       ? null
       : "invalid critic JSON from LLM (schema mismatch or leg count)",

@@ -39,6 +39,10 @@ export interface LlmLogInput {
   cost_usd?: number | null;
   hops?: unknown;
   error?: string | null;
+  /** {system, user} enviados ao modelo — sem isso a chamada não é auditável depois. */
+  prompt_snapshot?: unknown;
+  /** Conteúdo bruto devolvido pelo modelo (pra avaliar a resposta a posteriori). */
+  response_raw?: string | null;
 }
 
 export async function recordLlmRequest(
@@ -60,6 +64,8 @@ export async function recordLlmRequest(
       cost_usd: log.cost_usd ?? null,
       hops: log.hops ?? null,
       error: log.error ?? null,
+      prompt_snapshot: log.prompt_snapshot ?? null,
+      response_raw: log.response_raw ?? null,
     });
     if (error) {
       console.error("[llm-logs] insert failed:", error.message ?? error);
