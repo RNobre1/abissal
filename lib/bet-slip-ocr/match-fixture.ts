@@ -8,11 +8,13 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
+  CONFIDENCE_AUTO_LINK,
   CONFIDENCE_MIN,
   type MatchInput,
   type MatchResult,
   type MatchedFixture,
 } from "./match-fixture-types";
+import { matchFixtureFallback } from "./match-fixture-fallback";
 
 export {
   CONFIDENCE_AUTO_LINK,
@@ -79,5 +81,39 @@ export async function matchFixture(
 
   const best = candidates.length > 0 ? (candidates[0] ?? null) : null;
 
-  return { best, candidates };
+  // Primário atingiu auto-link → não precisa de fallback (caminho exato não regride)
+  if (best !== null && best.confidence >= CONFIDENCE_AUTO_LINK) {
+    return { best, candidates };
+  }
+
+  // Fallback TS-side (Follow-up 1, 31/07): pg_trgm do banco é cego a acentos
+  // nórdicos (ø), pontuação ("Bodo/Glimt" vs "Bodø / Glimt") e nome estendido
+  // vs curto ("Arda Kardzhali" vs "Arda"). Best-effort: se o fallback falhar,
+  // devolve o resultado do primário — comportamento de hoje, nunca pior.
+  try {
+    const fallback = await matchFixtureFallback(input, supabase);
+    return mergeResults(candidates, fallback.candidates);
+  } catch {
+    return { best, candidates };
+  }
+}
+
+// ── Merge primário + fallback ─────────────────────────────────────────────────
+
+/** Dedup por fixture_id (mantém a maior confidence), reordena DESC, top 3. */
+function mergeResults(
+  primary: MatchedFixture[],
+  fallback: MatchedFixture[],
+): MatchResult {
+  const byId = new Map<number, MatchedFixture>();
+  for (const candidate of [...primary, ...fallback]) {
+    const existing = byId.get(candidate.fixture_id);
+    if (!existing || candidate.confidence > existing.confidence) {
+      byId.set(candidate.fixture_id, candidate);
+    }
+  }
+  const merged = [...byId.values()]
+    .sort((a, b) => b.confidence - a.confidence)
+    .slice(0, 3);
+  return { best: merged[0] ?? null, candidates: merged };
 }

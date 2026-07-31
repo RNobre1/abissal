@@ -159,6 +159,111 @@ describe("matchFixture", () => {
     expect(result.candidates).toHaveLength(0);
   });
 
+  // ── Integração com o fallback TS (Follow-up 1, 31/07) ───────────────────────
+  describe("fallback TS-side", () => {
+    interface DbRow {
+      id: number;
+      home_team: string;
+      away_team: string;
+      league: string | null;
+      country: string | null;
+      kickoff_utc: string;
+    }
+
+    function makeClientWithFallback(
+      rpcRows: unknown[],
+      dbRows: DbRow[],
+    ): { client: SupabaseClient; rpc: ReturnType<typeof vi.fn>; from: ReturnType<typeof vi.fn> } {
+      const rpc = vi.fn().mockResolvedValue({ data: rpcRows, error: null });
+      const lte = vi.fn().mockResolvedValue({ data: dbRows, error: null });
+      const gte = vi.fn().mockReturnValue({ lte });
+      const select = vi.fn().mockReturnValue({ gte });
+      const from = vi.fn().mockReturnValue({ select });
+      return { client: { rpc, from } as unknown as SupabaseClient, rpc, from };
+    }
+
+    const BODO_ROW: DbRow = {
+      id: 501,
+      home_team: "Bodø / Glimt",
+      away_team: "Lillestrøm",
+      league: "Eliteserien",
+      country: "norway",
+      kickoff_utc: "2026-07-31T17:00:00Z",
+    };
+
+    it("RPC primário vazio → fallback acha e auto-linka o caso real nórdico", async () => {
+      const { client, from } = makeClientWithFallback([], [BODO_ROW]);
+
+      const result = await matchFixture(
+        { home: "Bodo/Glimt", away: "Lillestrom", kickoffIso: "2026-07-31T17:00:00Z" },
+        { client },
+      );
+
+      expect(from).toHaveBeenCalledWith("fixtures");
+      expect(result.best).not.toBeNull();
+      expect(result.best!.fixture_id).toBe(501);
+      expect(result.best!.confidence).toBeGreaterThanOrEqual(CONFIDENCE_AUTO_LINK);
+    });
+
+    it("RPC primário bom (≥ AUTO_LINK) → fallback NÃO roda", async () => {
+      const { client, from } = makeClientWithFallback(
+        [makeRow({ confidence: 0.95 })],
+        [BODO_ROW],
+      );
+
+      const result = await matchFixture(
+        { home: "Flamengo", away: "Palmeiras" },
+        { client },
+      );
+
+      expect(from).not.toHaveBeenCalled();
+      expect(result.best!.confidence).toBe(0.95);
+    });
+
+    it("primário abaixo de AUTO_LINK → fallback roda e o melhor dos dois vence", async () => {
+      const { client, from } = makeClientWithFallback(
+        [makeRow({ id: 999, confidence: 0.6 })],
+        [BODO_ROW],
+      );
+
+      const result = await matchFixture(
+        { home: "Bodo/Glimt", away: "Lillestrom", kickoffIso: "2026-07-31T17:00:00Z" },
+        { client },
+      );
+
+      expect(from).toHaveBeenCalled();
+      expect(result.best!.fixture_id).toBe(501);
+      expect(result.best!.confidence).toBeGreaterThanOrEqual(CONFIDENCE_AUTO_LINK);
+      // o candidato do primário continua na lista (dedupe por fixture_id)
+      expect(result.candidates.map((c) => c.fixture_id)).toContain(999);
+    });
+
+    it("nada casa em lugar nenhum → sem falso positivo com time aleatório", async () => {
+      const { client } = makeClientWithFallback([], [BODO_ROW]);
+
+      const result = await matchFixture(
+        { home: "Botafogo", away: "Vasco da Gama", kickoffIso: "2026-07-31T17:00:00Z" },
+        { client },
+      );
+
+      expect(result.best).toBeNull();
+      expect(result.candidates).toHaveLength(0);
+    });
+
+    it("fallback quebrado (client sem .from) → devolve o resultado do primário sem lançar", async () => {
+      const rpc = vi.fn().mockResolvedValue({
+        data: [makeRow({ confidence: 0.7 })],
+        error: null,
+      });
+      const client = { rpc } as unknown as SupabaseClient;
+
+      const result = await matchFixture({ home: "Fla", away: "Palme" }, { client });
+
+      expect(result.best).not.toBeNull();
+      expect(result.best!.confidence).toBe(0.7);
+    });
+  });
+
   // Opção de passar client externo (para uso server-side direto)
   it("opts.client injeta cliente customizado sem chamar createClient", async () => {
     const customRpc = vi.fn().mockResolvedValue({ data: [makeRow({ confidence: 0.88 })], error: null });
