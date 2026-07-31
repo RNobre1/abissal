@@ -11,8 +11,13 @@ import {
   accuracyLineFor,
   buildCriticPrompt,
   buildLegOdds,
+  computeGroupEdge,
+  isBuilderMarket,
+  normalizeBuilderSelection,
   normalizeLegMarket,
   parseCriticResponse,
+  splitBuilderSide,
+  type CriticGroupSelection,
   type CriticLegContext,
 } from "./critic";
 import type { MarketAccuracy } from "@/lib/calibracao/market-accuracy";
@@ -65,6 +70,262 @@ describe("normalizeLegMarket", () => {
     expect(normalizeLegMarket("handicap", "-1")).toBeNull();
     expect(normalizeLegMarket("1x2", "banana")).toBeNull();
     expect(normalizeLegMarket("corners-over", "12.5")).toBeNull();
+  });
+});
+
+// ── Pernas-grupo "Criar Aposta" (bet builder em múltipla mista) ─────────────
+
+describe("isBuilderMarket / splitBuilderSide", () => {
+  it("detecta 'Criar Aposta' e 'Bet Builder' (case-insensitive)", () => {
+    expect(isBuilderMarket("Criar Aposta")).toBe(true);
+    expect(isBuilderMarket("criar aposta")).toBe(true);
+    expect(isBuilderMarket("Bet Builder")).toBe(true);
+    expect(isBuilderMarket("1x2")).toBe(false);
+    expect(isBuilderMarket("over25")).toBe(false);
+  });
+
+  it("splitBuilderSide separa por ' + ' preservando hífens internos", () => {
+    expect(
+      splitBuilderSide(
+        "1 - Resultado Final + Mais de 6.5 - Bodo/Glimt - Total de Escanteios",
+      ),
+    ).toEqual([
+      "1 - Resultado Final",
+      "Mais de 6.5 - Bodo/Glimt - Total de Escanteios",
+    ]);
+    expect(splitBuilderSide("Menos de 2.5 - Total de Gols")).toEqual([
+      "Menos de 2.5 - Total de Gols",
+    ]);
+  });
+});
+
+describe("normalizeBuilderSelection", () => {
+  it("mapeia gols: 'Menos de 2.5 - Total de Gols' → over25/under, 'Mais de 2.5' → over", () => {
+    expect(normalizeBuilderSelection("Menos de 2.5 - Total de Gols")).toEqual({
+      label: "Menos de 2.5 - Total de Gols",
+      status: "mapped",
+      market: "over25",
+      side: "under",
+    });
+    expect(normalizeBuilderSelection("Mais de 2.5 - Total de Gols")).toEqual({
+      label: "Mais de 2.5 - Total de Gols",
+      status: "mapped",
+      market: "over25",
+      side: "over",
+    });
+  });
+
+  it("gols em linha ≠ 2.5 → 'linha-nao-coberta' (o modelo só tem p_over_25)", () => {
+    expect(normalizeBuilderSelection("Mais de 1.5 - Total de Gols")).toEqual({
+      label: "Mais de 1.5 - Total de Gols",
+      status: "linha-nao-coberta",
+      market: null,
+      side: null,
+    });
+  });
+
+  it("mapeia escanteios nas linhas canônicas 8.5/9.5/10.5", () => {
+    expect(
+      normalizeBuilderSelection("Menos de 9.5 - Total de Escanteios"),
+    ).toEqual({
+      label: "Menos de 9.5 - Total de Escanteios",
+      status: "mapped",
+      market: "corners-under",
+      side: "95",
+    });
+    expect(
+      normalizeBuilderSelection("Mais de 8.5 - Total de Escanteios"),
+    ).toEqual({
+      label: "Mais de 8.5 - Total de Escanteios",
+      status: "mapped",
+      market: "corners-over",
+      side: "85",
+    });
+    expect(
+      normalizeBuilderSelection("Mais de 10.5 - Escanteios"),
+    ).toEqual({
+      label: "Mais de 10.5 - Escanteios",
+      status: "mapped",
+      market: "corners-over",
+      side: "105",
+    });
+  });
+
+  it("escanteios fora das linhas canônicas → 'linha-nao-coberta'", () => {
+    expect(
+      normalizeBuilderSelection("Menos de 12.5 - Total de Escanteios"),
+    ).toEqual({
+      label: "Menos de 12.5 - Total de Escanteios",
+      status: "linha-nao-coberta",
+      market: null,
+      side: null,
+    });
+  });
+
+  it("mapeia cartões (3.5/4.5/5.5) e vírgula decimal", () => {
+    expect(
+      normalizeBuilderSelection("Menos de 4.5 - Total de Cartões"),
+    ).toEqual({
+      label: "Menos de 4.5 - Total de Cartões",
+      status: "mapped",
+      market: "cards-under",
+      side: "45",
+    });
+    expect(normalizeBuilderSelection("Mais de 3,5 - Total de Cartões")).toEqual({
+      label: "Mais de 3,5 - Total de Cartões",
+      status: "mapped",
+      market: "cards-over",
+      side: "35",
+    });
+  });
+
+  it("mapeia SOT: 'Chutes no gol' e 'Total de Finalizações no Gol' (7.5/9.5/10.5)", () => {
+    expect(normalizeBuilderSelection("Mais de 7.5 - Chutes no gol")).toEqual({
+      label: "Mais de 7.5 - Chutes no gol",
+      status: "mapped",
+      market: "sot-over",
+      side: "75",
+    });
+    expect(
+      normalizeBuilderSelection("Menos de 9.5 - Total de Finalizações no Gol"),
+    ).toEqual({
+      label: "Menos de 9.5 - Total de Finalizações no Gol",
+      status: "mapped",
+      market: "sot-under",
+      side: "95",
+    });
+  });
+
+  it("mapeia 1x2: '1/X/2 - Resultado Final'", () => {
+    expect(normalizeBuilderSelection("1 - Resultado Final")).toEqual({
+      label: "1 - Resultado Final",
+      status: "mapped",
+      market: "1x2",
+      side: "home",
+    });
+    expect(normalizeBuilderSelection("X - Resultado Final")).toEqual({
+      label: "X - Resultado Final",
+      status: "mapped",
+      market: "1x2",
+      side: "draw",
+    });
+    expect(normalizeBuilderSelection("2 - Resultado")).toEqual({
+      label: "2 - Resultado",
+      status: "mapped",
+      market: "1x2",
+      side: "away",
+    });
+  });
+
+  it("mapeia BTTS: 'Sim/Não - Ambas as Equipes Marcam' (e ordem invertida)", () => {
+    expect(
+      normalizeBuilderSelection("Sim - Ambas as Equipes Marcam"),
+    ).toEqual({
+      label: "Sim - Ambas as Equipes Marcam",
+      status: "mapped",
+      market: "btts",
+      side: "sim",
+    });
+    expect(normalizeBuilderSelection("Não - Ambos Marcam")).toEqual({
+      label: "Não - Ambos Marcam",
+      status: "mapped",
+      market: "btts",
+      side: "nao",
+    });
+    expect(
+      normalizeBuilderSelection("Ambas as Equipes Marcam - Sim"),
+    ).toEqual({
+      label: "Ambas as Equipes Marcam - Sim",
+      status: "mapped",
+      market: "btts",
+      side: "sim",
+    });
+  });
+
+  it("seleção por TIME (ex. escanteios do Bodo/Glimt) → 'sem-mapeamento'", () => {
+    expect(
+      normalizeBuilderSelection(
+        "Mais de 6.5 - Bodo/Glimt - Total de Escanteios",
+      ),
+    ).toEqual({
+      label: "Mais de 6.5 - Bodo/Glimt - Total de Escanteios",
+      status: "sem-mapeamento",
+      market: null,
+      side: null,
+    });
+  });
+
+  it("seleção desconhecida → 'sem-mapeamento'", () => {
+    expect(normalizeBuilderSelection("Empate Anula - Handicap")).toEqual({
+      label: "Empate Anula - Handicap",
+      status: "sem-mapeamento",
+      market: null,
+      side: null,
+    });
+  });
+
+  it("caso real CSKA Sofia: as 3 seleções do grupo mapeiam", () => {
+    const sels = [
+      "Menos de 2.5 - Total de Gols",
+      "Menos de 9.5 - Total de Escanteios",
+      "Menos de 4.5 - Total de Cartões",
+    ].map(normalizeBuilderSelection);
+    expect(sels.map((s) => s.status)).toEqual(["mapped", "mapped", "mapped"]);
+    expect(sels.map((s) => s.market)).toEqual([
+      "over25",
+      "corners-under",
+      "cards-under",
+    ]);
+    expect(sels.map((s) => s.side)).toEqual(["under", "95", "45"]);
+  });
+});
+
+// ── computeGroupEdge ────────────────────────────────────────────────────────
+
+function groupSel(over: Partial<CriticGroupSelection>): CriticGroupSelection {
+  return {
+    label: "x",
+    status: "mapped",
+    market: "over25",
+    side: "under",
+    probCalibrated: null,
+    ...over,
+  };
+}
+
+describe("computeGroupEdge", () => {
+  it("prob conjunta = PRODUTO das probs mapeadas; edge = produto × odd − 1", () => {
+    const out = computeGroupEdge(
+      [
+        groupSel({ probCalibrated: 0.5 }),
+        groupSel({ probCalibrated: 0.4, market: "corners-under", side: "95" }),
+      ],
+      4.0,
+    );
+    expect(out.jointProb).toBeCloseTo(0.2, 6);
+    expect(out.edgePct).toBeCloseTo(-20.0, 3);
+  });
+
+  it("ignora seleções sem prob (unmapped/linha não coberta) sem derrubar o grupo", () => {
+    const out = computeGroupEdge(
+      [
+        groupSel({ probCalibrated: 0.5 }),
+        groupSel({ status: "sem-mapeamento", market: null, side: null }),
+        groupSel({ status: "linha-nao-coberta", market: null, side: null }),
+      ],
+      2.5,
+    );
+    expect(out.jointProb).toBeCloseTo(0.5, 6);
+    expect(out.edgePct).toBeCloseTo(25.0, 3);
+  });
+
+  it("nenhuma prob disponível → jointProb e edge null", () => {
+    const out = computeGroupEdge(
+      [groupSel({ status: "sem-mapeamento", market: null, side: null })],
+      3.0,
+    );
+    expect(out.jointProb).toBeNull();
+    expect(out.edgePct).toBeNull();
   });
 });
 
@@ -283,5 +544,118 @@ describe("buildCriticPrompt", () => {
   it("omite stake quando ausente", () => {
     const p2 = buildCriticPrompt({ legs: [LEG_WITH_MODEL], stakeTotal: null, oddCombined: null });
     expect(p2.user).not.toContain("stake");
+  });
+
+  it("system instrui como criticar pernas-grupo (seleção mais fraca, correlação, linha não coberta)", () => {
+    expect(prompt.system.toLowerCase()).toContain("criar aposta");
+    expect(prompt.system.toLowerCase()).toContain("mais fraca");
+    expect(prompt.system.toLowerCase()).toContain("correlacionad");
+    expect(prompt.system.toLowerCase()).toContain("linha não coberta");
+  });
+});
+
+// ── buildCriticPrompt — perna-grupo "Criar Aposta" ──────────────────────────
+
+const GROUP_LEG: CriticLegContext = {
+  home: "CSKA Sofia",
+  away: "Ludogorets",
+  market: "Criar Aposta",
+  side: "Menos de 2.5 - Total de Gols + Menos de 9.5 - Total de Escanteios + Menos de 4.5 - Total de Cartões",
+  odd: 4.0,
+  model: {
+    probCalibrated: 0.149,
+    edgePct: -40.4,
+    leagueCalibrated: false,
+    league: "Bulgaria First League",
+    accuracyLine: null,
+  },
+  group: {
+    selections: [
+      {
+        label: "Menos de 2.5 - Total de Gols",
+        status: "mapped",
+        market: "over25",
+        side: "under",
+        probCalibrated: 0.4,
+      },
+      {
+        label: "Menos de 9.5 - Total de Escanteios",
+        status: "mapped",
+        market: "corners-under",
+        side: "95",
+        probCalibrated: 0.458,
+      },
+      {
+        label: "Mais de 6.5 - Bodo/Glimt - Total de Escanteios",
+        status: "sem-mapeamento",
+        market: null,
+        side: null,
+        probCalibrated: null,
+      },
+      {
+        label: "Menos de 12.5 - Total de Escanteios",
+        status: "linha-nao-coberta",
+        market: null,
+        side: null,
+        probCalibrated: null,
+      },
+    ],
+    jointProb: 0.1832,
+    edgePct: -26.7,
+  },
+};
+
+describe("buildCriticPrompt — perna-grupo", () => {
+  const prompt = buildCriticPrompt({
+    legs: [GROUP_LEG],
+    stakeTotal: null,
+    oddCombined: null,
+  });
+
+  it("lista cada seleção com sua prob calibrada ou o motivo da ausência", () => {
+    expect(prompt.user).toContain("Menos de 2.5 - Total de Gols");
+    expect(prompt.user).toContain("40.0%");
+    expect(prompt.user).toContain("Menos de 9.5 - Total de Escanteios");
+    expect(prompt.user).toContain("45.8%");
+    expect(prompt.user).toContain("Mais de 6.5 - Bodo/Glimt - Total de Escanteios");
+    expect(prompt.user.toLowerCase()).toContain("sem dados do modelo");
+    expect(prompt.user.toLowerCase()).toContain("linha não coberta");
+  });
+
+  it("mostra o produto (prob conjunta), o edge do grupo e a cobertura parcial", () => {
+    expect(prompt.user.toLowerCase()).toContain("produto");
+    expect(prompt.user).toContain("18.3%");
+    expect(prompt.user).toContain("-26.7%");
+    // 2 de 4 seleções entraram no produto — o número cobre só parte do grupo.
+    expect(prompt.user).toContain("2 de 4");
+  });
+
+  it("carrega o caveat de correlação (produto SUBestima prob de seleções do mesmo jogo)", () => {
+    expect(prompt.user.toLowerCase()).toContain("correlacionad");
+    expect(prompt.user.toLowerCase()).toContain("subestima");
+  });
+
+  it("grupo SEM modelo lista as seleções e marca 'sem dados do modelo'", () => {
+    const p2 = buildCriticPrompt({
+      legs: [
+        {
+          ...GROUP_LEG,
+          model: null,
+          group: {
+            selections: GROUP_LEG.group!.selections.map((s) => ({
+              ...s,
+              probCalibrated: null,
+            })),
+            jointProb: null,
+            edgePct: null,
+          },
+        },
+      ],
+      stakeTotal: null,
+      oddCombined: null,
+    });
+    expect(p2.user).toContain("Menos de 2.5 - Total de Gols");
+    expect(p2.user.toLowerCase()).toContain("sem dados do modelo");
+    expect(p2.user.toLowerCase()).not.toContain("produto");
   });
 });

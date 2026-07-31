@@ -26,9 +26,15 @@ import {
   accuracyLineFor,
   buildCriticPrompt,
   buildLegOdds,
+  computeGroupEdge,
+  isBuilderMarket,
+  normalizeBuilderSelection,
   normalizeLegMarket,
   parseCriticResponse,
+  splitBuilderSide,
+  type CriticGroupSelection,
   type CriticLegContext,
+  type CriticLegGroup,
   type CriticLegModel,
 } from "@/lib/bilhete/critic";
 
@@ -70,8 +76,13 @@ const legSchema = z.object({
   home: z.string().min(1).max(200),
   away: z.string().min(1).max(200),
   market: z.string().min(1).max(100),
-  side: z.string().min(1).max(100),
+  // 300 (era 100): o side de uma perna-grupo "Criar Aposta" embute as
+  // seleções unidas por " + " e passa fácil de 100 chars (caso real CSKA).
+  side: z.string().min(1).max(300),
   odd: z.number().finite().gt(1),
+  // Seleções internas de perna-grupo "Criar Aposta" (bet builder em múltipla
+  // mista), como o OCR produz (`builder_selections`).
+  builderSelections: z.array(z.string().min(1).max(200)).max(8).nullish(),
 });
 
 const bodySchema = z.object({
@@ -144,15 +155,42 @@ export async function POST(request: Request): Promise<Response> {
   const legContexts: CriticLegContext[] = [];
 
   for (const leg of parsed.legs) {
+    // Perna-grupo "Criar Aposta": builderSelections explícitas OU market de
+    // bet builder (fallback: split de side por " + ").
+    const builderSelections = leg.builderSelections?.length
+      ? leg.builderSelections
+      : isBuilderMarket(leg.market)
+        ? splitBuilderSide(leg.side)
+        : null;
+
     let model: CriticLegModel | null = null;
+    let group: CriticLegGroup | null = null;
     try {
-      if (leg.fixtureId) {
+      if (builderSelections?.length) {
+        const built = leg.fixtureId
+          ? await buildGroupModel(leg, builderSelections, supabase, versionCache)
+          : null;
+        model = built?.model ?? null;
+        group = built?.group ?? null;
+      } else if (leg.fixtureId) {
         model = await buildLegModel(leg, supabase, versionCache);
       }
     } catch {
       // Contexto do modelo é best-effort: falha vira "sem dados do modelo",
       // nunca derruba a crítica inteira.
       model = null;
+      group = null;
+    }
+    if (builderSelections?.length && !group) {
+      // Grupo sem fixture/sim: as seleções ainda entram no prompt, sem probs.
+      group = {
+        selections: builderSelections.map((sel) => ({
+          ...normalizeBuilderSelection(sel),
+          probCalibrated: null,
+        })),
+        jointProb: null,
+        edgePct: null,
+      };
     }
     legContexts.push({
       home: leg.home,
@@ -161,6 +199,7 @@ export async function POST(request: Request): Promise<Response> {
       side: leg.side,
       odd: leg.odd,
       model,
+      group,
     });
   }
 
@@ -304,11 +343,11 @@ export async function POST(request: Request): Promise<Response> {
  * edge vs a odd informada + histórico real do mercado. `null` quando falta
  * fixture/sim/mapeamento de mercado.
  */
-async function buildLegModel(
+/** Fixture (escalares) + simulação mais recente — base comum de perna simples e grupo. */
+async function loadFixtureSim(
   leg: z.infer<typeof legSchema>,
   supabase: AnySupabase,
-  versionCache: Map<string, VersionCalibration>,
-): Promise<CriticLegModel | null> {
+): Promise<{ fixture: FixtureLookupRow; sim: FixtureSimulationDTO } | null> {
   const { data, error } = await supabase
     .from("fixtures")
     .select("id, home_team, away_team, league, source_url, kickoff_utc")
@@ -327,6 +366,17 @@ async function buildLegModel(
     supabase,
   );
   if (!sim) return null;
+  return { fixture, sim };
+}
+
+async function buildLegModel(
+  leg: z.infer<typeof legSchema>,
+  supabase: AnySupabase,
+  versionCache: Map<string, VersionCalibration>,
+): Promise<CriticLegModel | null> {
+  const loaded = await loadFixtureSim(leg, supabase);
+  if (!loaded) return null;
+  const { fixture, sim } = loaded;
 
   const normalized = normalizeLegMarket(leg.market, leg.side);
   if (!normalized) return null;
@@ -369,6 +419,78 @@ async function buildLegModel(
     leagueCalibrated,
     league: fixture.league,
     accuracyLine,
+  };
+}
+
+/**
+ * Odd fictícia usada só pra fazer o edge-calculator EMITIR o candidato de
+ * cada seleção interna do grupo — a `prob_calibrated` do candidato não
+ * depende da odd, e o edge honesto do grupo é recomputado depois contra a
+ * odd REAL do grupo (produto × odd − 1) em `computeGroupEdge`.
+ */
+const GROUP_PROBE_ODD = 2.0;
+
+/**
+ * Decomposição de uma perna-grupo "Criar Aposta": normaliza cada seleção
+ * interna pro vocabulário do edge-calculator, tira a prob calibrada de cada
+ * uma pela MESMA cadeia do compute (buildEdgeTable + isotônica + dist_k +
+ * temperature) e agrega em produto (independência assumida — o caveat de
+ * correlação vai no prompt). Seleção não mapeável degrada individualmente.
+ */
+async function buildGroupModel(
+  leg: z.infer<typeof legSchema>,
+  builderSelections: string[],
+  supabase: AnySupabase,
+  versionCache: Map<string, VersionCalibration>,
+): Promise<{ model: CriticLegModel; group: CriticLegGroup } | null> {
+  const loaded = await loadFixtureSim(leg, supabase);
+  if (!loaded) return null;
+  const { fixture, sim } = loaded;
+
+  const normalized = builderSelections.map(normalizeBuilderSelection);
+
+  const cal = await getVersionCalibration(sim.model_version, supabase, versionCache);
+  const leagueCalibrated = await isLeagueCalibrated(fixture.league, supabase);
+
+  // Um OddsInput com TODAS as seleções mapeadas (odd de sondagem) → uma única
+  // passada do edge-calculator devolve a prob calibrada de cada uma.
+  const probeOdds = normalized.reduce((acc, sel) => {
+    if (sel.status === "mapped" && sel.market && sel.side) {
+      Object.assign(
+        acc,
+        buildLegOdds({ market: sel.market, side: sel.side }, GROUP_PROBE_ODD),
+      );
+    }
+    return acc;
+  }, {});
+  const candidates = buildEdgeTable(simInputFromDTO(sim), probeOdds, NEUTRAL_BANKROLL, {
+    isotonicLookup: cal.lookup,
+    distK: cal.distK,
+    temperature: cal.temperature,
+  });
+
+  const selections: CriticGroupSelection[] = normalized.map((sel) => ({
+    ...sel,
+    probCalibrated:
+      sel.status === "mapped"
+        ? candidates.find((c) => c.market === sel.market && c.side === sel.side)
+            ?.prob_calibrated ?? null
+        : null,
+  }));
+
+  const { jointProb, edgePct } = computeGroupEdge(selections, leg.odd);
+
+  return {
+    model: {
+      probCalibrated: jointProb,
+      edgePct,
+      leagueCalibrated,
+      league: fixture.league,
+      // Sem linha de histórico agregada: o histórico é por mercado, e um
+      // grupo mistura vários — cada seleção já carrega a própria prob.
+      accuracyLine: null,
+    },
+    group: { selections, jointProb, edgePct },
   };
 }
 

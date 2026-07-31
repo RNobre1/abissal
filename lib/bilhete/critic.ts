@@ -35,6 +35,41 @@ export interface CriticLegModel {
   accuracyLine: string | null;
 }
 
+/**
+ * Uma seleção INTERNA de uma perna-grupo "Criar Aposta" (bet builder dentro
+ * de múltipla mista), já normalizada pro vocabulário do edge-calculator.
+ *
+ *  - `mapped`            → market/side preenchidos; probCalibrated vem da sim.
+ *  - `linha-nao-coberta` → família reconhecida (gols/escanteios/cartões/sot)
+ *                          mas a linha está fora das canônicas do modelo.
+ *  - `sem-mapeamento`    → mercado que a sim não cobre (ex. escanteios por
+ *                          time). NUNCA derruba o grupo — degrada individual.
+ */
+export type BuilderSelectionStatus =
+  | "mapped"
+  | "linha-nao-coberta"
+  | "sem-mapeamento";
+
+export interface NormalizedBuilderSelection {
+  label: string;
+  status: BuilderSelectionStatus;
+  market: Market | null;
+  side: Side | null;
+}
+
+export interface CriticGroupSelection extends NormalizedBuilderSelection {
+  probCalibrated: number | null;
+}
+
+/** Decomposição de uma perna-grupo: seleções + produto + edge do grupo. */
+export interface CriticLegGroup {
+  selections: CriticGroupSelection[];
+  /** PRODUTO das probs calibradas mapeadas (independência assumida). */
+  jointProb: number | null;
+  /** jointProb × odd do grupo − 1, em %. */
+  edgePct: number | null;
+}
+
 export interface CriticLegContext {
   home: string;
   away: string;
@@ -42,6 +77,8 @@ export interface CriticLegContext {
   side: string;
   odd: number;
   model: CriticLegModel | null;
+  /** Presente quando a perna é um grupo "Criar Aposta" decomposto. */
+  group?: CriticLegGroup | null;
 }
 
 export type CriticVerdict = "ok" | "atencao" | "fuga";
@@ -132,6 +169,139 @@ export function normalizeLegMarket(
   return null;
 }
 
+// ── Pernas-grupo "Criar Aposta" (bet builder em múltipla mista) ─────────────
+
+/** Detecta perna-grupo pelo nome do mercado vindo do OCR/DB. */
+const BUILDER_MARKET_RE = /criar aposta|bet builder/i;
+
+export function isBuilderMarket(market: string): boolean {
+  return BUILDER_MARKET_RE.test(market);
+}
+
+/**
+ * Nas legs commitadas no banco, as seleções do grupo ficam embutidas em
+ * `side` unidas por " + " (com espaços — hífens internos de mercado/time
+ * sobrevivem intactos).
+ */
+export function splitBuilderSide(side: string): string[] {
+  return side
+    .split(" + ")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+/** lowercase + sem acentos, pra casar os formatos reais do OCR. */
+function fold(s: string): string {
+  return s
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "");
+}
+
+/** Famílias de contagem reconhecidas nos rótulos do OCR (já `fold`-ados). */
+const COUNT_FAMILIES: ReadonlyArray<{
+  stat: "corners" | "cards" | "sot" | "goals";
+  re: RegExp;
+}> = [
+  { stat: "sot", re: /^(total de )?(finalizacoes no gol|chutes no gol|chutes ao gol)$/ },
+  { stat: "corners", re: /^(total de )?escanteios$/ },
+  { stat: "cards", re: /^(total de )?cartoes$/ },
+  { stat: "goals", re: /^(total de )?gols$/ },
+];
+
+const BTTS_MARKET_RE = /^(ambas as equipes marcam|ambas marcam|ambos marcam)$/;
+const RESULT_MARKET_RE = /^resultado( final)?$/;
+
+function unmapped(
+  label: string,
+  status: Exclude<BuilderSelectionStatus, "mapped">,
+): NormalizedBuilderSelection {
+  return { label, status, market: null, side: null };
+}
+
+function mapped(
+  label: string,
+  market: Market,
+  side: Side,
+): NormalizedBuilderSelection {
+  return { label, status: "mapped", market, side };
+}
+
+/**
+ * Normaliza UMA seleção interna de grupo (formato OCR "lado - mercado", ex.
+ * "Menos de 9.5 - Total de Escanteios") pro vocabulário do edge-calculator.
+ *
+ * Linhas canônicas por família (as MESMAS do edge-calculator): gols só 2.5;
+ * escanteios 8.5/9.5/10.5; cartões 3.5/4.5/5.5; SOT 7.5/9.5/10.5. Linha fora
+ * disso → `linha-nao-coberta`. Mercado por TIME (3 partes, ex. "Mais de 6.5 -
+ * Bodo/Glimt - Total de Escanteios") ou desconhecido → `sem-mapeamento`.
+ */
+export function normalizeBuilderSelection(
+  selection: string,
+): NormalizedBuilderSelection {
+  const label = selection.trim();
+  const parts = label.split(" - ").map((p) => p.trim()).filter(Boolean);
+  if (parts.length !== 2) return unmapped(label, "sem-mapeamento");
+
+  const [rawSide, rawMarket] = parts;
+  const s = fold(rawSide);
+  const m = fold(rawMarket);
+
+  // 1x2: "1/X/2 - Resultado Final".
+  if (RESULT_MARKET_RE.test(m)) {
+    const side = SIDE_ALIASES[s];
+    return side ? mapped(label, "1x2", side) : unmapped(label, "sem-mapeamento");
+  }
+
+  // BTTS: "Sim - Ambas as Equipes Marcam" (e ordem invertida).
+  if (BTTS_MARKET_RE.test(m) && BTTS_ALIASES[s]) {
+    return mapped(label, "btts", BTTS_ALIASES[s]);
+  }
+  if (BTTS_MARKET_RE.test(s) && BTTS_ALIASES[m]) {
+    return mapped(label, "btts", BTTS_ALIASES[m]);
+  }
+
+  // Contagens: "Mais/Menos de N.5 - <família>".
+  const ou = s.match(/^(mais|menos)\s+de\s+(\d+)[.,](\d)$/);
+  if (!ou) return unmapped(label, "sem-mapeamento");
+  const family = COUNT_FAMILIES.find((f) => f.re.test(m));
+  if (!family) return unmapped(label, "sem-mapeamento");
+
+  const dir = ou[1] === "mais" ? "over" : "under";
+  const line = `${ou[2]}${ou[3]}`; // "9.5"/"9,5" → "95"
+
+  if (family.stat === "goals") {
+    // O modelo só tem p_over_25 — qualquer outra linha de gols fica de fora.
+    return line === "25"
+      ? mapped(label, "over25", dir)
+      : unmapped(label, "linha-nao-coberta");
+  }
+
+  if (!SECONDARY_LINES[family.stat].includes(line)) {
+    return unmapped(label, "linha-nao-coberta");
+  }
+  return mapped(label, `${family.stat}-${dir}` as Market, line as Side);
+}
+
+/**
+ * Prob conjunta do grupo = PRODUTO das probs calibradas das seleções mapeadas
+ * (independência assumida — o caveat de correlação vai no prompt, não aqui);
+ * edge do grupo = produto × odd − 1, em %. Seleções sem prob ficam FORA do
+ * produto (nunca derrubam o grupo).
+ */
+export function computeGroupEdge(
+  selections: CriticGroupSelection[],
+  odd: number,
+): { jointProb: number | null; edgePct: number | null } {
+  const probs = selections
+    .filter((s) => s.status === "mapped" && s.probCalibrated != null)
+    .map((s) => s.probCalibrated as number);
+  if (probs.length === 0) return { jointProb: null, edgePct: null };
+  const jointProb = probs.reduce((acc, p) => acc * p, 1);
+  return { jointProb, edgePct: (jointProb * odd - 1) * 100 };
+}
+
 /**
  * OddsInput com SOMENTE a chave da perna — o edge-calculator ignora mercados
  * sem odd, então a edge table resultante tem exatamente o candidato da perna.
@@ -201,6 +371,7 @@ Fatos MEDIDOS do nosso modelo (use-os, não invente outros):
 - BTTS: o modelo NÃO tem skill medida (acerto abaixo da taxa-base) — confiança baixa.
 - Liga não-calibrada (league_calibrated=false): probabilidade com ruído alto — confiança baixa mesmo com edge aparente.
 - Perna marcada "sem dados do modelo": não há simulação nossa; critique qualitativamente e deixe claro que não há número.
+- Perna-GRUPO ("Criar Aposta" / bet builder): a seleção mais fraca domina o risco do grupo — comece por ela. A prob conjunta fornecida é um PRODUTO sob independência, mas seleções do MESMO jogo são correlacionadas (ex.: under gols × under escanteios correlacionam positivo, então o produto SUBestima a prob conjunta real); e seleções marcadas "sem dados"/"linha não coberta" ficam FORA do produto (que então SUPERestima). Trate o edge do grupo como estimativa aproximada, nunca como número exato.
 
 Regras da crítica:
 - Multiplicativa: cada perna extra multiplica o risco. Aponte correlações entre pernas (mesmo jogo, mesmo tipo de mercado, mesma tese) — elas reduzem a diversificação real.
@@ -231,7 +402,62 @@ function fmtEdge(v: number): string {
   return `${v >= 0 ? "+" : ""}${v.toFixed(1)}%`;
 }
 
+/** Uma linha por seleção interna do grupo, com a prob ou o motivo da ausência. */
+function groupSelectionLine(sel: CriticGroupSelection): string {
+  if (sel.status === "mapped" && sel.probCalibrated != null) {
+    return `    - "${sel.label}" → ${sel.market}/${sel.side} · prob calibrada ${fmtPct(sel.probCalibrated)}`;
+  }
+  if (sel.status === "linha-nao-coberta") {
+    return `    - "${sel.label}" → linha não coberta pelo modelo (fora das linhas canônicas)`;
+  }
+  return `    - "${sel.label}" → SEM DADOS DO MODELO (mercado não coberto pela simulação)`;
+}
+
+function groupBlock(leg: CriticLegContext, idx: number): string {
+  const group = leg.group as CriticLegGroup;
+  const n = group.selections.length;
+  const head = `PERNA ${idx + 1}: ${leg.home} × ${leg.away} — GRUPO "Criar Aposta" (${n} seleç${n === 1 ? "ão" : "ões"}) @ ${leg.odd.toFixed(2)}`;
+  const lines = [head];
+  if (!leg.model) {
+    lines.push(
+      "  SEM DADOS DO MODELO — sem simulação pra este jogo; critique as seleções qualitativamente.",
+    );
+  }
+  lines.push("  seleções internas:");
+  for (const sel of group.selections) lines.push(groupSelectionLine(sel));
+
+  if (group.jointProb != null) {
+    const covered = group.selections.filter(
+      (s) => s.status === "mapped" && s.probCalibrated != null,
+    ).length;
+    lines.push(
+      `  prob conjunta estimada (PRODUTO das seleções com prob, independência assumida): ${fmtPct(group.jointProb)}`,
+    );
+    if (covered < n) {
+      lines.push(
+        `  ATENÇÃO: o produto cobre só ${covered} de ${n} seleções — a prob real do grupo é MENOR que a estimada.`,
+      );
+    }
+    if (group.edgePct != null) {
+      lines.push(
+        `  edge estimado do grupo: ${fmtEdge(group.edgePct)} (prob conjunta × odd ${leg.odd.toFixed(2)} − 1)`,
+      );
+    }
+    lines.push(
+      "  CAVEAT correlação: seleções do MESMO jogo são correlacionadas (ex.: under gols × under escanteios correlacionam positivo) — o produto SUBestima a prob conjunta real; use o edge como aproximação, não como número exato.",
+    );
+  }
+
+  if (leg.model) {
+    lines.push(
+      `  liga: ${leg.model.league ?? "?"} (${leg.model.leagueCalibrated ? "calibrada" : "NÃO calibrada"})`,
+    );
+  }
+  return lines.join("\n");
+}
+
 function legBlock(leg: CriticLegContext, idx: number): string {
+  if (leg.group) return groupBlock(leg, idx);
   const head = `PERNA ${idx + 1}: ${leg.home} × ${leg.away} — ${leg.market}/${leg.side} @ ${leg.odd.toFixed(2)}`;
   if (!leg.model) {
     return `${head}\n  SEM DADOS DO MODELO — sem simulação pra este jogo; critique qualitativamente.`;
