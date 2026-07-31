@@ -1,15 +1,15 @@
 /**
- * Fiação do /painel: DestaquesDoDia (Pacote A item 2) + BriefingDoDia (F4).
+ * Fiação do /painel: BriefingDoDia (F4).
  *
  * F4 (2026-07-30, decisão do Pilot): o BriefingDoDia SUBSTITUI a lista
  * <OportunidadesIa /> no topo do painel — o componente antigo continua no
  * repo, mas a página não o renderiza mais (as top 3 oportunidades + ação
- * "+ bilhete" agora vivem dentro do card de briefing). Contrato:
- * - /painel renderiza <DestaquesDoDia /> e <BriefingDoDia /> quando quiet
- *   mode está inativo;
- * - quiet mode ativo suprime destaques E briefing (o briefing contém
- *   sugestão de aposta — mesmo gating que as oportunidades tinham);
- * - a página NÃO referencia mais OportunidadesIa.
+ * "+ bilhete" agora vivem dentro do card de briefing).
+ * 31/07 (decisão do Pilot): <DestaquesDoDia /> também SAIU do painel
+ * (ocupava espaço demais) — componente segue no repo, desfiado. Contrato:
+ * - /painel renderiza <BriefingDoDia /> quando quiet mode está inativo;
+ * - quiet mode ativo suprime o briefing (contém sugestão de aposta);
+ * - a página NÃO referencia OportunidadesIa NEM DestaquesDoDia.
  */
 import "@testing-library/jest-dom/vitest";
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -76,10 +76,6 @@ vi.mock("next/link", () => ({
 
 // Os Server Components async viram marcadores síncronos — o objeto do
 // teste é a FIAÇÃO na página, não o conteúdo deles.
-vi.mock("@/app/(dashboard)/_components/destaques-do-dia", () => ({
-  DestaquesDoDia: () => <div data-testid="destaques-do-dia" />,
-}));
-
 vi.mock("@/components/painel/briefing-do-dia", () => ({
   BriefingDoDia: () => <div data-testid="briefing-do-dia" />,
 }));
@@ -91,33 +87,32 @@ beforeEach(() => {
   mockQuietActive = false;
 });
 
-describe("/painel — fiação de DestaquesDoDia + BriefingDoDia", () => {
-  it("renderiza DestaquesDoDia e BriefingDoDia quando quiet mode está inativo", async () => {
+describe("/painel — fiação do BriefingDoDia", () => {
+  it("renderiza BriefingDoDia quando quiet mode está inativo", async () => {
     const element = await OverviewPage();
     render(element);
 
-    expect(screen.getByTestId("destaques-do-dia")).toBeInTheDocument();
     expect(screen.getByTestId("briefing-do-dia")).toBeInTheDocument();
     expect(screen.queryByTestId("quiet-mode-card")).toBeNull();
     expect(screen.queryByTestId("oportunidades-ia")).toBeNull();
   });
 
-  it("quiet mode ativo suprime destaques e briefing (mesmo gating)", async () => {
+  it("quiet mode ativo suprime o briefing (mesmo gating)", async () => {
     mockQuietActive = true;
     const element = await OverviewPage();
     render(element);
 
-    expect(screen.queryByTestId("destaques-do-dia")).toBeNull();
     expect(screen.queryByTestId("briefing-do-dia")).toBeNull();
     expect(screen.getByTestId("quiet-mode-card")).toBeInTheDocument();
   });
 
-  it("a página não referencia mais OportunidadesIa (substituída pelo briefing)", () => {
+  it("a página não referencia OportunidadesIa nem DestaquesDoDia (decisões do Pilot)", () => {
     const src = readFileSync(
       resolve(__dirname, "../../app/(dashboard)/painel/page.tsx"),
       "utf8",
     );
     expect(src).not.toMatch(/OportunidadesIa/);
+    expect(src).not.toMatch(/DestaquesDoDia/);
     expect(src).toMatch(/BriefingDoDia/);
   });
 });

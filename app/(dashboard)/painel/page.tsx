@@ -10,7 +10,6 @@ import {
   computeWinRate,
   computeMaxDrawdown,
 } from "@/lib/banca/metrics";
-import { DestaquesDoDia } from "../_components/destaques-do-dia";
 import { BriefingDoDia } from "@/components/painel/briefing-do-dia";
 import { QuietModeCard } from "@/components/disciplina/quiet-mode-card";
 import { isQuietModeActive } from "@/lib/disciplina/quiet-mode";
@@ -106,16 +105,13 @@ export default async function OverviewPage() {
         />
       ) : (
         <>
-          {/* Item 2 (Pacote A): DestaquesDoDia existia completo (component +
-              dismissAlert + alert_dismissals 0015 + high_signal 0017/0043)
-              mas nunca fora fiado. Mesmo gating de quiet mode das
-              oportunidades — fricção ética suprime sinal de aposta. */}
-          <DestaquesDoDia />
           {/* F4: o BriefingDoDia SUBSTITUI a antiga lista de oportunidades IA
               (decisão do Pilot). O card traz o parágrafo diário + as top 3
               oportunidades compactas (a ação "+ bilhete" segue viva via
               OportunidadeIaCard). Mesmo gating de quiet mode — o briefing
-              contém sugestão de aposta. */}
+              contém sugestão de aposta. O card de destaques do dia foi
+              retirado a pedido do Pilot em 31/07 (ocupava espaço demais) —
+              o componente segue no repo, desfiado. */}
           <BriefingDoDia />
         </>
       )}
