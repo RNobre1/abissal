@@ -460,6 +460,30 @@ describe("POST /api/bilhete/critic — happy path", () => {
     expect((mockState.insertedLlmLog!.response_raw as string).length).toBeGreaterThan(0);
   });
 
+  it("perna de jogo JÁ ENCERRADO (kickoff passado, sem sim aplicável) → prompt diz 'JOGO JÁ ENCERRADO'", async () => {
+    mockState.fixturesById[43] = {
+      id: 43,
+      home_team: "Vålerenga",
+      away_team: "HamKam",
+      league: "Eliteserien",
+      source_url: "https://www.adamchoi.co.uk/fixture/19629613/norway",
+      kickoff_utc: "2026-07-31T17:00:00Z", // passado
+    };
+    // sem entrada em simByApiId → getFixtureSimulation devolve null
+    vi.stubGlobal("fetch", okLlmFetch());
+
+    const res = await callRoute({
+      legs: [
+        { fixtureId: 43, home: "Vålerenga", away: "HamKam", market: "BTTS", side: "Sim", odd: 2.0 },
+      ],
+    });
+    expect(res.status).toBe(200);
+
+    const snapshot = mockState.insertedLlmLog!.prompt_snapshot as { user: string };
+    expect(snapshot.user).toContain("JOGO JÁ ENCERRADO");
+    expect(snapshot.user.toLowerCase()).not.toContain("sem simulação pra este jogo");
+  });
+
   it("perna com fixtureId inexistente degrada pra 'sem dados do modelo'", async () => {
     // fixturesById vazio — lookup devolve null, sem crash.
     const body = {

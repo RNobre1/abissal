@@ -192,6 +192,13 @@ export async function POST(request: Request): Promise<Response> {
         edgePct: null,
       };
     }
+    // Sem modelo mas com fixture linkada: se o kickoff já passou, o motivo
+    // honesto é "jogo encerrado" (a sim pré-jogo não se aplica), não "sem
+    // simulação" — caso real 31/07: crítica pós-jogo do Vålerenga.
+    let gameFinished = false;
+    if (!model && leg.fixtureId) {
+      gameFinished = await isFixtureFinished(leg.fixtureId, supabase);
+    }
     legContexts.push({
       home: leg.home,
       away: leg.away,
@@ -200,6 +207,7 @@ export async function POST(request: Request): Promise<Response> {
       odd: leg.odd,
       model,
       group,
+      gameFinished,
     });
   }
 
@@ -344,6 +352,24 @@ export async function POST(request: Request): Promise<Response> {
  * fixture/sim/mapeamento de mercado.
  */
 /** Fixture (escalares) + simulação mais recente — base comum de perna simples e grupo. */
+/** Kickoff no passado ⇒ jogo encerrado (best-effort: erro vira false). */
+async function isFixtureFinished(
+  fixtureId: number,
+  supabase: AnySupabase,
+): Promise<boolean> {
+  try {
+    const { data } = await supabase
+      .from("fixtures")
+      .select("kickoff_utc")
+      .eq("id", fixtureId)
+      .maybeSingle();
+    const kickoff = (data as { kickoff_utc: string | null } | null)?.kickoff_utc;
+    return kickoff != null && Date.parse(kickoff) < Date.now();
+  } catch {
+    return false;
+  }
+}
+
 async function loadFixtureSim(
   leg: z.infer<typeof legSchema>,
   supabase: AnySupabase,

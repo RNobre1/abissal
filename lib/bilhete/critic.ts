@@ -79,6 +79,8 @@ export interface CriticLegContext {
   model: CriticLegModel | null;
   /** Presente quando a perna é um grupo "Criar Aposta" decomposto. */
   group?: CriticLegGroup | null;
+  /** Jogo já encerrado no momento da crítica — a sim pré-jogo não se aplica. */
+  gameFinished?: boolean;
 }
 
 export type CriticVerdict = "ok" | "atencao" | "fuga";
@@ -241,8 +243,19 @@ export function normalizeBuilderSelection(
   selection: string,
 ): NormalizedBuilderSelection {
   const label = selection.trim();
-  const parts = label.split(" - ").map((p) => p.trim()).filter(Boolean);
-  if (parts.length !== 2) return unmapped(label, "sem-mapeamento");
+  let parts = label.split(" - ").map((p) => p.trim()).filter(Boolean);
+  if (parts.length !== 2) {
+    // O formato do OCR varia entre execuções: caso real 31/07 emitiu as
+    // seleções SEM o separador ("Menos de 2.5 Total de Gols", "1 Resultado
+    // Final") e todas caíam em sem-mapeamento. Fallback: destaca um prefixo
+    // de lado conhecido e trata o resto como mercado — seguro porque as
+    // regexes de mercado são ancoradas (per-team não passa).
+    const m = label.match(
+      /^\s*((?:mais|menos)\s+de\s+\d+[.,]\d|[1xX2]|sim|n[aã]o)\s+(.+)$/i,
+    );
+    if (!m) return unmapped(label, "sem-mapeamento");
+    parts = [m[1]!.trim(), m[2]!.trim()];
+  }
 
   const [rawSide, rawMarket] = parts;
   const s = fold(rawSide);
@@ -420,7 +433,9 @@ function groupBlock(leg: CriticLegContext, idx: number): string {
   const lines = [head];
   if (!leg.model) {
     lines.push(
-      "  SEM DADOS DO MODELO — sem simulação pra este jogo; critique as seleções qualitativamente.",
+      leg.gameFinished
+        ? "  JOGO JÁ ENCERRADO — a simulação pré-jogo não se aplica; critique as seleções qualitativamente."
+        : "  SEM DADOS DO MODELO — sem simulação pra este jogo; critique as seleções qualitativamente.",
     );
   }
   lines.push("  seleções internas:");
@@ -460,7 +475,9 @@ function legBlock(leg: CriticLegContext, idx: number): string {
   if (leg.group) return groupBlock(leg, idx);
   const head = `PERNA ${idx + 1}: ${leg.home} × ${leg.away} — ${leg.market}/${leg.side} @ ${leg.odd.toFixed(2)}`;
   if (!leg.model) {
-    return `${head}\n  SEM DADOS DO MODELO — sem simulação pra este jogo; critique qualitativamente.`;
+    return leg.gameFinished
+      ? `${head}\n  JOGO JÁ ENCERRADO — a simulação pré-jogo não se aplica; critique qualitativamente.`
+      : `${head}\n  SEM DADOS DO MODELO — sem simulação pra este jogo; critique qualitativamente.`;
   }
   const m = leg.model;
   const lines = [head];

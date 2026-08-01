@@ -99,6 +99,49 @@ describe("isBuilderMarket / splitBuilderSide", () => {
   });
 });
 
+describe("normalizeBuilderSelection — SEM hífen (formato real do OCR varia)", () => {
+  // Caso real 31/07 18:44: o OCR emitiu as seleções sem o separador " - "
+  // ("Menos de 2.5 Total de Gols") e TODAS caíram em sem-mapeamento — a
+  // crítica rodou cega com a sim disponível.
+  it("'Menos de 2.5 Total de Gols' mapeia over25/under", () => {
+    const r = normalizeBuilderSelection("Menos de 2.5 Total de Gols");
+    expect(r.status).toBe("mapped");
+    expect(r.market).toBe("over25");
+    expect(r.side).toBe("under");
+  });
+
+  it("'Menos de 9.5 Total de Escanteios' mapeia corners-under/95", () => {
+    const r = normalizeBuilderSelection("Menos de 9.5 Total de Escanteios");
+    expect(r.status).toBe("mapped");
+    expect(r.market).toBe("corners-under");
+    expect(r.side).toBe("95");
+  });
+
+  it("'Menos de 4.5 Total de Cartões' mapeia cards-under/45", () => {
+    const r = normalizeBuilderSelection("Menos de 4.5 Total de Cartões");
+    expect(r.status).toBe("mapped");
+    expect(r.market).toBe("cards-under");
+    expect(r.side).toBe("45");
+  });
+
+  it("'1 Resultado Final' mapeia 1x2/home", () => {
+    const r = normalizeBuilderSelection("1 Resultado Final");
+    expect(r.status).toBe("mapped");
+    expect(r.market).toBe("1x2");
+    expect(r.side).toBe("home");
+  });
+
+  it("per-team SEM hífen ('Mais de 6.5 Bodo/Glimt Total de Escanteios') segue sem-mapeamento", () => {
+    const r = normalizeBuilderSelection("Mais de 6.5 Bodo/Glimt Total de Escanteios");
+    expect(r.status).toBe("sem-mapeamento");
+  });
+
+  it("per-team COM hífen continua sem-mapeamento (não regride)", () => {
+    const r = normalizeBuilderSelection("Mais de 6.5 - Bodo/Glimt - Total de Escanteios");
+    expect(r.status).toBe("sem-mapeamento");
+  });
+});
+
 describe("normalizeBuilderSelection", () => {
   it("mapeia gols: 'Menos de 2.5 - Total de Gols' → over25/under, 'Mais de 2.5' → over", () => {
     expect(normalizeBuilderSelection("Menos de 2.5 - Total de Gols")).toEqual({
@@ -530,6 +573,18 @@ describe("buildCriticPrompt", () => {
     expect(prompt.user).toContain("+26.0%");
     expect(prompt.user).toContain("Premier League");
     expect(prompt.user).toContain("resultado (1x2): acerto 52%");
+  });
+
+  it("perna sem modelo com gameFinished mostra 'JOGO JÁ ENCERRADO' (não 'sem simulação')", () => {
+    // Caso real: criticar bilhete de jogo que já rolou — a sim existe mas é
+    // pré-jogo; dizer "sem simulação" é mentira, dizer "encerrado" é honesto.
+    const p3 = buildCriticPrompt({
+      legs: [{ ...LEG_WITHOUT_MODEL, gameFinished: true }],
+      stakeTotal: null,
+      oddCombined: null,
+    });
+    expect(p3.user).toContain("JOGO JÁ ENCERRADO");
+    expect(p3.user.toLowerCase()).not.toContain("sem simulação pra este jogo");
   });
 
   it("perna sem modelo é marcada 'sem dados do modelo'", () => {
