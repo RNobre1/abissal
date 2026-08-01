@@ -1,6 +1,7 @@
 # Abissal
 
-Plataforma pessoal de apostas esportivas, single-user. Une dois domínios:
+Plataforma pessoal de apostas esportivas, **multi-usuário** (desde 2026-07-30;
+nasceu single-user). Une dois domínios:
 
 1. **Gestão de banca** — bookkeeper append-only com auditoria total, dashboard
    com qualidade de mercado financeiro, registro de apostas (single, múltipla,
@@ -18,7 +19,8 @@ Plataforma pessoal de apostas esportivas, single-user. Une dois domínios:
 
 - **Next.js 16** (App Router, RSC, Server Actions) + TypeScript + React 19
 - **Tailwind CSS v4** com tokens Abismo via `@theme`
-- **Supabase** (Postgres 16 + Auth + RLS + Edge Functions + Storage) — região `sa-east-1`
+- **Supabase** (Postgres 17.6 + Auth + RLS) — região `sa-east-1`. **Não** usamos
+  Edge Functions: toda API vive em Route Handlers do Next.js (ADR-002)
 - **DuckDB-WASM** para OLAP client-side em `/explore`
 - **lightweight-charts** + **Recharts** para gráficos
 - **TanStack Query** + **Zustand** para estado client
@@ -65,16 +67,20 @@ lib/
   env.ts                   # validação Zod das envs
   format.ts                # currency / percent / mono no pt-BR
   utils.ts                 # cn()
-  supabase/                # browser + server clients + tipos gerados
-  stats/                   # bankroll, forecast, risk, streaks
-  duckdb/                  # client-side OLAP
+  supabase/                # browser + server clients + admin (service_role) + tipos
+  banca/ bets/ bet-slip/   # domínio banca
+  fixtures/ ai-reco/       # domínio análise + recomendador
+  calibracao/ disciplina/  # calibração e fricção ética
 supabase/
-  migrations/              # 0001_init.sql, 0002_audit_triggers.sql, ...
-  functions/               # Edge Functions Deno
+  migrations/              # 0001_init.sql … 0053_*.sql (append-only)
 tests/
-  unit/                    # Vitest
+  unit/ api/ integration/  # Vitest
   e2e/                     # Playwright
+  fixtures/detail-json/    # payloads reais versionados (B51)
 ```
+
+> O OLAP client-side do `/explore` usa DuckDB-WASM inline no próprio componente
+> (`app/(dashboard)/explore/explorer.tsx`), não uma pasta `lib/duckdb/`.
 
 ## Convenções de Design System
 
@@ -96,6 +102,13 @@ tests/
 `ai_recommendations` (recomendador IA: `verdict` bet/skip, `edge_pct`, `pl_units`
 após reconciliação). `model_calibration` guarda as curvas isotônicas por métrica.
 
+**Isolamento entre contas:** as tabelas user-scoped têm RLS em `auth.uid()` e as
+views são `security_invoker`. Mas `createAdminClient()` é `service_role` e
+**ignora RLS por completo** — toda leitura user-scoped feita com ele precisa de
+`.eq("user_id", ...)` explícito. Dois vazamentos reais já aconteceram por isso;
+há um guard estático em `tests/unit/multiuser-isolation-guard.test.ts` que quebra
+o CI se alguém esquecer.
+
 Detalhes completos em `CLAUDE.md` (fonte da verdade) e nos ADRs em `docs/adrs/`.
 
 ## Backend de análise (`scripts/scraper/`)
@@ -105,7 +118,8 @@ Roda em Ruby, fora do Worker (protege o app da classe de outage do scraper).
 ```bash
 cd scripts/scraper
 mise install && bundle install
-bundle exec bin/scrape                      # scrape + simulação + reconcilers + IA
+bundle exec bin/scrape                      # scrape + simulação + reconcilers (SEM IA)
+bundle exec bin/run_ai_recommender           # recomendador IA-2 (job próprio — ADR-010)
 bundle exec rspec                            # specs (precisa Postgres de teste em :5433)
 bundle exec bin/document_choistats_api       # gera docs/external-apis/choistats/
 ```
@@ -114,10 +128,12 @@ bundle exec bin/document_choistats_api       # gera docs/external-apis/choistats
 
 | Workflow | Schedule (UTC) | Função |
 |---|---|---|
-| `scrape-daily` | `0 10 * * *` | scrape + sim + reconcilers + recomendador IA |
+| `scrape-daily` | `0 10 * * *` | scrape + sim + reconcilers (a IA saiu daqui — ADR-010) |
+| `ai-reco` | `45 10 * * *` | recomendador IA-2, desacoplado do scrape (ADR-010) |
 | `closing-odds-capture` | `0 15,17,19,21 * * *` | captura closing odds (CLV) |
+| `balance-snapshots-daily` | `0 3 * * *` | snapshot diário de saldo (alimenta `/forecast`) |
 | `telegram-closure` | `0 2 * * *` | resumo diário no Telegram |
-| `calibracao-monthly` | dia 5 `0 8 5 * *` | refit calibração isotônica + parâmetros de liga |
+| `calibracao-weekly` | domingo `0 12 * * 0` | refit isotônico + parâmetros de liga (era mensal — B24) |
 
 > Repo público ⇒ minutos de Actions são gratuitos.
 

@@ -66,6 +66,18 @@ O objeto `fixture` no widget `recent-results` quando `status=FT` expõe:
 
 Portanto `actual_corners_*`, `actual_sot_*`, `actual_cards_*` **permanecem NULL** após reconciliação. Essa limitação foi documentada na migration 0029.
 
+> ✏️ **CORRIGIDO em B19 (2026-05-28) — leia isto antes de agir sobre o que está acima.**
+> A premissa "o choistats não expõe esses campos" estava **errada**. Os actuals de
+> escanteios, cartões e finalizações **sempre estiveram lá**, no array
+> `recentHomeResults[0]` do widget `recent_results` — não no header, que foi o único
+> lugar inspecionado na época. Hoje são reconciliados por
+> `scripts/scraper/lib/scraper/ft_actuals.rb`, e as colunas `actual_*` são populadas
+> normalmente. Toda afirmação deste ADR sobre "DEFER total", "permanecem NULL" ou
+> "requerem fonte alternativa" está superada — inclusive a busca por fonte externa,
+> que virou a ADR-009 e foi **revertida e removida**. A regra que sobrou disso é B15/B19:
+> **antes de concluir que um dado é indisponível, inspecione o payload BRUTO inteiro da API.**
+> A decisão central do ADR (expandir para mercados secundários) segue válida e implementada.
+
 ---
 
 ## Decisão

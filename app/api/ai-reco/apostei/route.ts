@@ -298,8 +298,13 @@ export async function POST(request: Request): Promise<Response> {
   // ---------------------------------------------------------------------------
   // `place_bet` creates bet + bet_selections + transactions atomically. The
   // RPC does not know about ai_recommendation_id, so we patch it via UPDATE
-  // immediately after. The two-step is fine in MVP (single-user) — moving
-  // it into the RPC payload would require migration 0006 changes.
+  // immediately after. The two-step is acceptable because this route uses the
+  // cookie-backed server client, so RLS scopes the UPDATE to the caller's own
+  // bet — it is not a cross-user concern (the original note justified it with
+  // "single-user MVP", which stopped being true on 2026-07-30). The residual
+  // risk is a crash between the two steps leaving the link unset, which the
+  // catch below already treats as cosmetic. Folding it into the RPC payload
+  // would require changing migration 0006.
   const placeBetPayload = {
     house_id: parsed.houseId,
     kind: "single" as const,

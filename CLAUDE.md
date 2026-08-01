@@ -11,7 +11,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **Name:** Abissal
 - **Stack:** Next.js 16 (App Router, RSC, Server Actions) + TypeScript + React 19 + Tailwind v4 + Supabase (Postgres + Auth + RLS) + Cloudflare Workers (via OpenNext). Scraper Ruby 4.0.3 isolado em `scripts/scraper/`.
 - **Description:** Plataforma pessoal unificada com **dois domínios complementares**:
-  1. **Gestão de banca de apostas** (single-user no MVP, multi-tenant via RLS) — bets, transactions, houses, audit log, balance snapshots. Dashboard com qualidade financeira.
+  1. **Gestão de banca de apostas** (**multi-usuário desde 30/07** — ver seção abaixo; nasceu single-user no MVP, multi-tenant via RLS) — bets, transactions, houses, audit log, balance snapshots. Dashboard com qualidade financeira.
   2. **Análise pré-jogo de fixtures de futebol** (adam-stats domain) — scraper diário coleta fixtures via `api.choistats.com`, persiste em Postgres (retenção ~4 dias) e roda um pipeline pós-persist: simulação estatística (força-de-temporada + Dixon-Coles + Monte Carlo), reconciliação de resultados reais e o **recomendador IA-2** (`deepseek/deepseek-r1`) que sugere apostas com edge calculado. UI lista jogos do dia; ao clicar, mostra simulação + análise LLM em streaming (OpenRouter) + chat de follow-up. Calibração contínua (CLV/Brier/ROI) no painel `/calibracao`.
 - **Hospedagem:** `https://abissal.rnobre.dev` — Cloudflare Worker (OpenNext build do Next.js inteiro). Supabase free tier em região `sa-east-1`.
 - **Design system:** Abismo Habitado v1.0. Sempre numerais em `font-mono` com `tabular-nums` (`.num`). Headings em Fraunces 300 com tracking negativo. Vermelho Garantido (`--color-vermelho`) é identidade, não erro.
@@ -44,6 +44,13 @@ esquecido. Tabelas user-scoped: `bets`, `bet_selections`, `bet_slips`,
 - `disciplina_settings` existe só para uma conta; `checkDisciplinaLimits` falha
   **aberto** quando não há config — ou seja, uma conta nova nasce sem nenhum
   limite de disciplina.
+- **O kill switch de IA é COMPARTILHADO, não por-conta** (identificado 01/08).
+  `app_settings.ai_enabled` é global por design, e `setAiEnabledAction` só exige
+  que exista sessão — qualquer conta autenticada que abra `/configuracoes/ia`
+  desliga a IA **das duas**. Não é vazamento (nenhum dado cruza), e fica rastro
+  em `app_settings.updated_by`, mas "global" foi decidido quando global e
+  pessoal eram a mesma coisa. Decisão em aberto: manter compartilhado (é um
+  interruptor de custo, faz sentido ser do sistema) ou tornar por-usuário.
 - ~~`ui_telemetry` grava `user_id` nulo~~ — RESOLVIDO 30/07: a rota nunca
   resolvia a sessão. Agora carimba do cookie (nunca do corpo, que seria
   forjável); evento sem sessão segue válido com `user_id` nulo. `/admin/telemetry`
@@ -88,7 +95,7 @@ See the `xp-stack:akita-xp-rules` skill for the full ruleset.
 - TanStack Query + Zustand for client state; Zod + react-hook-form for forms
 - `lightweight-charts` + Recharts for charts; `@duckdb/duckdb-wasm` for client-side OLAP in `/explore`
 - Vitest (unit + API route handler tests) + Playwright (E2E)
-- Sentry (optional, DSN env-driven)
+- ~~Sentry~~ — **nunca foi integrado.** Não há `@sentry/*` no `package.json` nem nenhuma referência no código; as vars `SENTRY_DSN`/`NEXT_PUBLIC_SENTRY_DSN` são inertes. Observabilidade hoje = `llm_request_logs` + `ui_telemetry` + `/admin/telemetry`.
 
 **Scraper (Ruby):**
 - Ruby **4.0.3** + Bundler (managed via [mise](https://mise.jdx.dev))
@@ -127,6 +134,13 @@ OPENROUTER_MODEL=deepseek/deepseek-v3.2    # análise streaming (/api/analyze)
 AI_RECO_MODEL=deepseek/deepseek-r1         # recomendador IA-2 batch (cron noturno)
 AI_RECO_MODEL_ONDEMAND=deepseek/deepseek-r1 # botão "pedir análise IA" em /fixtures/[id]
 AI_RECO_CONCURRENCY=6                       # chamadas R1 concorrentes no batch (cron ai-reco). Vazio ⇒ default 6
+OPENROUTER_BASE_URL=                        # base alternativa (proxy/AI Gateway/mock E2E) — lib/bet-slip-ocr/gemini-vision.ts
+AI_RECO_BANKROLL=                           # banca p/ sizing do recomendador; vazio ⇒ DEFAULT_BANKROLL no código
+AI_RECO_BLEND_ALPHA=                        # peso do blending sim×mercado (0..1); override por liga é TODO v2
+
+# Disciplina — kill switches (default LIGADO; só "false" desliga)
+FRICAO_QUIET_MODE_ENABLED=                  # lib/disciplina/quiet-mode.ts
+FRICAO_THESIS_GATE_ENABLED=                 # lib/disciplina/thesis-gate.ts
 
 # Fixtures source
 ADAMCHOI_API_TOKEN=45834886-68b3-11eb-...  # token público/estático embutido na SPA choistats
@@ -135,7 +149,8 @@ ADAMCHOI_API_TOKEN=45834886-68b3-11eb-...  # token público/estático embutido n
 TELEGRAM_BOT_TOKEN=                        # via @BotFather
 TELEGRAM_CHAT_ID=                          # via @userinfobot
 
-# Sentry (optional)
+# Sentry — DECLARADO MAS NUNCA INTEGRADO (sem @sentry/* no package.json,
+# zero referências no código). Vars inertes; não adianta preencher.
 NEXT_PUBLIC_SENTRY_DSN=
 SENTRY_DSN=
 ```
@@ -167,6 +182,7 @@ abissal/
 │   ├── layout.tsx, globals.css
 │   ├── (auth)/login/                    # email+password login
 │   ├── (dashboard)/                     # banca + fixtures + análise
+│   │   ├── painel/                      # landing pós-login (rota raiz do dashboard)
 │   │   ├── banca/ bets/ transactions/ houses/ forecast/ explore/ audit/
 │   │   ├── bilhete/                     # bilhete múltipla / bet builder
 │   │   ├── fixtures/ [id]/              # listagem + análise (o dashboard de stats
@@ -192,18 +208,24 @@ abissal/
 │   ├── banca/ bets/ bet-slip/ bet-slip-ocr/ disciplina/  # domínio banca + OCR de bilhete
 │   ├── calibracao/  alerts/  telemetry/  telegram/
 │   └── (stats e duckdb OLAP servem /explore e /fixtures/[id]/stats)
-├── supabase/migrations/                 # 0001-0042 (ver "Data model")
+├── supabase/migrations/                 # 0001-0053 (ver "Data model")
 ├── scripts/
 │   ├── scraper/                         # sub-projeto Ruby 4.0.3 (Gemfile, mise.toml)
-│   │   ├── bin/{scrape, resimulate, run_ai_recommender, capture_closing_odds, document_choistats_api, reresolve_secondary_markets}
+│   │   ├── bin/{scrape, resimulate, run_ai_recommender, capture_closing_odds, document_choistats_api,
+│   │   │         reresolve_secondary_markets, backfill_pre_match_scans, dedupe_ai_recommendations, value_bets}
 │   │   ├── lib/scraper/                 # módulos Ruby (orchestrator, reconcilers, ft_actuals, sim engine…)
-│   │   └── spec/                        # ~565 RSpec examples
+│   │   └── spec/                        # ~770 RSpec examples (741 local — B54)
 │   ├── calibracao/                      # fit-league-parameters.ts, fit-isotonic.ts (cron semanal/domingo)
 │   ├── briefing/generate-daily.ts       # briefing matinal (cron ai-reco) → app_settings.daily_briefing
 │   ├── banca/generate-snapshots.ts      # snapshot diário de saldo (cron balance-snapshots-daily)
 │   ├── telegram/send-closure.ts         # resumo diário
-│   └── poc/
+│   ├── analysis/                        # value-bets-https.ts (fallback HTTPS quando 5432 bloqueia — B30)
+│   ├── backtest-ai-reco.ts              # backtest do recomendador
+│   ├── backtest-walk-forward.ts         # walk-forward sem leakage (origem da regra B24)
+│   └── brand/ perf/ sql/ poc/
 ├── tests/  (unit/ · api/ · integration/ · e2e/)  + co-located *.test.ts em lib/
+│   └── fixtures/detail-json/            # payloads REAIS versionados — mock inventado
+│                                        #   e bug convergem pra mesma ficção (B51)
 └── .github/workflows/
     ├── ci.yml                           # lint + typecheck + tests + next build
     ├── deploy.yml                       # opennextjs-cloudflare build + wrangler deploy
@@ -248,7 +270,8 @@ pnpm telegram:document-api       # regenera docs/external-apis/telegram/ (Bot AP
 cd scripts/scraper
 mise install                     # ruby 4.0.3 + node 22
 bundle install
-bundle exec rspec                # ~565 examples
+bundle exec rspec                # ~770 examples; local roda 741 (os de integração
+                                 #   pulam sem Postgres em :5433 — B54; no CI aborta)
 bundle exec bin/scrape           # one-off scrape (env DATABASE_URL required)
 bundle exec bin/capture_closing_odds        # captura closing odds (CLV)
 bundle exec bin/run_ai_recommender          # recomendador IA-2 desacoplado (cron ai-reco; ver B20-bis)
@@ -275,9 +298,9 @@ curl -X POST "https://api.supabase.com/v1/projects/etdrxzgspgslunivhrbe/database
 
 ## Data model
 
-> O índice abaixo é a referência viva. O schema canônico está em `supabase/migrations/` (0001-0042). Migrations são **append-only / históricas** — nunca editar uma aplicada; criar a próxima `NNNN_`.
+> O índice abaixo é a referência viva. O schema canônico está em `supabase/migrations/` (**0001-0053** — confira `ls supabase/migrations/` antes de criar a próxima, este número envelhece rápido). Migrations são **append-only / históricas** — nunca editar uma aplicada; criar a próxima `NNNN_`.
 
-### Banca (núcleo em `0001_init.sql`, evoluído em 0014/0027/0030/0032-0034/0039-0042)
+### Banca (núcleo em `0001_init.sql`, evoluído em 0014/0027/0030/0032-0034/0039-0042/0051/0053)
 
 `houses ← transactions (append-only) → bets ← bet_selections & bet_events`. `audit_log` captura toda mutação via trigger. `balance_snapshots` regenerados diariamente. Tabelas de referência: `sports`, `markets`. RLS user-scoped `auth.uid() = user_id`. Dinheiro: `numeric(14,2)`.
 
@@ -289,7 +312,7 @@ curl -X POST "https://api.supabase.com/v1/projects/etdrxzgspgslunivhrbe/database
 | RPCs `place_bet` / `resolve_bet` | Ledger transacional; lógica diferenciada pra free bet (ganho = `stake*(odds-1)`). |
 | Views `roi_by_house_view`, `roi_by_period_view` | ROI/yield/win-rate por casa e por mês+rolling-30d (`security_invoker`). |
 
-### Fixtures / análise (adam-stats domain — migrations 0007-0026, 0028-0029, 0031, 0035-0037)
+### Fixtures / análise (adam-stats domain — migrations 0007-0026, 0028-0029, 0031, 0035-0037, 0043-0049, 0052)
 
 Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-detail, sim, cache, calibração) vão via **service_role** (bypassa RLS); o front lê via `authenticated SELECT`.
 
@@ -298,11 +321,12 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 | `fixtures` | Uma linha por jogo. Retenção ~3-4 dias. Único em `(match_date, home_team, away_team)`. Escalares + `detail_json jsonb` (blob pesado — **nunca cruzar inteiro pro Worker**, ver B12/B14) + `kickoff_utc timestamptz` (instante UTC absoluto, corrige o bug cross-midnight BRT — A8). GIN `pg_trgm` em home/away pra fuzzy match de OCR (0037). | authenticated SELECT |
 | `analysis_cache` | **ÓRFÃ** — nunca foi fiada. O schema existe (chave `content_hash`, FK `fixtures(id) ON DELETE CASCADE`) e o `CLAUDE.md` chegou a listar um `lib/fixtures/analysis-cache.ts` que **não existe**; nenhuma rota lê ou grava. Tabela com 0 linhas. Vale ressuscitar: com p95 do LLM em 153s, reabrir o mesmo jogo hoje paga a análise inteira de novo. Enquanto não for fiada, é dead schema (migrations são append-only). | authenticated |
 | `league_baselines` | **ÓRFÃ** — aposentada 2026-07-29. Cadeia rompida de ponta a ponta: o produtor (`extract_trends`) só roda no caminho HTML/Playwright deprecated (A6), então `detail_json.trends` vinha `[]` em 12/12 fixtures, a tabela tinha **0 linhas** em prod e `fetch_for_league` nunca era chamado. O `recompute!` diário ainda fazia TRUNCATE + full scan de `detail_json` (~100 MB/dia) pra produzir zero linhas — removido do orchestrator. A pergunta que ela responderia ("taxa-base desta liga") tem resposta melhor em `lib/calibracao/market-accuracy.ts`, dos resultados REAIS reconciliados; o proxy via `streaks` errava até 14pp. Schema mantido (migrations são append-only). | — |
-| `fixture_simulations` | **Motor estatístico**: Poisson + Dixon-Coles + Monte Carlo 10k → escalares `p_*` + `sim_stats jsonb` (gols/BTTS/corners/cards/SOT por time/tempo — chave **`sot`**, nunca `shots_on_target`). Colunas `actual_*` populadas pelo reconciler **via choistats** (B19), `actual_data_source`, `model_version` (**v8** desde 29/07 — `SeasonAvgs`, ver B50). `model_version` entra na chave de dedup, então versões coexistem e o histórico sobrevive a bumps. | service_role |
+| `fixture_simulations` | **Motor estatístico**: Poisson + Dixon-Coles + Monte Carlo 10k → escalares `p_*` + `sim_stats jsonb` (gols/BTTS/corners/cards/SOT por time/tempo — chave **`sot`**, nunca `shots_on_target`). ⚠️ **`fixture_id` é o id do CHOISTATS** (~19,7M, parseado de `fixtures.source_url`), **não** `fixtures.id` (~31 mil) — não há FK, e o join no id errado devolve zero linhas em silêncio (B29). Colunas `actual_*` populadas pelo reconciler **via choistats** (B19), `actual_data_source`, `model_version` (**v8** desde 29/07 — `SeasonAvgs`, ver B50). `model_version` entra na chave de dedup, então versões coexistem e o histórico sobrevive a bumps. | service_role |
 | `ai_predictions` | Predição estruturada pré-jogo (winner+over) reconciliada (legado copilot, alimenta Brier). | service_role |
-| `ai_recommendations` | **Recomendador IA-2**: market/side/units/edge/kelly/reasoning/prob_estimated. Múltiplos mercados (1x2, over, btts, corners, cards, sot). | authenticated SELECT |
+| `ai_recommendations` | **Recomendador IA-2**: market/side/units/edge/kelly/reasoning/prob_estimated. Múltiplos mercados (1x2, over, btts, corners, cards, sot). ⚠️ `fixture_id` está no **mesmo id-space da sim** (id do choistats, não `fixtures.id`) — B29. | authenticated SELECT |
 | `ai_reco_feedback` | Feedback humano por reco (agree/disagree/apostei). | authenticated |
 | `model_calibration` | Curva isotônica pós-modelo por métrica (1x2/over25/btts). | service_role write |
+| `model_predictions` | **Arena champion-challenger** (migration 0049, ADR-011/B34/B35): uma predição por jogo × modelo × mercado, **forward-only** — contorna a retenção de 4 dias e é o store que destrava ML. Lida por `lib/calibracao/prediction-scoring.ts`, `scripts/calibracao/compare-models.ts` e `/calibracao`. Promoção de challenger é **humana e gated** (log-loss↓ E CLV-não-pior E reliability-não-pior), com bootstrap pareado deflacionado pelo nº de challengers. | authenticated SELECT · service_role write |
 | `league_parameters` | Parâmetros calibrados por liga (ρ Dixon-Coles, baselines de gols, K shrinkage). | service_role write |
 | `closing_odds` | Odds próximas ao KO pra CLV. Único `(fixture_id, market, side, source)` (0026). | authenticated SELECT |
 | `fixture_badges_view` | View SQL que computa badges/realce a partir de `detail_json` **dentro do Postgres** (escalar pro Worker — B14). | authenticated |
@@ -368,6 +392,8 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 
 9. **ADR-009 — Reconciler de actuals via API-Football** — _2026-05-26 REVERTED · 2026-05-28 REMOVED_ — Tentativa de buscar resultados FT (corners/cards/SOT) na API-Football. Revertida porque o free tier não cobre seasons 2025+; **removida por completo em 2026-05-28** (código, docs, workflow `api-football-snapshot`, GH secrets, key rotacionada — a chave havia vazado no histórico público). Substituída pela extração via choistats `recent_results` (B19). A migration `0036` e a tabela `actuals_fixture_mapping` permanecem como dead schema benigno (não removidas — migrations são append-only).
 
+11. **ADR-011 — Avaliação de modelos: arena champion-challenger em shadow** — _2026-06-03_ — ACCEPTED e implementado. Deep dive em `docs/adrs/011-avaliacao-modelos-champion-challenger.md`. Challengers rodam em **shadow** gravando em `model_predictions` (migration 0049, forward-only — contorna a retenção de 4 dias); promoção é **humana e gated** por três critérios simultâneos (log-loss↓ **E** CLV-não-pior **E** reliability-não-pior), com bootstrap pareado **deflacionado pelo nº de challengers** — a defesa explícita contra a [[walk-forward-bomb]] (B24). **Log-loss é o árbitro de modelo**; RPS é não-local e fraco em small-sample, só serve pra UI. A arena já provou seu valor falsificando uma premissa de paper: os cartões do projeto são **over-dispersos** (ν≈0.7), o oposto do que a literatura Big-5 dizia — ver B35, e a lição embutida de que grade de busca não pode embutir a premissa que se quer testar.
+
 ## Lessons learned
 
 > **Movidas para [`docs/lessons.md`](docs/lessons.md)** (eram >50% deste índice). Leia-as lá e **append nelas, nunca aqui** — `CLAUDE.md` é o hub. Regras críticas recorrentes que valem relembrar a cada sessão:
@@ -375,6 +401,7 @@ Dados de referência compartilhados entre usuários. Escritas (scraper, refresh-
 > - **IA/calibração:** refit isotônico é semanal/mecânico; **prompt/threshold/Kelly só mudam por EVIDÊNCIA, nunca por calendário** (B24, anti-[[walk-forward-bomb]]). Calibrar é o conserto, não hard-skip (B26).
 > - **Fiação:** ao "terminar" uma feature/reconciler/calibração, confirmar que está WIRED no caminho de produção principal — não só num secundário (B16/B25). Reconciler novo entra no pipeline no mesmo PR (B16).
 > - **Bump de `model_version`:** `fixture_simulations` é versionada por design (versões coexistem). Quem lê pra AGIR precisa de `DISTINCT ON (fixture_id)` — sem isso o bump duplica recos. E varrer os consumidores que filtram por versão: no vazio eles não falham, emitem **probabilidade crua** (B53).
+> - **Dois id-spaces, mesmo nome de coluna:** `fixture_simulations.fixture_id` e `ai_recommendations.fixture_id` guardam o id do **choistats** (~19,7M, de `source_url`); `fixture_badges_view.fixture_id` guarda o `fixtures.id` **interno** (~31 mil). Sempre `lib/fixtures/choistats-id.ts#parseChoistatsId` — fonte única, criada porque a lógica já esteve duplicada em 4 lugares. Join no id errado **não falha, retorna vazio** (B29).
 > - **Antes de concluir "indisponível" ou fechar método:** inspecionar o payload BRUTO inteiro da API (B15/B19). Validar payload real contra prod ANTES de deployar fix de outage (B12).
 
 ## Do not
