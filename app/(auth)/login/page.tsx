@@ -78,8 +78,8 @@ export default function LoginPage() {
       </form>
 
       <p className="mt-8 max-w-prose text-sm text-[var(--color-ink-muted)]">
-        Single-user. Cadastro fechado. Para criar acesso, gere usuário no
-        dashboard Supabase do projeto.
+        Cadastro fechado. Para criar acesso, gere usuário no dashboard Supabase
+        do projeto.
       </p>
     </main>
   );
