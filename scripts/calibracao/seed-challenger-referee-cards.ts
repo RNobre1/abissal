@@ -32,6 +32,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- script CLI: shapes dinâmicos do PostgREST/jsonb */
 
 import { readFileSync } from "node:fs";
+import { dedupeByConflictKey } from "@/lib/calibracao/dedupe-predictions";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { cmpLogLoss, cmpProb } from "@/lib/calibracao/cmp";
@@ -152,10 +153,12 @@ async function fetchSims(): Promise<SimRow[]> {
 }
 
 async function upsertRows(rows: any[]) {
-  for (let i = 0; i < rows.length; i += 500) {
+  // B53/B56: v7+v8 do mesmo jogo no mesmo batch estoura o ON CONFLICT.
+  const deduped = dedupeByConflictKey(rows);
+  for (let i = 0; i < deduped.length; i += 500) {
     const { error } = await sb
       .from("model_predictions")
-      .upsert(rows.slice(i, i + 500), { onConflict: "fixture_id,model_version,market" });
+      .upsert(deduped.slice(i, i + 500), { onConflict: "fixture_id,model_version,market" });
     if (error) {
       if (/relation|does not exist|42P01|model_predictions/.test(error.message)) {
         console.log("[challenger-ref-cards] migration 0049 ausente — exit 0.");

@@ -18,6 +18,7 @@
  */
 /* eslint-disable @typescript-eslint/no-explicit-any -- CLI: shapes dinâmicos do PostgREST */
 import { readFileSync } from "node:fs";
+import { dedupeByConflictKey } from "@/lib/calibracao/dedupe-predictions";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { cmpLogLoss } from "@/lib/calibracao/cmp";
@@ -122,8 +123,10 @@ async function fetchAll(): Promise<{ resolved: Resolved[]; upcoming: Upcoming[];
 }
 
 async function upsertRows(rows: any[]) {
-  for (let i = 0; i < rows.length; i += 500) {
-    const { error } = await sb.from("model_predictions").upsert(rows.slice(i, i + 500), { onConflict: "fixture_id,model_version,market" });
+  // B53/B56: v7+v8 do mesmo jogo no mesmo batch estoura o ON CONFLICT.
+  const deduped = dedupeByConflictKey(rows);
+  for (let i = 0; i < deduped.length; i += 500) {
+    const { error } = await sb.from("model_predictions").upsert(deduped.slice(i, i + 500), { onConflict: "fixture_id,model_version,market" });
     if (error) {
       if (/relation|does not exist|42P01|model_predictions/.test(error.message)) {
         console.error("[challenger-cards-cmp] migration 0049 ausente — exit 0."); process.exit(0);
