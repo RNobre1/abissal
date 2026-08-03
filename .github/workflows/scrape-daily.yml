@@ -17,8 +17,12 @@ jobs:
     runs-on: ubuntu-latest
     # IA-2 DESACOPLADA (Parte B — 2026-05-29, Lição B20): o recomendador R1 saiu
     # deste workflow pro ai-reco.yml. Sem a inferência LLM lenta, o scrape (coleta
-    # + sim + reconcilers + baseline) volta a terminar em ~10-15min. 20min dá folga.
-    timeout-minutes: 20
+    # + sim + reconcilers) termina em ~10-15min num dia normal. 35min (era 20):
+    # o fim de semana de 02-03/08 estourou 20min DOIS dias seguidos (volume de
+    # sábado ~194 fixtures) e o cancelamento matou a CAUDA do pipeline — os
+    # reconcilers nunca rodaram, zero jogos resolvidos no fim de semana e o v8
+    # perdeu o gate de temperature por 6 jogos (n=294 < 300).
+    timeout-minutes: 35
     defaults:
       run:
         working-directory: scripts/scraper
@@ -66,3 +70,24 @@ jobs:
         env:
           HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
         run: curl -fsS --retry 3 "${HEALTHCHECKS_URL}/fail" || true
+
+  # Lição B44: quando timeout-minutes estoura, o GitHub cancela o job INTEIRO e
+  # pula os steps de ping — mesmo os condicionais com cancelled(). O alerta de
+  # falha não pode viver dentro do job que ele monitora. Foi exatamente assim
+  # que os cancels de 02-03/08 passaram em silêncio.
+  notify-failure:
+    needs: scrape
+    if: always() && needs.scrape.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping healthchecks (fail — cobre timeout/cancelamento)
+        env:
+          HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
+          RESULT: ${{ needs.scrape.result }}
+        run: |
+          set -euo pipefail
+          echo "scrape terminou como: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${HEALTHCHECKS_URL:-}" ]; then
+            curl -fsS --retry 3 "${HEALTHCHECKS_URL}/fail" || true
+          fi
