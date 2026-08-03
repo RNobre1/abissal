@@ -62,3 +62,22 @@ jobs:
         env:
           HEALTHCHECKS_CLOSING_ODDS_URL: ${{ secrets.HEALTHCHECKS_CLOSING_ODDS_URL }}
         run: curl -fsS --retry 3 "${HEALTHCHECKS_CLOSING_ODDS_URL}/fail" || true
+
+  # Lição B44/B56: alerta de falha em job separado — ping dentro do job morre
+  # junto no cancelamento por timeout.
+  notify-failure:
+    needs: capture
+    if: always() && needs.capture.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping healthchecks (fail — cobre timeout/cancelamento)
+        env:
+          HEALTHCHECKS_CLOSING_ODDS_URL: ${{ secrets.HEALTHCHECKS_CLOSING_ODDS_URL }}
+          RESULT: ${{ needs.capture.result }}
+        run: |
+          set -euo pipefail
+          echo "capture terminou como: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${HEALTHCHECKS_CLOSING_ODDS_URL:-}" ]; then
+            curl -fsS --retry 3 "${HEALTHCHECKS_CLOSING_ODDS_URL}/fail" || true
+          fi

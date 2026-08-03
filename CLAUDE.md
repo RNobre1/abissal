@@ -276,6 +276,7 @@ bundle exec bin/scrape           # one-off scrape (env DATABASE_URL required)
 bundle exec bin/capture_closing_odds        # captura closing odds (CLV)
 bundle exec bin/run_ai_recommender          # recomendador IA-2 desacoplado (cron ai-reco; ver B20-bis)
 bundle exec bin/reresolve_secondary_markets # re-resolve corners/cards/sot (ver B19)
+bundle exec bin/run_reconcilers            # SÓ a fase de reconciliação (resgate B56; job reconcile-rescue)
 bundle exec bin/resimulate [--dry-run]      # re-simula o detail_json JÁ armazenado (sem tocar a API);
                                             #   use após bump de model_version (ver B50). --dry-run
                                             #   imprime o diagnóstico sem escrever.

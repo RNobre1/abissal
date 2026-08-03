@@ -1,0 +1,29 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require 'bundler/setup'
+require 'dotenv/load' if File.exist?(File.expand_path('../.env', __dir__))
+require_relative '../lib/scraper/reconciliation_job'
+
+if ARGV.include?('--help') || ARGV.include?('-h')
+  puts <<~USAGE
+    Usage: bin/run_reconcilers
+
+    Roda SÓ a fase de reconciliação (predições + simulações + recos IA),
+    sem coleta. Lição B56: quando o scrape morre por timeout, a cauda morre
+    junto e os jogos ficam sem actuals — este bin é o resgate, invocado pelo
+    job `reconcile-rescue` do scrape-daily.yml sempre que a coleta não
+    terminar `success`. Idempotente (reconcilers são upserts).
+
+    Env vars:
+      DATABASE_URL   Postgres connection string (required)
+
+    Exit codes:
+      0 sempre (cada reconciler é isolado; falha vira log, não exit≠0)
+  USAGE
+  exit 0
+end
+
+logger = ->(m) { puts m }
+AdamStats::Scraper::ReconciliationJob.new(logger: logger).run
+exit 0

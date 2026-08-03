@@ -124,3 +124,23 @@ jobs:
           NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: pnpm exec tsx scripts/briefing/generate-daily.ts
+
+  # Lição B44/B56: o ping de fail dentro do próprio job morre junto quando o
+  # timeout-minutes cancela o job (foi assim que os cancels do scrape em
+  # 02-03/08 passaram em silêncio). O alerta vive num job separado.
+  notify-failure:
+    needs: ai-reco
+    if: always() && needs.ai-reco.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping healthchecks (fail — cobre timeout/cancelamento)
+        env:
+          HEALTHCHECKS_AI_RECO_URL: ${{ secrets.HEALTHCHECKS_AI_RECO_URL }}
+          RESULT: ${{ needs.ai-reco.result }}
+        run: |
+          set -euo pipefail
+          echo "ai-reco terminou como: $RESULT" >> "$GITHUB_STEP_SUMMARY"
+          if [ -n "${HEALTHCHECKS_AI_RECO_URL:-}" ]; then
+            curl -fsS --retry 3 "${HEALTHCHECKS_AI_RECO_URL}/fail" || true
+          fi

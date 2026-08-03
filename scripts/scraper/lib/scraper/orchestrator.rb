@@ -12,6 +12,7 @@ require_relative 'playwright_session'
 require_relative 'prediction_reconciler'
 require_relative 'simulation_reconciler'
 require_relative 'ai_recommendation_reconciler'
+require_relative 'reconciliation_job'
 require_relative 'simulation/runner'
 require_relative 'simulation/league_calibration'
 require_relative 'uk_time_helper'
@@ -412,37 +413,14 @@ module AdamStats
           stats = Stats.new(inserted: 0, updated: 0, failed: 0)
         end
 
-        # Reconcilia predições pendentes pré-purga: busca placar final via choistats
-        # e atualiza ai_predictions. Rescue isolado: falha não derruba o pipeline.
-        begin
-          recon_stats = PredictionReconciler.new(logger: logger).run
-          logger.call("[scrape] reconciler: #{recon_stats.inspect}")
-        rescue StandardError => e
-          logger.call("[scrape] reconciler failed (non-fatal): #{e.class}: #{e.message}")
-        end
-
-        # Reconcilia simulações pré-jogo pendentes pré-purga: busca placar final
-        # via choistats e atualiza fixture_simulations (idêntico em ergonomia ao
-        # PredictionReconciler — Lição #18 reconciler é OBRIGATÓRIO no pipeline,
-        # senão o histórico fica permanentemente pending e calibração quebra).
-        begin
-          sim_recon_stats = SimulationReconciler.new(logger: logger).run
-          logger.call("[scrape] sim-reconciler: #{sim_recon_stats.inspect}")
-        rescue StandardError => e
-          logger.call("[scrape] sim-reconciler failed (non-fatal): #{e.class}: #{e.message}")
-        end
-
-        # Reconcilia recomendações IA (ai_recommendations) pendentes pré-purga:
-        # busca placar final via choistats e calcula bet_won + pl_units por
-        # mercado/lado. Idêntico em ergonomia ao SimulationReconciler — Lição #18
-        # reconciler é OBRIGATÓRIO no pipeline, senão histórico fica permanente
-        # pending e métricas de ROI quebram.
-        begin
-          ai_reco_recon_stats = AiRecommendationReconciler.new(logger: logger).run
-          logger.call("[scrape] ai-reco-reconciler: #{ai_reco_recon_stats.inspect}")
-        rescue StandardError => e
-          logger.call("[scrape] ai-reco-reconciler failed (non-fatal): #{e.class}: #{e.message}")
-        end
+        # Reconciliação pré-purga (predições + sims + recos IA) — fase extraída
+        # pra ReconciliationJob (Lição B56): a MESMA unidade roda aqui no
+        # caminho normal e no job de resgate `reconcile-rescue` do workflow
+        # quando a coleta morre por timeout. Cada reconciler segue isolado
+        # (falha vira log, nunca derruba o pipeline) — Lição #18: reconciler é
+        # OBRIGATÓRIO, senão o histórico fica permanentemente pending e
+        # calibração/ROI quebram.
+        ReconciliationJob.new(logger: logger).run
 
         deleted = repo.purge_older_than(retention_days)
         # O recompute de `league_baselines` foi REMOVIDO em 2026-07-29. A cadeia

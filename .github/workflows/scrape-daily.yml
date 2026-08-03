@@ -71,6 +71,47 @@ jobs:
           HEALTHCHECKS_URL: ${{ secrets.HEALTHCHECKS_URL }}
         run: curl -fsS --retry 3 "${HEALTHCHECKS_URL}/fail" || true
 
+  # Lição B56: a reconciliação não pode morrer junto com a coleta. Quando o
+  # scrape estoura o timeout, a coleta/sims já persistidas ficam no banco mas
+  # os reconcilers da cauda nunca rodam (02-03/08: fim de semana inteiro sem
+  # actuals; v8 perdeu o gate de temperature por 6 jogos). Este job roda SÓ a
+  # fase de reconciliação (bin/run_reconcilers → ReconciliationJob, a MESMA
+  # unidade que o orchestrator usa) sempre que a coleta não terminar success.
+  # Idempotente — reconcilers são upserts sobre o que JÁ está persistido.
+  reconcile-rescue:
+    needs: scrape
+    if: always() && needs.scrape.result != 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: scripts/scraper
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install mise (ruby 4.0.3 + node 22)
+        uses: jdx/mise-action@v2
+        with:
+          working_directory: scripts/scraper
+
+      - name: cache bundle
+        uses: actions/cache@v4
+        with:
+          path: scripts/scraper/vendor/bundle
+          key: ${{ runner.os }}-gems-${{ hashFiles('scripts/scraper/Gemfile.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-gems-
+
+      - name: bundle install
+        run: |
+          bundle config set --local path 'vendor/bundle'
+          bundle install --jobs 4 --retry 3
+
+      - name: run reconcilers (resgate)
+        env:
+          DATABASE_URL: ${{ secrets.SCRAPER_DATABASE_URL }}
+        run: bundle exec bin/run_reconcilers
+
   # Lição B44: quando timeout-minutes estoura, o GitHub cancela o job INTEIRO e
   # pula os steps de ping — mesmo os condicionais com cancelled(). O alerta de
   # falha não pode viver dentro do job que ele monitora. Foi exatamente assim

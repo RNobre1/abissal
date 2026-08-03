@@ -1091,7 +1091,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       expect { described_class.run(**deps) }.not_to raise_error
 
       # Logger registers a non-fatal message mentioning the reconciler.
-      expect(logged.any? { |m| m.match?(/sim-reconciler/i) && m.include?('non-fatal') }).to be(true)
+      expect(logged.any? { |m| m.include?('SimulationReconciler') && m.include?('failed (isolado)') }).to be(true)
     end
   end
 
@@ -1145,7 +1145,7 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       expect(deps[:healthcheck]).to receive(:ping_success)
       expect { described_class.run(**deps) }.not_to raise_error
 
-      expect(logged.any? { |m| m.match?(/ai-reco-reconciler/i) && m.include?('non-fatal') }).to be(true)
+      expect(logged.any? { |m| m.include?('AiRecommendationReconciler') && m.include?('failed (isolado)') }).to be(true)
     end
   end
 
