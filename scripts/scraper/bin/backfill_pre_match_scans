@@ -56,6 +56,7 @@ SELECT_FIXTURES_SQL = <<~SQL.freeze
     f.home_team,
     f.away_team,
     f.kickoff_utc,
+    f.league,
     f.detail_json
   FROM fixtures f
   WHERE f.detail_json IS NOT NULL
@@ -94,7 +95,9 @@ AdamStats::Scraper::DB.with_connection do |conn|
       next
     end
 
-    sim = AdamStats::Scraper::Simulation::Runner.simulate(detail)
+    # `league:` explícito — a chave nunca existiu no detail_json (fiação
+    # consertada em 07/08; sem ela toda fixture cai no NEUTRAL_BASELINE).
+    sim = AdamStats::Scraper::Simulation::Runner.simulate(detail, league: row['league'])
     if sim.nil? || sim[:status] == 'unsimulable'
       warn "[backfill] #{label}: unsimulable — pulando"
       skipped += 1

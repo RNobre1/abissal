@@ -81,8 +81,12 @@ zero_before = 0
 zero_after = 0
 unsim_after = 0
 ok_after = 0
-details.each_value do |d|
-  sim = AdamStats::Scraper::Simulation::Runner.simulate(d, n: 400)
+# `league:` vem da Fixture — a chave nunca existiu no detail_json, e sem ela o
+# diagnóstico usaria um baseline diferente do que a escrita (via SimulationHook)
+# de fato aplica.
+liga_por_source = fixtures.to_h { |fx| [fx.source_url, fx.league] }
+details.each do |source_url, d|
+  sim = AdamStats::Scraper::Simulation::Runner.simulate(d, n: 400, league: liga_por_source[source_url])
   if sim[:status] == 'unsimulable'
     unsim_after += 1
     next

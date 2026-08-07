@@ -21,7 +21,14 @@ module AdamStats
         # temporada nova) passa a derivar de `recent_matches` em vez de projetar
         # ZERO. Bump obrigatório: as sims v7 gravadas com projeção degenerada não
         # podem se misturar às novas na calibração.
-        MODEL_VERSION = 'sim-v1-poisson-dc-nb-mc10k-v8'.freeze
+        # v9 (2026-08-07): DOIS bugs de fiação consertados juntos — o `avgs`
+        # reconstruído pelo SeasonAvgs agora chega em `Rates.lambdas` (antes só
+        # o gate o via, e λ colapsava no baseline neutro em 343 de 355 sims com
+        # prior genérico), e a `league` passou a vir de quem chama (a chave
+        # nunca existiu no detail_json, então as 29 ligas calibradas jamais
+        # influenciaram uma simulação). Bump obrigatório: as probabilidades do
+        # v8 não são comparáveis com as novas.
+        MODEL_VERSION = 'sim-v1-poisson-dc-nb-mc10k-v9'.freeze
         DEFAULT_N = 10_000
         # Baseline-day fallback threshold (POC: < 6 teams ⇒ noisy day slice).
         MIN_TEAMS_FOR_DAY_BASELINE = 6
@@ -52,7 +59,7 @@ module AdamStats
 
         module_function
 
-        def simulate(detail_json, n: DEFAULT_N, calibration: {}, use_xg_proxy: false)
+        def simulate(detail_json, n: DEFAULT_N, calibration: {}, use_xg_proxy: false, league: nil)
           d = detail_json
           return unsimulable unless d.is_a?(Hash)
 
@@ -63,12 +70,33 @@ module AdamStats
           avgs = SeasonAvgs.fill(fetch(d, 'avgs'), fetch(d, 'recent_matches'))
           return unsimulable unless usable_avgs?(avgs)
 
-          league = (fetch(d, 'league') || '').to_s
-          league_avgs = league_baseline(league, calibration)
-          lambdas = Rates.lambdas(d, league_avgs, use_xg_proxy: use_xg_proxy)
+          # ⚠️ FIAÇÃO (2026-08-07): o `avgs` reconstruído precisa chegar em TODO
+          # consumidor, não só no guard acima. Até aqui, `Rates.lambdas` recebia
+          # o detail ORIGINAL e relia `detail['avgs']` por conta própria — o
+          # bloco cru zerado de novo. Com `num_matches: 0` o shrinkage vai a
+          # zero (w=0) e λ colapsa no baseline neutro cravado, produzindo o
+          # vetor `0.4424/0.2809/0.2767` jogo após jogo: 343 das 355 sims com
+          # prior genérico em prod. `build_secondary` sempre recebeu o
+          # preenchido — é por isso que o v8 consertou escanteios e não mexeu em
+          # 1x2/over/BTTS.
+          #
+          # A chave string tem precedência no `dig` do Rates, então o merge
+          # cobre também detail com chaves symbol.
+          d_com_avgs = d.merge('avgs' => avgs)
+
+          # A liga vem de QUEM CHAMA, não do detail_json: a chave `league` nunca
+          # existiu nele (0 de 1.104 fixtures em prod), então `fetch(d,'league')`
+          # devolvia '' sempre e toda fixture caía no NEUTRAL_BASELINE — as 29
+          # ligas de `league_parameters`, refitadas todo domingo, nunca
+          # influenciaram nenhuma simulação. O orchestrator e o resimulate têm a
+          # liga na `Fixture`/na linha do banco. O fallback ao detail fica por
+          # retrocompatibilidade de quem já passava a chave à mão.
+          league_name = (league || fetch(d, 'league') || '').to_s
+          league_avgs = league_baseline(league_name, calibration)
+          lambdas = Rates.lambdas(d_com_avgs, league_avgs, use_xg_proxy: use_xg_proxy)
           return unsimulable if lambdas.nil?
 
-          rho = rho_for(league, calibration)
+          rho = rho_for(league_name, calibration)
           per_half = per_half_available?(avgs)
           secondary = build_secondary(avgs, d, per_half)
           players = build_players(d)

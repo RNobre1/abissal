@@ -5,8 +5,12 @@ module AdamStats
   module Scraper
     module Simulation
       RSpec.describe 'F12 — fouls/offsides/tackles' do
-        it 'MODEL_VERSION refletindo bump v8' do
-          expect(Runner::MODEL_VERSION).to eq('sim-v1-poisson-dc-nb-mc10k-v8')
+        # Trava proposital: este teste QUEBRA a cada bump, e é para isso que ele
+        # existe. Versionar `fixture_simulations` faz versões coexistirem e
+        # muda a chave de dedup (B53) — não pode acontecer por descuido. Ao vê-lo
+        # vermelho, confirme que o bump era intencional antes de atualizar.
+        it 'MODEL_VERSION refletindo bump v9 (fiação SeasonAvgs + league)' do
+          expect(Runner::MODEL_VERSION).to eq('sim-v1-poisson-dc-nb-mc10k-v9')
         end
 
         let(:detail) do
