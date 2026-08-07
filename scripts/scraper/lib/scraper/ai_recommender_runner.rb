@@ -808,6 +808,26 @@ module AdamStats
           )
         end
 
+        # O par existe em `all_candidates`, mas NÃO estava entre os que o
+        # threshold aprovou — logo nunca foi oferecido ao LLM. O guard acima só
+        # pega par inexistente; sem este, a escolha "plausível mas não
+        # oferecida" era gravada como aposta com o edge real, que pode ser
+        # NEGATIVO. Aconteceu uma vez em prod (reco 1506, over25 @ −20,46%,
+        # `forced=false`, RED) e escapava de todo filtro de calibração, já que
+        # `forced` era a única flag que marcava bypass de threshold.
+        if d[:verdict] == 'bet' && chosen && chosen[:edge_pct].to_f < EDGE_THRESHOLD
+          @logger.call(
+            "[ai-reco] fixture #{row['fixture_id']}: LLM escolheu #{d[:market]}/#{d[:side]} " \
+            "com edge #{chosen[:edge_pct]}% < #{EDGE_THRESHOLD}% (não estava no prompt) — rebaixado pra skip"
+          )
+          d = d.merge(
+            verdict: 'skip',
+            units_final: 0,
+            kelly_pre: nil,
+            reduction_reason: 'llm_below_threshold'
+          )
+        end
+
         # Sanity guard pos-IA: segunda camada defensiva (pre-filter ja
         # bloqueia o top, mas chosen != top em casos raros).
         d = apply_sanity_guard(d, chosen, league_calibrated)

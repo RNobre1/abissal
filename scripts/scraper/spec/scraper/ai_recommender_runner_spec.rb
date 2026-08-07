@@ -638,6 +638,50 @@ module AdamStats::Scraper
         captured
       end
 
+      # Reco 1506 em prod (The Strongest × Aurora, 31/07): over25/over com edge
+      # **−20,46%**, `verdict='bet'`, `forced=false`, resolvida RED. Única com
+      # edge negativo em 284 bets.
+      #
+      # A cadeia: o threshold filtra `bet_candidates` e só ELES vão no prompt,
+      # mas o casamento da escolha do LLM procura em `all_candidates` — a lista
+      # completa, sem filtro. A guarda `chosen.nil?` logo abaixo foi escrita
+      # para pegar par INEXISTENTE; ela não pega par existente-mas-reprovado. O
+      # `apply_sanity_guard` também não salva: só barra edge ACIMA de 50%.
+      #
+      # Ou seja: a defesa contra alucinação falha justamente quando a
+      # alucinação é plausível — `over25/over` é o mercado mais óbvio que um
+      # modelo poderia inventar.
+      context 'LLM escolhe candidato que existe mas NÃO passou o threshold' do
+        let(:candidates) do
+          [
+            { market: 'corners-under', side: '85', odd: 2.0, edge_pct: 12.0,
+              prob_calibrated: 0.6, kelly_units: 0.5 },
+            # reprovado no threshold — nunca foi oferecido ao LLM
+            { market: 'over25', side: 'over', odd: 1.37, edge_pct: -20.46,
+              prob_calibrated: 0.397, kelly_units: 0.0 }
+          ]
+        end
+
+        it 'rebaixa pra skip em vez de gravar aposta com edge negativo' do
+          p = persist({ verdict: 'bet', market: 'over25', side: 'over',
+                        units_final: 0.05, confidence: 'medio', summary_line: 's', reasoning: 'r' })
+          expect(p[11]).to eq('skip')
+          expect(p[20]).to eq('llm_below_threshold')
+        end
+
+        it 'não grava unidades para a aposta rebaixada' do
+          p = persist({ verdict: 'bet', market: 'over25', side: 'over',
+                        units_final: 0.05, confidence: 'medio', summary_line: 's', reasoning: 'r' })
+          expect(p[18]).to eq(0)
+        end
+
+        it 'o candidato que PASSOU o threshold segue virando bet normalmente' do
+          p = persist({ verdict: 'bet', market: 'corners-under', side: '85',
+                        units_final: 0.5, confidence: 'alto', summary_line: 's', reasoning: 'r' })
+          expect(p[11]).to eq('bet')
+        end
+      end
+
       it 'rebaixa pra skip quando o side não existe nos candidates' do
         p = persist({ verdict: 'bet', market: 'corners-under', side: '95',
                       units_final: 1.0, confidence: 'alto', summary_line: 's', reasoning: 'r' })
