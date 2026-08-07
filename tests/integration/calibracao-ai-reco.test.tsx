@@ -53,6 +53,13 @@ function makeBuilder<T>(getRows: () => T[], failMsg: string | null) {
   builder.limit = () => ({
     then: (cb: (v: unknown) => unknown) => resolve().then(cb),
   });
+  // `.range()` — usado por `fetchAllPages` (ticket T4) no lugar de `.limit()`
+  // fixo. Ignora `from`/`to` como o resto do builder ignora seus argumentos:
+  // devolve sempre `getRows()` inteiro, o que basta pra `fetchAllPages` parar
+  // na primeira página (o array de teste é sempre menor que o pageSize).
+  builder.range = () => ({
+    then: (cb: (v: unknown) => unknown) => resolve().then(cb),
+  });
   // Permite `await builder` direto (sem .limit) — útil quando a página
   // termina a cadeia em .order. Não usa PromiseLike<T> para evitar drift
   // de tipos com onfulfilled/onrejected opcionais.

@@ -15,6 +15,7 @@
  * Spec: docs/superpowers/specs/2026-05-24-ai-recomendador-design.md §8
  */
 import { createAdminClient } from "@/lib/supabase/admin";
+import { fetchAllPages } from "@/lib/supabase/paginated-fetch";
 
 export const dynamic = "force-dynamic";
 
@@ -77,17 +78,23 @@ export default async function LlmObservabilityPage() {
   }
 
   // Recos resolvidas (todas) — para enriquecer ROI por prompt_version.
+  // Paginado: `.limit(10000)` batia no teto do PostgREST (1000) e devolvia
+  // só as ~1000 mais recentes por ordem default, enviesando o ROI por
+  // prompt_version pras versões mais novas. Payload é leve (7 colunas
+  // escalares, ~1.5k linhas reais ≈ 190 KB) — seguro paginar até o fim.
   let recos: AiRecoRowLite[] = [];
   let recosError: string | null = null;
   try {
-    const { data, error } = await admin
-      .from("ai_recommendations")
-      .select("id, status, verdict, prompt_version, pl_units, bet_won, units_final")
-      .eq("status", "resolved")
-      .limit(10000);
-    if (error)
-      throw new Error(error.message ?? "failed to fetch ai_recommendations");
-    recos = (data ?? []) as AiRecoRowLite[];
+    recos = await fetchAllPages<AiRecoRowLite>((from, to) =>
+      admin
+        .from("ai_recommendations")
+        .select("id, status, verdict, prompt_version, pl_units, bet_won, units_final")
+        .eq("status", "resolved")
+        // Desempate por `id`: sem ordem TOTAL, `.range()` pode repetir ou pular
+        // linhas entre páginas.
+        .order("id", { ascending: false })
+        .range(from, to),
+    );
   } catch (err) {
     recosError = err instanceof Error ? err.message : "erro desconhecido";
   }

@@ -29,6 +29,7 @@ import {
   sotCrps,
   type ResolvedSimRowSecondary,
 } from "@/lib/calibracao/sim-reliability";
+import { POSTGREST_MAX_ROWS } from "@/lib/supabase/paginated-fetch";
 import { NextResponse } from "next/server";
 
 // Always fresh — calibration changes after each scrape+reconcile run.
@@ -78,6 +79,16 @@ export async function GET(): Promise<NextResponse> {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const client = supabase as unknown as { from: (t: string) => any };
 
+    // NÃO paginamos além do teto do PostgREST aqui de propósito (ticket T4).
+    // Esta query inclui `sim_stats` — jsonb por linha, não o `detail_json`
+    // banido (B12/B14/B21), mas ainda assim ~0,5-1,1 KB/linha com percentis
+    // por time/tempo/métrica. Nas ~4.895 simulações resolvidas em prod isso
+    // é ~5-6 MB só nesta query, dentro do MESMO Worker que já caiu duas
+    // vezes por payload pesado. `.limit(5000)` era mentira (o PostgREST já
+    // cortava em 1000) — trocado por `POSTGREST_MAX_ROWS` explícito: mesmo
+    // resultado, mas documentado como escolha, não acidente. 1000 resolvidas
+    // já passa o piso de ~300 pra Brier/CRPS estabilizar (CLAUDE.md), então
+    // não há ganho estatístico proporcional ao risco de paginar até o fim.
     const { data, error } = await client
       .from("fixture_simulations")
       .select(
@@ -89,7 +100,7 @@ export async function GET(): Promise<NextResponse> {
       )
       .eq("status", "resolved")
       .order("actual_resolved_at", { ascending: false })
-      .limit(5000);
+      .limit(POSTGREST_MAX_ROWS);
 
     if (error) {
       console.error("[secondary-metrics] query failed:", error);

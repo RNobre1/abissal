@@ -48,6 +48,14 @@ function buildAiOrSimBuilder(which: "ai" | "sim") {
       data: which === "ai" ? [] : state.simRows,
       error: null,
     });
+  // `.range()` — usado por `fetchAllPages` (ticket T4) no lugar de `.limit()`
+  // fixo pra `fixture_simulations`. Ignora `from`/`to`, mesmo padrão do
+  // resto do builder.
+  b.range = () =>
+    Promise.resolve({
+      data: which === "ai" ? [] : state.simRows,
+      error: null,
+    });
   return b;
 }
 

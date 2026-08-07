@@ -9,6 +9,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { fitIsotonic } from "@/lib/calibracao/isotonic";
+import { fetchAllPages } from "@/lib/supabase/paginated-fetch";
+import { heldOutGate, assertCronologico } from "@/lib/calibracao/held-out-gate";
 import {
   SECONDARY_MARKETS,
   secondaryMetricKey,
@@ -32,6 +34,7 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SR, {
 
 interface ResolvedRow extends SecondaryActuals {
   model_version: string | null;
+  actual_resolved_at: string | null;
   p_home: number | null;
   p_draw: number | null;
   p_away: number | null;
@@ -91,109 +94,52 @@ function predFor(metric: Metric, r: ResolvedRow): number | null {
   }
 }
 
-/**
- * Gate out-of-sample: a curva só é persistida se BATER o raw em dado que não
- * viu. Decide por MAIORIA sobre vários cortes temporais.
- *
- * Por que maioria e não um split só: as diferenças de log-loss aqui são da
- * ordem de 0.002–0.015, que é a mesma ordem do ruído amostral. Medido em
- * 29/07, um único corte 70/30 invertia o veredito de over25 e btts conforme a
- * fatia usada — decisão instável vira coin flip com aparência de rigor. Com 5
- * cortes, o padrão fica consistente (T venceu 14 dos 20 testes; a isotônica
- * sozinha, 1).
- */
-const GATE_CUTS = [0.5, 0.6, 0.7, 0.8, 0.85];
-
-function heldOutGate(pairs: Array<[number, number]>): {
-  keep: boolean;
-  raw: number;
-  curved: number;
-  nTest: number;
-} {
-  const votes = GATE_CUTS.map((f) => singleCutGate(pairs, f)).filter((v) => v !== null) as Array<{
-    keep: boolean;
-    raw: number;
-    curved: number;
-    nTest: number;
-  }>;
-  if (votes.length === 0) {
-    // Sem amostra pra dividir: conservador — sem evidência, não calibra.
-    return { keep: false, raw: NaN, curved: NaN, nTest: 0 };
-  }
-  const keeps = votes.filter((v) => v.keep).length;
-  return {
-    keep: keeps > votes.length / 2,
-    raw: votes.reduce((a, v) => a + v.raw, 0) / votes.length,
-    curved: votes.reduce((a, v) => a + v.curved, 0) / votes.length,
-    nTest: Math.round(votes.reduce((a, v) => a + v.nTest, 0) / votes.length),
-  };
-}
-
-function singleCutGate(
-  pairs: Array<[number, number]>,
-  frac: number,
-): { keep: boolean; raw: number; curved: number; nTest: number } | null {
-  const MIN_TEST = 50;
-  const cut = Math.floor(pairs.length * frac);
-  const train = pairs.slice(0, cut);
-  const test = pairs.slice(cut);
-  if (test.length < MIN_TEST || train.length < MIN_TEST) return null;
-
-  const curve = fitIsotonic(train);
-  const clamp = (p: number) => Math.min(Math.max(p, 0.01), 0.99);
-  const ll = (get: (p: number) => number) =>
-    -test.reduce((acc, [p, o]) => {
-      const q = clamp(get(p));
-      return acc + (o * Math.log(q) + (1 - o) * Math.log(1 - q));
-    }, 0) / test.length;
-
-  const lookup = (p: number): number => {
-    if (p <= curve[0][0]) return curve[0][1];
-    if (p >= curve[curve.length - 1][0]) return curve[curve.length - 1][1];
-    let lo = 0;
-    let hi = curve.length - 1;
-    while (lo < hi) {
-      const mid = Math.ceil((lo + hi) / 2);
-      if (curve[mid][0] <= p) lo = mid;
-      else hi = mid - 1;
-    }
-    return curve[lo][1];
-  };
-
-  const raw = ll((p) => p);
-  const curved = ll(lookup);
-  return { keep: curved < raw, raw, curved, nTest: test.length };
-}
+// Gate out-of-sample: `heldOutGate`/`assertCronologico` vêm de
+// `lib/calibracao/held-out-gate.ts` (compartilhado com `fit-dist.ts`) — exige
+// amostra em ordem cronológica ASCENDENTE (mais antigo primeiro), porque o
+// treino é o PREFIXO do array. Ver o cabeçalho do módulo para o porquê.
 
 async function main() {
-  // 1. fetch resolved sims
+  // 1. fetch resolved sims — paginado: o PostgREST corta em POSTGREST_MAX_ROWS
+  // (1.000) por resposta, qualquer que seja o .limit() pedido (ticket T1).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const c = supabase as unknown as { from: (t: string) => any };
-  const { data, error } = await c
-    .from("fixture_simulations")
-    .select([
-      "model_version",
-      "p_home", "p_draw", "p_away", "p_over_25", "p_btts",
-      "actual_home_goals", "actual_away_goals", "actual_btts",
-      // Secondary markets actuals
-      "actual_corners_home", "actual_corners_away",
-      "actual_cards_home", "actual_cards_away",
-      "actual_sot_home", "actual_sot_away",
-      // sim_stats for p50 means
-      "sim_stats",
-    ].join(", "))
-    .eq("status", "resolved")
-    .order("actual_resolved_at", { ascending: false })
-    .limit(5000);
-  if (error) {
+  const SELECT_COLUMNS = [
+    "model_version",
+    "actual_resolved_at",
+    "p_home", "p_draw", "p_away", "p_over_25", "p_btts",
+    "actual_home_goals", "actual_away_goals", "actual_btts",
+    // Secondary markets actuals
+    "actual_corners_home", "actual_corners_away",
+    "actual_cards_home", "actual_cards_away",
+    "actual_sot_home", "actual_sot_away",
+    // sim_stats for p50 means
+    "sim_stats",
+  ].join(", ");
+  let rows: ResolvedRow[];
+  try {
+    // ASCENDENTE (mais antigo primeiro) — o gate treina no PREFIXO do array
+    // e testa no restante; DESC treinaria no futuro e testaria no passado.
+    rows = await fetchAllPages<ResolvedRow>((from, to) =>
+      c
+        .from("fixture_simulations")
+        .select(SELECT_COLUMNS)
+        .eq("status", "resolved")
+        .order("actual_resolved_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (error) {
     console.error("query failed:", error);
     process.exit(1);
   }
-  const rows = (data ?? []) as ResolvedRow[];
   if (rows.length === 0) {
     console.error("no resolved sims; aborting fit");
     process.exit(0);
   }
+  // Guarda em runtime: a ordem vem da query e o gate não consegue inferi-la —
+  // uma ordem errada precisa falhar alto, não produzir veredito plausível.
+  assertCronologico(rows, (r) => r.actual_resolved_at);
   // Agrupar por model_version
   const byVersion = new Map<string, ResolvedRow[]>();
   for (const r of rows) {
@@ -202,6 +148,12 @@ async function main() {
     list.push(r);
     byVersion.set(r.model_version, list);
   }
+  console.log(
+    `[paginacao] ${rows.length} linhas lidas no total; por model_version: ` +
+      Array.from(byVersion.entries())
+        .map(([version, rowsV]) => `${version}=${rowsV.length}`)
+        .join(", "),
+  );
 
   const metrics: Metric[] = [
     "1x2-home",
@@ -229,14 +181,17 @@ async function main() {
 
       // GATE OUT-OF-SAMPLE (29/07). Sem isto, uma curva overfitada é
       // persistida e passa a ser aplicada em produção mesmo sendo PIOR que
-      // não calibrar nada. Foi o que aconteceu: medido em held-out temporal
+      // não calibrar nada. Foi o que aconteceu: medido num corte único
       // 70/30 (n_test=865), as curvas ativas de over25 e btts estavam piores
       // que o raw (over25 .6944 vs .6925; btts .6984 vs .6970), exatamente o
       // overfit que a lição B34 previa abaixo de ~500 pontos.
       //
-      // Agora a curva só é persistida se BATER o raw em dado que ela não viu.
-      // Quando não bate, a curva ativa é aposentada e o mercado passa a
-      // depender só do temperature scaling — que é validado out-of-sample.
+      // A curva só é persistida se BATER o raw em dado que ela não viu, por
+      // MAIORIA de vários cortes (`lib/calibracao/held-out-gate.ts`) — e a
+      // amostra tem que estar em ordem cronológica ascendente, garantida
+      // acima por `assertCronologico`. Quando não bate, a curva ativa é
+      // aposentada e o mercado passa a depender só do temperature scaling —
+      // que é validado out-of-sample.
       const gate = heldOutGate(pairs);
       if (!gate.keep) {
         console.log(

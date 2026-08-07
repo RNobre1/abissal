@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerClient } from "@/lib/supabase/server";
 import { authedUserId } from "@/lib/supabase/auth";
+import { fetchAllPages } from "@/lib/supabase/paginated-fetch";
 import {
   hitRate,
   calibrationBuckets,
@@ -262,16 +263,27 @@ export default async function CalibracaoPage() {
     }
 
     // Top 5 ligas por volume de recos resolvidas (agrupamento em memória —
-    // Supabase não suporta GROUP BY nativo no SDK sem RPC)
+    // Supabase não suporta GROUP BY nativo no SDK sem RPC). Paginado: um
+    // único `.limit(2000)` batia no teto do PostgREST (1000) e a top-5
+    // saía enviesada pras ligas favorecidas pela ordenação default. Payload
+    // é leve (1 coluna, ~1.9k linhas ≈ 85 KB) — seguro paginar até o fim.
     try {
-      const { data } = await admin
-        .from("ai_recommendations")
-        .select("league")
-        .eq("status", "resolved")
-        .not("league", "is", null)
-        .limit(2000);
+      const data = await fetchAllPages<{ league: string }>(
+        (from, to) =>
+          admin
+            .from("ai_recommendations")
+            .select("league")
+            .eq("status", "resolved")
+            .not("league", "is", null)
+            // Desempate por `id`: sem uma ordem TOTAL, `.range()` pode repetir
+            // ou pular linhas entre páginas — o Postgres não garante ordem
+            // estável quando o critério empata.
+            .order("id", { ascending: false })
+            .range(from, to),
+        { maxRows: 2000 },
+      );
       const counts = new Map<string, number>();
-      for (const r of (data ?? []) as { league: string }[]) {
+      for (const r of data) {
         if (r.league) counts.set(r.league, (counts.get(r.league) ?? 0) + 1);
       }
       topLeagues = Array.from(counts.entries())
@@ -304,27 +316,38 @@ export default async function CalibracaoPage() {
   // Tabela SEPARADA: fixture_simulations. Leitura escalar-only (sem
   // detail_json) — mesmo padrão Supabase admin acima. Não conflaciona com
   // ai_predictions. Degrada para [] em qualquer falha.
+  //
+  // Paginado até o `.limit(2000)` já pedido pelo código (`maxRows`): o
+  // PostgREST capava em 1000 e essa tabela tem ~4.9k linhas resolvidas —
+  // paginar até completar as 4.9k custaria ~1.7 MB só aqui, cumulativo com
+  // as outras 3 queries desta página; honrar o teto de 2000 já declarado
+  // (~700 KB) fecha o bug de truncamento silencioso sem esticar o payload
+  // do Worker além do que o código já pedia (B12/B14/B21).
   let simRows: SimRow[] = [];
   let simQueryError: string | null = null;
   try {
-    const { data, error } = await admin
-      .from("fixture_simulations")
-      .select(
-        "id, status, league, model_version, p_home, p_draw, p_away, p_over_25, market_anchor, correct_winner, correct_over_under, actual_home_goals, actual_away_goals, actual_resolved_at",
-      )
-      // Order by `status DESC` first so RESOLVED rows (the only ones that
-      // contribute to Brier/reliability/market-deviation) come before the
-      // PENDING majority. Without this, a fixed `.limit(N)` on
-      // `created_at DESC` only sees the freshest pending batch (typical
-      // when a re-sim just ran) and Brier/charts go empty even though
-      // resolved rows exist in the table.
-      .order("status", { ascending: false })
-      .order("actual_resolved_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    if (error)
-      throw new Error(error.message ?? "failed to fetch fixture_simulations");
-    simRows = (data ?? []) as SimRow[];
+    const data = await fetchAllPages<SimRow>(
+      (from, to) =>
+        admin
+          .from("fixture_simulations")
+          .select(
+            "id, status, league, model_version, p_home, p_draw, p_away, p_over_25, market_anchor, correct_winner, correct_over_under, actual_home_goals, actual_away_goals, actual_resolved_at",
+          )
+          // Order by `status DESC` first so RESOLVED rows (the only ones that
+          // contribute to Brier/reliability/market-deviation) come before the
+          // PENDING majority. Without this, a fixed `.limit(N)` on
+          // `created_at DESC` only sees the freshest pending batch (typical
+          // when a re-sim just ran) and Brier/charts go empty even though
+          // resolved rows exist in the table.
+          .order("status", { ascending: false })
+          .order("actual_resolved_at", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false })
+          // Desempate por `id` — ver nota acima sobre ordem total.
+          .order("id", { ascending: false })
+          .range(from, to),
+      { maxRows: 2000 },
+    );
+    simRows = data;
   } catch (err) {
     simQueryError = err instanceof Error ? err.message : "erro desconhecido";
   }
@@ -422,19 +445,25 @@ export default async function CalibracaoPage() {
   // ── Wave 5: IA Recommendations (migration 0022). Leitura escalar-only
   // (sem edge_table_snapshot, sem reasoning_full) — Lição B12. Degrada
   // graciosamente: a página continua renderizando outras seções.
+  //
+  // Paginado até o `.limit(2000)` já declarado (~1.9k linhas reais ≈ 660 KB
+  // — cabe inteiro; o teto só protege contra crescimento futuro).
   let aiRecoRows: AiRecoRow[] = [];
   let aiRecoQueryError: string | null = null;
   try {
-    const { data, error } = await admin
-      .from("ai_recommendations")
-      .select(
-        "id, league, market, side, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units, forced",
-      )
-      .order("created_at", { ascending: false })
-      .limit(2000);
-    if (error)
-      throw new Error(error.message ?? "failed to fetch ai_recommendations");
-    aiRecoRows = (data ?? []) as AiRecoRow[];
+    aiRecoRows = await fetchAllPages<AiRecoRow>(
+      (from, to) =>
+        admin
+          .from("ai_recommendations")
+          .select(
+            "id, league, market, side, status, verdict, confidence, prob_estimated, prob_calibrated, units_final, bet_won, pl_units, forced",
+          )
+          .order("created_at", { ascending: false })
+          // Desempate por `id` — ver nota acima sobre ordem total.
+          .order("id", { ascending: false })
+          .range(from, to),
+      { maxRows: 2000 },
+    );
   } catch (err) {
     aiRecoQueryError = err instanceof Error ? err.message : "erro desconhecido";
   }
@@ -631,39 +660,45 @@ export default async function CalibracaoPage() {
   // ── CLV tracking (tarefa A1): JOIN ai_recommendations × closing_odds.
   // Lê só escalares — odd_captured (taken), league, e o JOIN traz odd_close.
   // Filtra `verdict='bet'` no SQL pra não trazer skips inúteis.
+  //
+  // Paginado até o `.limit(2000)` já declarado (~1.1k linhas reais — cabe
+  // inteiro mesmo com o JOIN embutido).
+  type RawClv = {
+    fixture_id: number | null;
+    market: string;
+    side: string;
+    odd_close: number | string;
+    ai_recommendation_id: number | null;
+    ai_recommendations:
+      | {
+          id: number;
+          league: string | null;
+          market: string | null;
+          side: string | null;
+          odd_captured: number | string | null;
+          verdict: string;
+        }
+      | null;
+  };
   let clvSamples: ClvSample[] = [];
   let clvQueryError: string | null = null;
   try {
-    const { data, error } = await admin
-      .from("closing_odds")
-      .select(
-        "fixture_id, market, side, odd_close, ai_recommendation_id, ai_recommendations(id, league, market, side, odd_captured, verdict)",
-      )
-      .eq("source", "choistats")
-      .limit(2000);
-    if (error)
-      throw new Error(error.message ?? "failed to fetch closing_odds");
     // PostgREST devolve a relação como objeto único (FK nullable). Filtra
     // linhas órfãs (reco deletada) e mantém só verdict='bet' com odd_captured
     // não-nulo — único cenário válido pra CLV.
-    type RawClv = {
-      fixture_id: number | null;
-      market: string;
-      side: string;
-      odd_close: number | string;
-      ai_recommendation_id: number | null;
-      ai_recommendations:
-        | {
-            id: number;
-            league: string | null;
-            market: string | null;
-            side: string | null;
-            odd_captured: number | string | null;
-            verdict: string;
-          }
-        | null;
-    };
-    const raw = (data ?? []) as unknown as RawClv[];
+    const raw = await fetchAllPages<RawClv>(
+      (from, to) =>
+        admin
+          .from("closing_odds")
+          .select(
+            "fixture_id, market, side, odd_close, ai_recommendation_id, ai_recommendations(id, league, market, side, odd_captured, verdict)",
+          )
+          .eq("source", "choistats")
+          // Desempate por `id` — ver nota acima sobre ordem total.
+          .order("id", { ascending: false })
+          .range(from, to),
+      { maxRows: 2000 },
+    );
     clvSamples = raw.flatMap((r): ClvSample[] => {
       const reco = r.ai_recommendations;
       if (!reco) return [];

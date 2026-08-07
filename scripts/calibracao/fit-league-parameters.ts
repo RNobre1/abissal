@@ -18,6 +18,7 @@ import {
   type LeagueParams,
   type ResolvedSample,
 } from "@/lib/calibracao/league-params";
+import { fetchAllPages } from "@/lib/supabase/paginated-fetch";
 
 const URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SR = process.env.SUPABASE_SERVICE_ROLE_KEY;
@@ -59,16 +60,24 @@ interface ResolvedRow {
 }
 
 async function main() {
-  const { data, error } = await sb
-    .from("fixture_simulations")
-    .select("league, actual_home_goals, actual_away_goals")
-    .eq("status", "resolved")
-    .limit(50000);
-  if (error) {
+  // Paginado: sem .order() algum antes, a ordem do PostgREST não era garantida
+  // entre páginas — .order("id") é o desempate mínimo pra paginação estável
+  // (ticket T1).
+  let rows: ResolvedRow[];
+  try {
+    rows = await fetchAllPages<ResolvedRow>((from, to) =>
+      sb
+        .from("fixture_simulations")
+        .select("league, actual_home_goals, actual_away_goals")
+        .eq("status", "resolved")
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (error) {
     console.error("query failed:", error);
     process.exit(1);
   }
-  const samples: ResolvedSample[] = ((data ?? []) as ResolvedRow[])
+  const samples: ResolvedSample[] = rows
     .filter(
       (r) =>
         r.league && r.actual_home_goals != null && r.actual_away_goals != null,

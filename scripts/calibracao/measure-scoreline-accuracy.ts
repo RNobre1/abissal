@@ -13,6 +13,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import { scorelineAccuracy, type ScorelineSample } from "@/lib/calibracao/scoreline-accuracy";
+import { fetchAllPages } from "@/lib/supabase/paginated-fetch";
 
 function ensureEnv() {
   if (process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY) return;
@@ -37,21 +38,31 @@ function asArray(v: any): Array<{ score: string; prob: number }> {
 }
 
 async function main() {
-  const { data, error } = await sb
-    .from("fixture_simulations")
-    .select(
-      "model_version, top_scorelines, p_home, p_draw, p_away, actual_home_goals, actual_away_goals",
-    )
-    .eq("status", "resolved")
-    .not("actual_home_goals", "is", null)
-    .order("actual_resolved_at", { ascending: false })
-    .limit(2000);
-
-  if (error) {
+  // Script local (tsx), não roda no Worker CF — sem o risco de payload do
+  // B12/B14/B21. Paginado até o fim: `.limit(2000)` batia no teto do
+  // PostgREST (1000) e media acurácia de placar sobre metade da amostra real
+  // (~4,9k simulações resolvidas), o que muda o resultado nas ligas com
+  // menos volume.
+  let rows: any[];
+  try {
+    rows = await fetchAllPages<any>((from, to) =>
+      sb
+        .from("fixture_simulations")
+        .select(
+          "model_version, top_scorelines, p_home, p_draw, p_away, actual_home_goals, actual_away_goals",
+        )
+        .eq("status", "resolved")
+        .not("actual_home_goals", "is", null)
+        .order("actual_resolved_at", { ascending: false })
+        // Desempate por `id`: sem ordem TOTAL, `.range()` pode repetir ou pular
+        // linhas entre páginas.
+        .order("id", { ascending: false })
+        .range(from, to),
+    );
+  } catch (error) {
     console.error("query failed:", error);
     process.exit(1);
   }
-  const rows = (data ?? []) as any[];
 
   // Agrupa por model_version (relata cada uma; o foco é a v7 ativa).
   const byV = new Map<string, ScorelineSample[]>();

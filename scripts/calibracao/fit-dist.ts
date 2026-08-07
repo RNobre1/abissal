@@ -18,6 +18,8 @@
  */
 import { createClient } from "@supabase/supabase-js";
 import { fitDistK } from "@/lib/calibracao/dist-fit";
+import { fetchAllPages } from "@/lib/supabase/paginated-fetch";
+import { assertCronologico } from "@/lib/calibracao/held-out-gate";
 import {
   secondaryMeanFromSimStats,
   type SecondaryStat,
@@ -40,6 +42,7 @@ const MIN_SAMPLES = 30; // gate B24 (mesmo da isotônica)
 
 interface ResolvedRow {
   model_version: string | null;
+  actual_resolved_at: string | null;
   actual_corners_home: number | null;
   actual_corners_away: number | null;
   actual_cards_home: number | null;
@@ -60,31 +63,39 @@ function actualTotal(r: ResolvedRow, stat: SecondaryStat): number | null {
 async function main() {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const c = supabase as unknown as { from: (t: string) => any };
-  const { data, error } = await c
-    .from("fixture_simulations")
-    .select(
-      [
-        "model_version",
-        "actual_corners_home", "actual_corners_away",
-        "actual_cards_home", "actual_cards_away",
-        "actual_sot_home", "actual_sot_away",
-        "sim_stats",
-      ].join(", "),
-    )
-    .eq("status", "resolved")
-    .not("actual_resolved_at", "is", null)
-    .order("actual_resolved_at", { ascending: false })
-    .limit(5000);
-
-  if (error) {
+  const SELECT_COLUMNS = [
+    "model_version",
+    "actual_resolved_at",
+    "actual_corners_home", "actual_corners_away",
+    "actual_cards_home", "actual_cards_away",
+    "actual_sot_home", "actual_sot_away",
+    "sim_stats",
+  ].join(", ");
+  let rows: ResolvedRow[];
+  try {
+    // ASCENDENTE (mais antigo primeiro) — mesma convenção do fit-isotonic:
+    // qualquer split treino/teste futuro sobre esta amostra tem que treinar
+    // no passado e testar no futuro, não o contrário.
+    rows = await fetchAllPages<ResolvedRow>((from, to) =>
+      c
+        .from("fixture_simulations")
+        .select(SELECT_COLUMNS)
+        .eq("status", "resolved")
+        .not("actual_resolved_at", "is", null)
+        .order("actual_resolved_at", { ascending: true })
+        .order("id", { ascending: true })
+        .range(from, to),
+    );
+  } catch (error) {
     console.error("query failed:", error);
     process.exit(1);
   }
-  const rows = (data ?? []) as ResolvedRow[];
   if (rows.length === 0) {
     console.error("no resolved sims; aborting dist fit");
     process.exit(0);
   }
+  // Guarda em runtime: ver `lib/calibracao/held-out-gate.ts`.
+  assertCronologico(rows, (r) => r.actual_resolved_at);
 
   // Agrupar por model_version (mesma convenção do fit-isotonic).
   const byVersion = new Map<string, ResolvedRow[]>();
