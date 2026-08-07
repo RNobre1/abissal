@@ -15,6 +15,7 @@ require_relative 'ai_recommendation_reconciler'
 require_relative 'reconciliation_job'
 require_relative 'simulation/runner'
 require_relative 'simulation/league_calibration'
+require_relative 'placeholder_guard'
 require_relative 'uk_time_helper'
 
 module AdamStats
@@ -181,6 +182,7 @@ module AdamStats
 
         simulated = 0
         skipped = 0
+        blocked = Hash.new(0)
 
         AdamStats::Scraper::DB.with_connection do |conn|
           # F4a — carrega calibração por-liga UMA vez no início do scrape (1
@@ -195,6 +197,29 @@ module AdamStats
             next if fixture.nil?
 
             begin
+              # Gate de identidade (2026-08-07) — ANTES de tudo, inclusive do
+              # pre-check. Fixture cujo TIME a fonte ainda não definiu não é
+              # simulável: a sim devolveria o prior genérico, que entraria em
+              # Brier/isotônica/arena como previsão — e já virou aposta real
+              # (`TBC x Salzburg → draw 0,06u @4,20`, RED). Barrar é fail-CLOSED
+              # de propósito: aqui o silêncio é mais barato que o número
+              # inventado (o inverso do rescue fail-open logo abaixo).
+              #
+              # Horário placeholder é DIAGNOSTICADO mas não bloqueia — 87% do
+              # que ele barraria simula bem, e o relógio não entra no cálculo de
+              # λ. Ver PlaceholderGuard::BLOCKING_REASONS.
+              gate = PlaceholderGuard.reason(fixture)
+              if gate
+                blocked[gate] += 1
+                if PlaceholderGuard::BLOCKING_REASONS.include?(gate)
+                  logger.call(
+                    "[scrape] simulation gated (#{gate}): #{fixture.home_team} x " \
+                    "#{fixture.away_team} [#{fixture.league}] #{source_url}"
+                  )
+                  next
+                end
+              end
+
               # Pre-check incremental barato (1 SELECT index-backed) ANTES da
               # MC cara. fail-open: se o SELECT da pré-checagem falhar para
               # ESTA fixture, simula mesmo assim (um erro transitório nunca
@@ -204,7 +229,13 @@ module AdamStats
                 next
               end
 
-              sim = Simulation::Runner.simulate(detail, calibration: calibration)
+              # `league:` explícito — a chave nunca existiu no detail_json, e sem
+              # ela o Runner cai no NEUTRAL_BASELINE para toda fixture (as 29
+              # ligas de `league_parameters` nunca foram usadas). Quem tem a
+              # liga é a Fixture.
+              sim = Simulation::Runner.simulate(
+                detail, calibration: calibration, league: fixture.league
+              )
               next if sim.nil? || sim[:status] == 'unsimulable'
 
               params = build_params(fixture, sim)
@@ -222,7 +253,13 @@ module AdamStats
             end
           end
         end
-        logger.call("[scrape] simulation hook: #{simulated} simulated, #{skipped} skipped (incremental pre-check)")
+        gated = blocked.select { |k, _| PlaceholderGuard::BLOCKING_REASONS.include?(k) }.values.sum
+        flagged = blocked.values.sum - gated
+        detail = blocked.empty? ? '' : " (#{blocked.sort.map { |k, v| "#{k}=#{v}" }.join(' ')})"
+        logger.call(
+          "[scrape] simulation hook: #{simulated} simulated, #{skipped} skipped " \
+          "(incremental pre-check), #{gated} gated, #{flagged} flagged#{detail}"
+        )
       rescue StandardError => e
         # Falha global do hook (ex.: DB indisponível) — non-fatal, igual ao
         # reconciler/baseline. O scrape em si já persistiu as fixtures.

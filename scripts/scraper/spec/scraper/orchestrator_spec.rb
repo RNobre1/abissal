@@ -697,6 +697,125 @@ RSpec.describe AdamStats::Scraper::Orchestrator do
       described_class.run([fixture], {}, logger: ->(_) {})
     end
 
+    # A `league` NUNCA existiu no detail_json (0 de 1.104 fixtures em prod), e o
+    # Runner caía no NEUTRAL_BASELINE para todo mundo — as 29 ligas calibradas
+    # jamais influenciaram uma simulação. Quem tem a liga é o hook, pela
+    # Fixture. Sem este teste o conserto do Runner fica INERTE, que é
+    # exatamente a classe de defeito das lições B16/B25.
+    it 'passa a liga da fixture ao Runner (o detail_json não a tem)' do
+      conn = double('conn')
+      allow(conn).to receive(:exec_params).with(/SELECT/i, anything).and_return([])
+      allow(conn).to receive(:exec_params).with(/DELETE|INSERT/i, anything)
+      allow(conn).to receive(:query).with(/league_parameters/i).and_return([])
+      allow(conn).to receive(:transaction) { |&blk| blk.call }
+      allow(AdamStats::Scraper::DB).to receive(:with_connection).and_yield(conn)
+
+      liga_recebida = :nao_passou
+      allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate) do |_detail, **kw|
+        liga_recebida = kw[:league]
+        { status: 'pending', model_version: 'v', p_home: 0.5, p_draw: 0.3, p_away: 0.2,
+          p_btts: 0.5, p_over_25: 0.5, top_scorelines: [], sim_stats: {},
+          per_half_available: false, market_anchor: {}, player_events: [] }
+      end
+
+      described_class.run([fixture], { fixture.source_url => { 'x' => 1 } }, logger: ->(_) {})
+
+      expect(liga_recebida).to eq(fixture.league)
+    end
+
+    # Gate de identidade placeholder (2026-08-07). Fixture cujo time ou horário
+    # ainda não existe na fonte NÃO pode ser simulada: a sim devolveria o prior
+    # genérico e ele entraria em Brier/isotônica/arena como se fosse previsão.
+    # O gate roda ANTES do pre-check e do Runner — nem o SELECT barato paga.
+    context 'gate de identidade placeholder' do
+      let(:tbc_fixture) do
+        AdamStats::Scraper::Fixture.new(
+          match_date: Date.new(2026, 8, 6), ko_time: '01:00',
+          home_team: 'TBC', away_team: 'Salzburg', league: 'Europa League',
+          source_url: '/fixture/19766399/europa-league-tbc-vs-salzburg', country: 'Europe'
+        )
+      end
+
+      def stub_conn
+        conn = double('conn')
+        allow(conn).to receive(:exec_params).with(/SELECT/i, anything).and_return([])
+        allow(conn).to receive(:exec_params).with(/DELETE|INSERT/i, anything)
+        allow(conn).to receive(:query).with(/league_parameters/i).and_return([])
+        allow(conn).to receive(:transaction) { |&blk| blk.call }
+        allow(AdamStats::Scraper::DB).to receive(:with_connection).and_yield(conn)
+        conn
+      end
+
+      let(:sim_ok) do
+        { status: 'pending', model_version: 'v', p_home: 0.5, p_draw: 0.3, p_away: 0.2,
+          p_btts: 0.5, p_over_25: 0.5, top_scorelines: [], sim_stats: {},
+          per_half_available: false, market_anchor: {}, player_events: [] }
+      end
+
+      it 'não simula nem grava a fixture com time placeholder' do
+        conn = stub_conn
+        allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate).and_return(sim_ok)
+
+        described_class.run(
+          [tbc_fixture], { tbc_fixture.source_url => { 'x' => 1 } }, logger: ->(_) {}
+        )
+
+        expect(AdamStats::Scraper::Simulation::Runner).not_to have_received(:simulate)
+        expect(conn).not_to have_received(:exec_params).with(/DELETE|INSERT/i, anything)
+      end
+
+      it 'barra a fixture placeholder e deixa a fixture legítima seguir' do
+        conn = stub_conn
+        simulados = []
+        allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate) do |detail|
+          simulados << detail
+          sim_ok
+        end
+
+        described_class.run(
+          [tbc_fixture, fixture],
+          { tbc_fixture.source_url => { 'tbc' => true }, fixture.source_url => { 'ok' => true } },
+          logger: ->(_) {}
+        )
+
+        expect(simulados).to eq([{ 'ok' => true }])
+        expect(conn).to have_received(:exec_params).with(/INSERT/i, anything).once
+      end
+
+      # 87% do que o gate de horário barraria é simulação legítima (medido em
+      # 07/08). O horário não entra no cálculo de λ — ele importa para a captura
+      # de closing odds, não para simular. Barrar aqui custaria 5,3% do pipeline
+      # por dia para evitar um único prior genérico.
+      it 'simula normalmente a fixture com horário placeholder e time real' do
+        conn = stub_conn
+        allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate).and_return(sim_ok)
+        hora_falsa = AdamStats::Scraper::Fixture.new(
+          match_date: Date.new(2026, 8, 6), ko_time: '01:00',
+          home_team: 'Talleres Córdoba', away_team: 'Lanús', league: 'Superliga',
+          source_url: '/fixture/19766300/superliga-talleres-vs-lanus', country: 'Argentina'
+        )
+
+        described_class.run(
+          [hora_falsa], { hora_falsa.source_url => { 'ok' => true } }, logger: ->(_) {}
+        )
+
+        expect(AdamStats::Scraper::Simulation::Runner).to have_received(:simulate).once
+        expect(conn).to have_received(:exec_params).with(/INSERT/i, anything).once
+      end
+
+      it 'registra no log o motivo de cada fixture barrada' do
+        stub_conn
+        allow(AdamStats::Scraper::Simulation::Runner).to receive(:simulate).and_return(sim_ok)
+        logged = []
+
+        described_class.run(
+          [tbc_fixture], { tbc_fixture.source_url => { 'x' => 1 } }, logger: ->(m) { logged << m }
+        )
+
+        expect(logged.any? { |m| m.include?('team_placeholder') }).to be(true)
+      end
+    end
+
     # F5: contrato literal das SQLs do hook — ambas devem filtrar por
     # model_version (= $5). Travamento estático evita regressão silenciosa
     # (se alguém remover o predicado, smoke real-DB ainda passaria por sorte
